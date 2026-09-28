@@ -1,0 +1,22 @@
+:root { color-scheme: light; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; }
+.auth { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.card { background: #fff; padding: 24px; border-radius: 12px; display: grid; gap: 12px; width: min(420px, 100%); box-shadow: 0 8px 30px #0001; }
+.card label { display: grid; gap: 6px; font-size: 14px; }
+.card input { padding: 10px; font-size: 16px; }
+.card button { padding: 12px; font-size: 16px; }
+.captcha { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+.muted { color: #666; font-size: 14px; }
+.error { color: #b00020; }
+.due { background: #fff8e1; border: 1px solid #f9a825; padding: 10px 14px; border-radius: 8px; font-weight: 600; }
+.dash { padding: 24px; max-width: 900px; margin: 0 auto; }
+.dash header { display: flex; justify-content: space-between; align-items: center; }
+.menu { display: grid; gap: 12px; margin-top: 16px; }
+.group { background: #fff; padding: 12px 16px; border-radius: 8px; }
+.group summary { font-weight: 600; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+.card h2 { margin: 0 0 4px; font-size: 18px; }
+.group ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+.semrow { display: flex; gap: 8px; align-items: center; margin: 12px 0; font-size: 14px; }
+.semrow select { padding: 6px 8px; font-size: 14px; }
