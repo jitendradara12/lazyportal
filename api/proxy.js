@@ -101,11 +101,14 @@ export default async function handler(req, res) {
   res.status(upstream.status);
   res.setHeader("content-type", upstream.contentType ?? "application/json");
   if (upstream.setCookies?.length) {
-    // Relay session cookies; strip Domain so the browser stores them
-    // host-only for this app (a portal-domain cookie would be rejected).
+    // Relay session cookies; strip Domain (portal-domain cookie would be
+    // rejected) and reset Path to / (portal paths like /StudentPortalAPI
+    // would never match our /api/* routes, so the browser would not resend).
     res.setHeader(
       "set-cookie",
-      upstream.setCookies.map((c) => c.replace(/;\s*[Dd]omain=[^;]*/g, ""))
+      upstream.setCookies.map((c) =>
+        c.replace(/;\s*[Dd]omain=[^;]*/g, "").replace(/;\s*[Pp]ath=[^;]*/g, "; Path=/")
+      )
     );
   }
   res.send(upstream.text);
