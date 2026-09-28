@@ -13,11 +13,7 @@ export const client = createClient({
   baseUrl: BASE_URL,
   getToken: () => store.load()?.token ?? "",
   onUnauthorized: async () => {
-    try {
-      localStorage.setItem("juet.portal.expired", "1");
-    } catch {
-      /* storage blocked: login just shows the plain form */
-    }
+    session.markSessionExpired();
     store.clear();
   },
 });

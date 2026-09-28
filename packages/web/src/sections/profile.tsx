@@ -21,6 +21,16 @@ export function ProfileSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
+  const bank = useFeature<unknown>({
+    run: () => features.getBankInfo(client, session),
+    deps: [session],
+    onUnauthorized: onLogout,
+  });
+  const photo = useFeature<unknown>({
+    run: () => features.getPhotoWindow(client, session),
+    deps: [session],
+    onUnauthorized: onLogout,
+  });
 
   const scalars = personalScalars(personal.data?.general ?? null);
   const loading = personal.loading || medical.loading || disciplinary.loading;
@@ -62,6 +72,21 @@ export function ProfileSection({ session, onLogout }: SectionProps) {
         <p className="muted">No disciplinary records.</p>
       )}
       {disciplinary.error && <SectionError label="Disciplinary" error={disciplinary.error} retry={disciplinary.retry} />}
+      {(bank.data != null || bank.error) && (
+        <>
+          <h3>Bank (refunds)</h3>
+          {bank.data != null && <UnknownData data={bank.data} />}
+          {bank.error && <SectionError label="Bank info" error={bank.error} retry={bank.retry} />}
+        </>
+      )}
+      {(photo.data != null || photo.error) && (
+        <>
+          <h3>Photo upload</h3>
+          {photo.data != null && typeof photo.data !== "object" && <p className="muted">{String(photo.data)}</p>}
+          {photo.data != null && typeof photo.data === "object" && <UnknownData data={photo.data} />}
+          {photo.error && <SectionError label="Photo window" error={photo.error} retry={photo.retry} />}
+        </>
+      )}
     </section>
   );
 }

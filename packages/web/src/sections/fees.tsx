@@ -1,7 +1,7 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
-import { SectionError, num } from "../components/DataViews";
+import { AutoTable, SectionError, num } from "../components/DataViews";
 import type { SectionProps } from "../types";
 
 interface PayslipRow {
@@ -32,6 +32,11 @@ export function FeesSection({ session, onLogout }: SectionProps) {
 
   const due = fee.data ? fee.data.reduce((a, r) => a + num(r.dueamount), 0) : null;
   const totals = payslip.data && payslip.data.length > 0 ? payslipTotals(payslip.data) : [];
+  const events = useFeature<Record<string, unknown>[]>({
+    run: () => features.getFeeEvents(client, session),
+    deps: [session],
+    onUnauthorized: onLogout,
+  });
   return (
     <section className="card" id="fees">
       <h2>Fees</h2>
@@ -47,6 +52,13 @@ export function FeesSection({ session, onLogout }: SectionProps) {
       )}
       {fee.error && <SectionError label="Fee summary" error={fee.error} retry={fee.retry} />}
       {payslip.error && <SectionError label="Payslip dues" error={payslip.error} retry={payslip.retry} />}
+      {events.data && events.data.length > 0 && (
+        <>
+          <h3>Active fee events</h3>
+          <AutoTable rows={events.data} />
+        </>
+      )}
+      {events.error && <SectionError label="Fee events" error={events.error} retry={events.retry} />}
     </section>
   );
 }

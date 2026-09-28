@@ -46,6 +46,31 @@ function safeStorage() {
   }
 }
 
+const EXPIRED_KEY = "juet.portal.expired";
+
+/** Remember that the last logout was a server-side expiry (LoginPage shows a notice). */
+export function markSessionExpired() {
+  try {
+    safeStorage()?.setItem(EXPIRED_KEY, "1");
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/** Read + clear the expiry flag. */
+export function consumeSessionExpired() {
+  try {
+    const s = safeStorage();
+    if (s?.getItem(EXPIRED_KEY) === "1") {
+      s.removeItem(EXPIRED_KEY);
+      return true;
+    }
+  } catch {
+    /* storage blocked */
+  }
+  return false;
+}
+
 /**
  * Browser adapter. Never clears unrelated keys (unlike official app).
  * Storage is resolved lazily per call with in-memory fallback, so module

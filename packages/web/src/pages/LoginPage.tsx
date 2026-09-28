@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { auth } from "@juet/core";
+import { auth, session } from "@juet/core";
 import { client } from "../lib/portal";
 import type { Captcha, Session } from "../types";
 
@@ -25,14 +25,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     }
   };
   useEffect(() => {
-    try {
-      if (localStorage.getItem("juet.portal.expired") === "1") {
-        localStorage.removeItem("juet.portal.expired");
-        setExpired(true);
-      }
-    } catch {
-      /* storage blocked: plain form */
-    }
+    if (session.consumeSessionExpired()) setExpired(true);
     load().catch((e) => setError(e instanceof Error ? e.message : String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

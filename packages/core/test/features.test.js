@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getFeeSummary, getNavigation, getAttendance, getMarksSemesters, getMarks, getMarksLatest,
+import { getFeeSummary, getAttendance, getMarksSemesters, getMarks, getMarksLatest,
   getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getPersonalInfo,
   getPendingServiceRequests, getPayslipDues, getSgpaStudentInfo, getSgpaCurrentSem,
   getSgpaSemesters, getSgpaDetail, getSgpaLatest, getApprovedRequests, getClosedRequests,
   getPaidRequests, getWithdrawnRequests, getCancelledRequests, getNoDuesForm,
   getNoDuesFeeStatus, getNoDuesActivities, getHostelDetail, getDisciplinary,
-  getNotices, getMedicalInfo, getFacultiesLatest } from "../src/features.js";
+  getNotices, getMedicalInfo, getFacultiesLatest, getFeeEvents, getSubjectAttendanceAll,
+  getBankInfo, getPhotoWindow } from "../src/features.js";
 
 describe("features", () => {
   it("getFeeSummary posts raw instituteid and returns rows", async () => {
@@ -20,15 +21,6 @@ describe("features", () => {
     const rows = await getFeeSummary(fake, { instituteid: "i1" });
     assert.deepEqual(seen, ["/studentfeeledger/loadfeesummary", { instituteid: "i1" }]);
     assert.equal(rows.length, 1);
-  });
-
-  it("getNavigation unwraps children", async () => {
-    const fake = {
-      async post() {
-        return { response: [{ children: [{ title: "A" }] }] };
-      },
-    };
-    assert.deepEqual(await getNavigation(fake, {}), [{ title: "A" }]);
   });
 
   it("getAttendance chains LOV default semester into detail", async () => {
@@ -513,5 +505,62 @@ describe("features", () => {
     assert.equal(out.rows.length, 1);
     assert.equal(out.totalcreditpoints, "20");
     assert.deepEqual(calls[1][1], { instituteid: "i1", registrationid: "r1" });
+  });
+
+  it("getFeeEvents posts encrypted instituteid+maineventid", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { formdatetodate: [{ eventid: "e1" }] } };
+      },
+    };
+    const rows = await getFeeEvents(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/onlinefeepayment/getmyactivefeeevents", { instituteid: "i1", maineventid: "" }]);
+    assert.equal(rows.length, 1);
+  });
+
+  it("getSubjectAttendanceAll fans out over L/T/P components", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [] } };
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1", individualsubjectcode: "ISC1",
+      Lsubjectcomponentid: "c1,c2", Tsubjectcomponentid: "", Psubjectcomponentid: "c3",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.deepEqual(Object.keys(out).sort(), ["L", "P"]);
+    assert.deepEqual(calls[0][1].cmpidkey, [{ subjectcomponentid: "c1" }, { subjectcomponentid: "c2" }]);
+    assert.equal(calls[0][1].subjectcode, "ISC1");
+  });
+
+  it("getBankInfo posts encrypted instituteid", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { bankinfo: {} } };
+      },
+    };
+    const out = await getBankInfo(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/studentbankdetails/getstudentbankinfo", { instituteid: "i1" }]);
+    assert.ok(out.bankinfo);
+  });
+
+  it("getPhotoWindow posts raw instituteid", async () => {
+    let seen;
+    const fake = {
+      async postRaw(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: "Change Photo" };
+      },
+    };
+    const out = await getPhotoWindow(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/studentpersinfo/checkphotouploadevent", { instituteid: "i1" }]);
+    assert.equal(out, "Change Photo");
   });
 });

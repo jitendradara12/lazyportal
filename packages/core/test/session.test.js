@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { decodeExp, isExpired, createStore, memoryAdapter } from "../src/session.js";
+import { decodeExp, isExpired, createStore, memoryAdapter, markSessionExpired, consumeSessionExpired } from "../src/session.js";
 
 function jwt(exp) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -28,5 +28,24 @@ describe("session", () => {
     assert.equal(store.loadValid({ nowSec: 3_000_000 }), null);
     store.clear();
     assert.equal(store.load(), null);
+  });
+
+  it("expiry flag is one-shot", () => {
+    const map = new Map();
+    const fake = {
+      getItem: (k) => (map.has(k) ? map.get(k) : null),
+      setItem: (k, v) => void map.set(k, v),
+      removeItem: (k) => void map.delete(k),
+    };
+    const prev = globalThis.localStorage;
+    globalThis.localStorage = fake;
+    try {
+      assert.equal(consumeSessionExpired(), false);
+      markSessionExpired();
+      assert.equal(consumeSessionExpired(), true);
+      assert.equal(consumeSessionExpired(), false);
+    } finally {
+      globalThis.localStorage = prev;
+    }
   });
 });

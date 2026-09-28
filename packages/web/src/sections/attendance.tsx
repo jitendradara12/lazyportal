@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
-import { SectionError } from "../components/DataViews";
+import { SectionError, UnknownData } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
 interface AttRow {
@@ -30,8 +30,35 @@ function short(r: AttRow): boolean {
   return [pct(r.Lpercentage), pct(r.Tpercentage), pct(r.Ppercentage)].some((n) => n !== null && n < 75);
 }
 
-export function AttendanceSection({ session, onLogout }: SectionProps) {
-  const att = useFeature<AttData>({
+function SubjectDetail({ row, registrationid, registrationcode, session, onLogout }: {
+  row: AttRow & Record<string, unknown>;
+  registrationid?: string;
+  registrationcode?: string;
+  session: SectionProps["session"];
+  onLogout: () => void;
+}) {
+  const detail = useFeature<Record<string, Record<string, unknown>>>({
+    run: () => features.getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }),
+    deps: [session, registrationid, String(row.subjectid)],
+    onUnauthorized: onLogout,
+  });
+  if (detail.loading) return <p className="muted">Loading detail…</p>;
+  if (detail.error) return <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />;
+  const types = Object.keys(detail.data ?? {});
+  if (types.length === 0) return <p className="muted">No detail rows.</p>;
+  return (
+    <>
+      {types.map((t) => (
+        <div key={t}>
+          <h3>{t} component</h3>
+          <UnknownData data={detail.data?.[t]} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+export function AttendanceSection({ session, onLogout }: SectionProps) {  const att = useFeature<AttData>({
     run: () => features.getAttendance(client, session),
     deps: [session],
     onUnauthorized: onLogout,
@@ -57,6 +84,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
 
   const initial = att.data;
   const rows = detail.data?.rows ?? initial?.rows ?? [];
+  const [open, setOpen] = useState<number | null>(null);
   const semesters = initial?.semesters ?? [];
   const code = detail.data ? sem?.registrationcode : initial?.registrationcode;
   const loading = att.loading || detail.loading;
@@ -92,14 +120,34 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
         <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>Subject</th><th>L%</th><th>T%</th><th>P%</th><th></th></tr>
+              <tr><th>Subject</th><th>L%</th><th>T%</th><th>P%</th><th></th><th></th></tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className={short(r) ? "short" : undefined}>
-                  <td>{r.subjectcode}</td><td>{r.Lpercentage}</td><td>{r.Tpercentage}</td><td>{r.Ppercentage}</td>
-                  <td>{short(r) ? "Short" : ""}</td>
-                </tr>
+                <Fragment key={i}>
+                  <tr className={short(r) ? "short" : undefined}>
+                    <td>{r.subjectcode}</td><td>{r.Lpercentage}</td><td>{r.Tpercentage}</td><td>{r.Ppercentage}</td>
+                    <td>{short(r) ? "Short" : ""}</td>
+                    <td>
+                      <button onClick={() => setOpen(open === i ? null : i)}>
+                        {open === i ? "Hide" : "Detail"}
+                      </button>
+                    </td>
+                  </tr>
+                  {open === i && (
+                    <tr key={`${i}-detail`}>
+                      <td colSpan={6}>
+                        <SubjectDetail
+                          row={r as AttRow & Record<string, unknown>}
+                          registrationid={sem?.registrationid}
+                          registrationcode={sem?.registrationcode}
+                          session={session}
+                          onLogout={onLogout}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -1,15 +1,6 @@
-// Feature: navigation menu + fee summary. Template for future features.
-// Each feature = (client, session, params) => typed data. No crypto here.
-
-export async function getNavigation(client, session) {
-  const body = await client.post("/clxuser/getmenulist", {
-    userid: session.userid,
-    instituteid: session.instituteid,
-    membertype: session.membertype,
-    bypassValue: session.bypassValue ?? session.bypass ?? undefined,
-  });
-  return body.response?.[0]?.children ?? body.response;
-}
+// Feature modules: one async function per portal read. Each takes (client,
+// session, params?) and returns plain data. No crypto here — client.post
+// encrypts, client.postRaw sends plain JSON (see client.js header for which).
 
 /** Attendance LOV: header (stynumber) + semester list. Plain JSON (unencrypted) — official app stringifies without AES here. */
 export async function getAttendanceRegistrations(client, session) {
@@ -198,6 +189,63 @@ export async function getFacultiesLatest(client, session) {
   if (!sem) return { semesters, registrationcode: null, rows: [], totalcreditpoints: null };
   const detail = await getFaculties(client, session, { registrationid: sem.registrationid });
   return { semesters, registrationcode: sem.registrationcode ?? null, ...detail };
+}
+
+/** Active fee events (what is due now, read-only). Encrypted {instituteid, maineventid:""}. */
+export async function getFeeEvents(client, session) {
+  const body = await client.post("/onlinefeepayment/getmyactivefeeevents", {
+    instituteid: session.instituteid,
+    maineventid: "",
+  });
+  return body.response?.formdatetodate ?? [];
+}
+
+/** Per-subject attendance detail (which dates/components missed). One call per L/T/P type. */
+export async function getSubjectAttendance(client, session, { subjectid, registrationid, components, subjectcode, registrationcode }) {
+  const body = await client.post("/StudentClassAttendance/getstudentsubjectpersentage", {
+    instituteid: session.instituteid,
+    subjectid,
+    registrationid,
+    cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
+    subjectcode,
+    registrationcode,
+  });
+  return body.response;
+}
+
+/** L/T/P detail for one attendance row in parallel. Skips types with no components. */
+export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }) {
+  const out = {};
+  await Promise.all(
+    ["L", "T", "P"].map(async (t) => {
+      const csv = row[`${t}subjectcomponentid`];
+      if (!csv) return;
+      out[t] = await getSubjectAttendance(client, session, {
+        subjectid: row.subjectid,
+        registrationid,
+        components: csv,
+        subjectcode: row.individualsubjectcode ?? row.subjectcode,
+        registrationcode,
+      });
+    })
+  );
+  return out;
+}
+
+/** Bank info (read-only; refunds depend on it). Encrypted {instituteid}. */
+export async function getBankInfo(client, session) {
+  const body = await client.post("/studentbankdetails/getstudentbankinfo", {
+    instituteid: session.instituteid,
+  });
+  return body.response ?? null;
+}
+
+/** Photo upload window state. Plain JSON; response is a message string. */
+export async function getPhotoWindow(client, session) {
+  const body = await client.postRaw("/studentpersinfo/checkphotouploadevent", {
+    instituteid: session.instituteid,
+  });
+  return body.response ?? null;
 }
 
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */

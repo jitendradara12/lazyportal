@@ -1,6 +1,8 @@
 // Deep module: API client.
 // Hides baseUrl, AES body encryption, Auth+LocalName headers, error mapping.
-// Feature code calls post(endpoint, object) — nothing else to learn.
+// post = AES-encrypted JSON body. postRaw = plain JSON body (some endpoints
+// take unencrypted JSON: fee summary, attendance LOV, personal info, service
+// requests, medical info, hostel, photo window). getPublic = auth-free GET.
 
 import { encrypt, makeLocalName } from "./crypto.js";
 import { toPortalError, SessionExpiredError } from "./errors.js";
