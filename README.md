@@ -24,6 +24,6 @@ Local dev proxies `/api` to the portal, since the portal only accepts its own or
 
 ## Notes
 
-* Passwords are never stored. Only the token and profile fields.
-* Be gentle with the server. Do not share credentials in issues.
-* MIT. Nothing to do with JUET or JIL.
+- Passwords are never stored. Only the token and profile fields.
+- Be gentle with the server. Do not share credentials in issues.
+- MIT. Nothing to do with JUET or JIL.

@@ -1,4 +1,5 @@
 /** Shared bits for dashboard sections. */
+import { usePersistentState } from "../hooks/usePersistentState";
 
 /** Humanize a backend key for table headers: camelCase/snake_case -> words. */
 export function prettyKey(k: string): string {
@@ -8,6 +9,24 @@ export function prettyKey(k: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^./, (c) => c.toUpperCase());
+}
+
+/** Title-case a string: "COMPUTER NETWORKS" -> "Computer Networks" */
+export function titleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b(And|Or|Of|The|In|For|To|A|An)\b/g, (w) => w.toLowerCase())
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+/** Humanize semester codes: "2026ODDSEM" -> "Odd 2026", "2026EVESEM" -> "Even 2026" */
+export function formatSemester(code: string | undefined | null): string {
+  if (!code) return "";
+  const m = code.match(/^(\d{4})(ODD|EVE|EVEN)SEM$/i);
+  if (!m) return code;
+  const type = m[2].toUpperCase() === "ODD" ? "Odd" : "Even";
+  return `${type} ${m[1]}`;
 }
 
 /** Fallback table for responses whose columns we haven't mapped yet. */
@@ -137,4 +156,117 @@ export function payslipTotals(rows: PayslipRow[]): { currency: string; total: nu
     sums.set(cur, (sums.get(cur) ?? 0) + num(r.dueamount));
   }
   return [...sums.entries()].map(([currency, total]) => ({ currency, total }));
+}
+
+function getSectionIcon(id?: string) {
+  switch (id) {
+    case "attendance":
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="14" rx="3" />
+          <path d="M3 13h4.5a2 2 0 0 0 2 1.5h5a2 2 0 0 0 2-1.5H21" />
+        </svg>
+      );
+    case "exams":
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M19 20a7 7 0 0 0-14 0" />
+          <circle cx="12" cy="9" r="4" />
+        </svg>
+      );
+    case "marks":
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="12 3 14.9 9 21.5 9.8 16.5 14.3 17.9 20.8 12 17.5 6.1 20.8 7.5 14.3 2.5 9.8 9.1 9 12 3" />
+        </svg>
+      );
+    case "faculty":
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M19 20a7 7 0 0 0-14 0" />
+          <circle cx="12" cy="9" r="4" />
+        </svg>
+      );
+    case "subjects":
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <polyline points="8 12 12 16 16 12" />
+          <line x1="12" y1="8" x2="12" y2="16" />
+        </svg>
+      );
+    default:
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="14" rx="3" />
+          <line x1="8" y1="10" x2="16" y2="10" />
+          <line x1="8" y1="14" x2="12" y2="14" />
+        </svg>
+      );
+  }
+}
+
+/** Collapsible card section with persisted open/closed state in Material 3 Expressive style. */
+export function CollapsibleCard({
+  id,
+  title,
+  subtitle,
+  badge,
+  badgeShort,
+  defaultOpen = false,
+  action,
+  children,
+}: {
+  id?: string;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  badgeShort?: boolean;
+  defaultOpen?: boolean;
+  action?: import("react").ReactNode;
+  children: import("react").ReactNode;
+}) {
+  const [open, setOpen] = usePersistentState(id ? `card.${id}` : "card.temp", defaultOpen ? "1" : "0");
+  const isOpen = open !== "0";
+
+  return (
+    <section className={`card m3-card ${isOpen ? "open" : "collapsed"}`} id={id}>
+      <div className="card-header m3-card-header">
+        <button
+          type="button"
+          className="m3-list-item"
+          onClick={() => setOpen(isOpen ? "0" : "1")}
+          aria-expanded={isOpen}
+          aria-controls={id ? `${id}-body` : undefined}
+        >
+          <div className="m3-leading-icon-circle">
+            {getSectionIcon(id)}
+          </div>
+          <div className="m3-item-content">
+            <span className="m3-item-headline">{title}</span>
+            {(badge || subtitle) && (
+              <span className={`m3-item-supporting ${badgeShort ? "short" : ""}`}>
+                {badge ?? subtitle}
+              </span>
+            )}
+          </div>
+          {action && (
+            <div className="m3-card-action" onClick={(e) => e.stopPropagation()}>
+              {action}
+            </div>
+          )}
+          <div className={`m3-trailing-chevron ${isOpen ? "open" : ""}`} aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </div>
+        </button>
+      </div>
+      {isOpen && (
+        <div className="card-body m3-card-body" id={id ? `${id}-body` : undefined}>
+          {children}
+        </div>
+      )}
+    </section>
+  );
 }

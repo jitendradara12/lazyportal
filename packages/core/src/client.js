@@ -8,7 +8,7 @@
 // getPublic = auth-free GET.
 
 import { encrypt, makeLocalName } from "./crypto.js";
-import { toPortalError, SessionExpiredError } from "./errors.js";
+import { toPortalError, SessionExpiredError, PortalError } from "./errors.js";
 
 /**
  * @param baseUrl e.g. https://studentportal.juet.ac.in/StudentPortalAPI
@@ -27,6 +27,20 @@ export function createClient({
 } = {}) {
   if (!baseUrl) throw new Error("baseUrl required");
   let refreshing = null;
+
+  async function safeFetch(url, init) {
+    try {
+      return await fetchImpl(url, init);
+    } catch (err) {
+      if (err instanceof PortalError) throw err;
+      throw new PortalError(
+        typeof navigator !== "undefined" && navigator.onLine === false
+          ? "You are offline."
+          : "Unable to reach portal server. Please check your connection.",
+        { code: "NETWORK_ERROR" }
+      );
+    }
+  }
 
   async function headers() {
     const { encrypted } = await makeLocalName({ now: now() });
@@ -47,7 +61,7 @@ export function createClient({
     }
     if (!(await refreshing)) return null;
     // Rebuild headers: the token may have rotated during refresh.
-    const retry = await fetchImpl(`${baseUrl}${sent.endpoint}`, await sent.build());
+    const retry = await safeFetch(`${baseUrl}${sent.endpoint}`, await sent.build());
     return retry.status === 401 ? null : retry;
   }
 
@@ -85,7 +99,7 @@ export function createClient({
         body: await encrypt(JSON.stringify(payloadObj), { now: now() }),
       });
       const sent = { endpoint, build };
-      const res = await fetchImpl(`${baseUrl}${endpoint}`, await build());
+      const res = await safeFetch(`${baseUrl}${endpoint}`, await build());
       return handle(res, sent, opts);
     },
     /** Raw POST: same headers, plain JSON body (some endpoints take unencrypted JSON). */
@@ -96,14 +110,14 @@ export function createClient({
         body: JSON.stringify(payloadObj),
       });
       const sent = { endpoint, build };
-      const res = await fetchImpl(`${baseUrl}${endpoint}`, await build());
+      const res = await safeFetch(`${baseUrl}${endpoint}`, await build());
       return handle(res, sent, opts);
     },
     /** Public GET: no Auth/LocalName/Content-Type, so no CORS preflight.
      * Use for unauthenticated endpoints (captcha, logo, marquee). */
     async getPublic(endpoint) {
       const sent = { endpoint, init: { headers: { Accept: "application/json" } } };
-      const res = await fetchImpl(`${baseUrl}${endpoint}`, sent.init);
+      const res = await safeFetch(`${baseUrl}${endpoint}`, sent.init);
       // Public endpoints never refresh: a 401 here means logged out.
       return handle(res, sent, { skipRefresh: true });
     },

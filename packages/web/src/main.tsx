@@ -6,12 +6,14 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 
 function App() {
-  const { session, save, logout } = useSession();
+  const { session, isExpired, save, logout } = useSession();
   if (!session) return <LoginPage onDone={save} />;
   return (
     <DashboardPage
       session={session}
+      isExpired={isExpired}
       onLogout={logout}
+      onSessionRenewed={save}
       onSelectInstitute={(instituteid) => {
         const match = ((session.institutelist as { value?: string; label?: string }[] | undefined) ?? [])
           .find((o) => String(o.value) === instituteid);

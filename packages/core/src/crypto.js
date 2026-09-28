@@ -8,12 +8,32 @@ const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXTZabcdefghiklmnopqrstuvwxyz"
 const te = new TextEncoder();
 const td = new TextDecoder();
 
-/** Date-derived 16-char key. Pure + deterministic for tests. */
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Return date components in Indian Standard Time (IST, UTC+05:30),
+ * which is the timezone evaluated by the JUET portal server.
+ */
+export function getIstParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  });
+  const parts = formatter.formatToParts(date);
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  const dow = String(DAYS.indexOf(map.weekday));
+  const day = map.day;
+  const month = map.month;
+  const yy = map.year.slice(2);
+  return { day, month, yy, dow };
+}
+
+/** Date-derived 16-char key in IST. Pure + deterministic for tests. */
 export function generateValue(date = new Date()) {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const yy = String(date.getFullYear()).slice(2);
-  const dow = String(date.getDay());
+  const { day, month, yy, dow } = getIstParts(date);
   return `qa8y${day[0]}${month[0]}${yy[0]}${dow}${day[1]}${month[1]}${yy[1]}ty1pn`;
 }
 
@@ -73,10 +93,8 @@ export async function makeLocalName({ now = new Date(), random = Math.random } =
   const pick = () => ALPHABET[Math.floor(random() * ALPHABET.length)];
   const h = Array.from({ length: 4 }, pick).join("");
   const m = Array.from({ length: 5 }, pick).join("");
-  const day = String(now.getDate()).padStart(2, "0");
-  const mon = String(now.getMonth() + 1).padStart(2, "0");
-  const yy = String(now.getFullYear()).slice(2);
-  const me = `${day[0]}${mon[0]}${yy[0]}${now.getDay()}${day[1]}${mon[1]}${yy[1]}`;
+  const { day, month, yy, dow } = getIstParts(now);
+  const me = `${day[0]}${month[0]}${yy[0]}${dow}${day[1]}${month[1]}${yy[1]}`;
   const plain = `${h}${me}${m}`;
   return { plain, encrypted: await encrypt(plain, { now }) };
 }

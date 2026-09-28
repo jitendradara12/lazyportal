@@ -9,6 +9,11 @@ export const BASE_URL =
 
 export const store = session.createStore(session.browserLocalAdapter());
 
+let unauthListener: (() => void) | null = null;
+export function onClientUnauthorized(cb: () => void) {
+  unauthListener = cb;
+}
+
 export const client = createClient({
   baseUrl: BASE_URL,
   getToken: () => store.load()?.token ?? "",
@@ -26,6 +31,6 @@ export const client = createClient({
   },
   onUnauthorized: async () => {
     session.markSessionExpired();
-    store.clear();
+    unauthListener?.();
   },
 });

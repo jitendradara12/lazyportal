@@ -175,4 +175,17 @@ describe("client", () => {
     assert.equal(seen.init.headers.LocalName, undefined);
     assert.equal(seen.init.headers["Content-Type"], undefined);
   });
+
+  it("maps network failures to PortalError with NETWORK_ERROR code", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+      now: () => NOW,
+    });
+    const err = await client.post("/a", {}).catch((e) => e);
+    assert.ok(err instanceof PortalError);
+    assert.equal(err.code, "NETWORK_ERROR");
+  });
 });

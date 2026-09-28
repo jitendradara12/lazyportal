@@ -21,7 +21,7 @@ export async function fetchCaptcha(client) {
 export async function refreshSession(client, session) {
   const body = await client.postRaw(
     "/token/refreshTokenRequest",
-    { username: session.username, tokendate: session.tokendate },
+    { username: session.username, tokendate: session.tokendate ?? new Date().toString() },
     { skipRefresh: true }
   );
   const res = body.response ?? {};

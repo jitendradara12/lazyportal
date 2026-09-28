@@ -5,15 +5,37 @@ import type { Captcha, Session } from "../types";
 
 export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [captcha, setCaptcha] = useState<Captcha | null>(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState(() => {
+    try {
+      return localStorage.getItem("juet.portal.last_user") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [savedPw] = useState(() => {
+    try {
+      return localStorage.getItem("juet.portal.saved_pw") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [password, setPassword] = useState(() => savedPw);
+  const [rememberPw, setRememberPw] = useState(() => Boolean(savedPw) || true);
   const [showPassword, setShowPassword] = useState(false);
   const [captchaText, setCaptchaText] = useState("");
-  const [usertype, setUsertype] = useState<"S" | "P">("S");
+  const [usertype, setUsertype] = useState<"S" | "P">(() => {
+    try {
+      return (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") ?? "S";
+    } catch {
+      return "S";
+    }
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
   const loading = useRef(false);
+  const userRef = useRef<HTMLInputElement>(null);
+  const passRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     if (loading.current) return;
@@ -27,6 +49,8 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   useEffect(() => {
     if (session.consumeSessionExpired()) setExpired(true);
     load().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    if (username) passRef.current?.focus();
+    else userRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -49,6 +73,15 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               captcha,
               usertype,
             })) as unknown as Session;
+            try {
+              localStorage.setItem("juet.portal.last_user", username.trim());
+              localStorage.setItem("juet.portal.last_usertype", usertype);
+              if (rememberPw) {
+                localStorage.setItem("juet.portal.saved_pw", password);
+              } else {
+                localStorage.removeItem("juet.portal.saved_pw");
+              }
+            } catch {}
             onDone(s);
           } catch (err: unknown) {
             setError(err instanceof Error ? err.message : String(err));
@@ -70,12 +103,13 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         </label>
         <label>
           Enrollment no
-          <input required value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+          <input ref={userRef} required value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         </label>
         <label>
           Password
           <span className="pwrow">
             <input
+              ref={passRef}
               required
               type={showPassword ? "text" : "password"}
               value={password}
@@ -86,6 +120,14 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               {showPassword ? "Hide" : "Show"}
             </button>
           </span>
+        </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={rememberPw}
+            onChange={(e) => setRememberPw(e.target.checked)}
+          />
+          <span>Remember password on this device</span>
         </label>
         {captcha ? (
           <div className="captcharow">

@@ -2,7 +2,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { SectionError } from "../components/DataViews";
+import { CollapsibleCard, SectionError, titleCase, formatSemester } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
 interface GradeRow {
@@ -19,11 +19,11 @@ interface GradeInfo {
   programid?: string;
 }
 
-export function GradesSection({ session, onLogout }: SectionProps) {
+export function GradesSection({ session }: SectionProps) {
   const lov = useFeature<{ info: GradeInfo | null; semesters: Semester[]; registrationcode?: string | null; rows: GradeRow[] }>({
     run: () => features.getGradesLatest(client, session),
     deps: [session],
-    onUnauthorized: onLogout,
+    cacheKey: `grades.lov:${session.username}`,
   });
   const [semId, setSemId, sem] = useSemester("grades", lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
@@ -36,50 +36,65 @@ export function GradesSection({ session, onLogout }: SectionProps) {
       }),
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
-    onUnauthorized: onLogout,
+    cacheKey: semId ? `grades.detail:${session.username}:${semId}` : undefined,
   });
 
   const rows = detail.data ?? lov.data?.rows ?? [];
+  const semesters = lov.data?.semesters ?? [];
   const code = detail.data ? sem?.registrationcode : lov.data?.registrationcode;
+  const semLabel = formatSemester(code);
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;
   const retry = lov.error ? lov.retry : detail.retry;
-  const semesters = lov.data?.semesters ?? [];
+  const badgeText = rows.length > 0 ? `${rows.length} graded` : undefined;
 
-  if (!lov.data && !error) {
-    return (
-      <section className="card" id="grades" aria-busy="true">
-        <h2>Grades</h2>
-        <p className="muted">Loading…</p>
-      </section>
-    );
-  }
   return (
-    <section className="card" id="grades">
-      <h2>Grades{code ? ` · ${code}` : ""}</h2>
-      {semesters.length > 0 && (
-        <label className="semrow">
-          Semester{" "}
-          <select value={semId ?? ""} onChange={(e) => setSemId(e.target.value)} disabled={loading}>
+    <CollapsibleCard
+      id="grades"
+      title="Grades"
+      subtitle={semLabel ? `· ${semLabel}` : undefined}
+      badge={badgeText}
+      defaultOpen={false}
+      action={
+        semesters.length > 1 ? (
+          <select
+            value={semId ?? ""}
+            onChange={(e) => setSemId(e.target.value)}
+            disabled={loading}
+            className="sem-picker"
+          >
             {semesters.map((s) => (
               <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                {s.registrationcode ?? s.registrationdesc}
+                {formatSemester(s.registrationcode ?? s.registrationdesc)}
               </option>
             ))}
           </select>
-          {detail.loading && <span className="muted">Loading…</span>}
-        </label>
-      )}
+        ) : undefined
+      }
+    >
+      {loading && <p className="muted">Loading…</p>}
       {rows.length > 0 && (
         <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>Subject</th><th>Description</th><th>Grade</th><th>Credits</th><th>Points</th></tr>
+              <tr>
+                <th>Subject</th>
+                <th>Grade</th>
+                <th>Credits</th>
+                <th>Points</th>
+              </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td>{r.subjectcode}{r.minorsubject === "Y" ? " (minor)" : ""}</td><td>{r.subjectdesc}</td><td>{r.grade}</td><td>{String(r.earnedcredit ?? "")}</td><td>{String(r.gradepoint ?? "")}</td>
+                  <td>
+                    {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
+                    {titleCase(r.subjectdesc ?? "")}
+                    {r.minorsubject === "Y" && <span className="badge">Minor</span>}
+                  </td>
+                  <td><strong>{r.grade}</strong></td>
+                  <td>{String(r.earnedcredit ?? "—")}</td>
+                  <td>{String(r.gradepoint ?? "—")}</td>
                 </tr>
               ))}
             </tbody>
@@ -90,6 +105,6 @@ export function GradesSection({ session, onLogout }: SectionProps) {
         <p className="muted">No grades for this semester.</p>
       )}
       {error && <SectionError label="Grades" error={error} retry={retry} />}
-    </section>
+    </CollapsibleCard>
   );
 }
