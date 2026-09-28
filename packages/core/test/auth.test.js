@@ -73,4 +73,31 @@ describe("auth", () => {
     });
     assert.equal(seen, "P123");
   });
+
+  it("refreshSession posts username+tokendate and sniffs rotated tokens", async () => {
+    let seen;
+    let skip;
+    const fakeClient = {
+      async postRaw(endpoint, payload, opts) {
+        seen = [endpoint, payload];
+        skip = opts?.skipRefresh;
+        return { response: { msg: "Success", token: "T2" } };
+      },
+    };
+    const { refreshSession } = await import("../src/auth.js");
+    const out = await refreshSession(fakeClient, { username: "u", tokendate: "d" });
+    assert.deepEqual(seen, ["/token/refreshTokenRequest", { username: "u", tokendate: "d" }]);
+    assert.equal(skip, true);
+    assert.deepEqual(out, { ok: true, token: "T2" });
+  });
+
+  it("refreshSession reports failure without success msg", async () => {
+    const fakeClient = {
+      async postRaw() {
+        return { response: { msg: "Expired" } };
+      },
+    };
+    const { refreshSession } = await import("../src/auth.js");
+    assert.deepEqual(await refreshSession(fakeClient, {}), { ok: false });
+  });
 });

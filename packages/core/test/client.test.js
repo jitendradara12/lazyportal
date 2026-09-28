@@ -59,6 +59,69 @@ describe("client", () => {
     assert.equal(hooked, true);
   });
 
+  it("401 refreshes once and retries with the live token", async () => {
+    const calls = [];
+    let token = "old";
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      fetchImpl: mockFetch(async (url, init) => {
+        calls.push(init.headers.Authorization);
+        if (calls.length === 1) return { ok: false, status: 401, text: async () => "{}" };
+        return ok({ status: { responseStatus: "Success" }, response: { v: 1 } });
+      }),
+      onRefresh: async () => {
+        token = "new";
+        return true;
+      },
+      onUnauthorized: async () => {
+        throw new Error("should not log out");
+      },
+      now: () => NOW,
+    });
+    const body = await client.post("/a", {});
+    assert.equal(body.response.v, 1);
+    assert.deepEqual(calls, ["Bearer old", "Bearer new"]);
+  });
+
+  it("concurrent 401s share one refresh", async () => {
+    let refreshes = 0;
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: false, status: 401, text: async () => "{}" })),
+      onRefresh: async () => {
+        refreshes++;
+        await new Promise((r) => setTimeout(r, 10));
+        return false;
+      },
+      onUnauthorized: async () => {},
+      now: () => NOW,
+    });
+    await Promise.all([
+      assert.rejects(() => client.post("/a", {}), SessionExpiredError),
+      assert.rejects(() => client.post("/b", {}), SessionExpiredError),
+    ]);
+    assert.equal(refreshes, 1);
+  });
+
+  it("failed refresh logs out without retry", async () => {
+    const calls = [];
+    let hooked = false;
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async (url) => {
+        calls.push(url);
+        return { ok: false, status: 401, text: async () => "{}" };
+      }),
+      onRefresh: async () => false,
+      onUnauthorized: async () => void (hooked = true),
+      now: () => NOW,
+    });
+    await assert.rejects(() => client.post("/a", {}), SessionExpiredError);
+    assert.equal(hooked, true);
+    assert.equal(calls.length, 1);
+  });
+
   it("maps Failure+captcha to PortalError with code", async () => {
     const client = createClient({
       baseUrl: "https://x",

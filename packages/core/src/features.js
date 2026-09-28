@@ -200,27 +200,42 @@ export async function getFeeEvents(client, session) {
   return body.response?.formdatetodate ?? [];
 }
 
-/** Per-subject attendance detail (which dates/components missed). One call per L/T/P type. */
-export async function getSubjectAttendance(client, session, { subjectid, registrationid, components, subjectcode, registrationcode }) {
-  const body = await client.post("/StudentClassAttendance/getstudentsubjectpersentage", {
-    instituteid: session.instituteid,
-    subjectid,
-    registrationid,
-    cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
-    subjectcode,
-    registrationcode,
-  });
+/** One subject-detail call. `previous` selects the previous-day endpoint. */
+export async function fetchSubjectAttendance(client, session, which, { subjectid, registrationid, components, subjectcode, registrationcode }) {
+  const body = await client.post(
+    which === "previous"
+      ? "/StudentClassAttendance/getpreviousstudentsubjectpersentage"
+      : "/StudentClassAttendance/getstudentsubjectpersentage",
+    {
+      instituteid: session.instituteid,
+      subjectid,
+      registrationid,
+      cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
+      subjectcode,
+      registrationcode,
+    }
+  );
   return body.response;
 }
 
+/** Per-subject attendance detail (which dates/components missed). One call per L/T/P type. */
+export async function getSubjectAttendance(client, session, args) {
+  return fetchSubjectAttendance(client, session, "current", args);
+}
+
+/** Previous-day variant of getSubjectAttendance. Same payload, mirrored endpoint. */
+export async function getPreviousSubjectAttendance(client, session, args) {
+  return fetchSubjectAttendance(client, session, "previous", args);
+}
+
 /** L/T/P detail for one attendance row in parallel. Skips types with no components. */
-export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }) {
+export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current") {
   const out = {};
   await Promise.all(
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
       if (!csv) return;
-      out[t] = await getSubjectAttendance(client, session, {
+      out[t] = await fetchSubjectAttendance(client, session, which, {
         subjectid: row.subjectid,
         registrationid,
         components: csv,
@@ -273,17 +288,9 @@ export async function getChoiceLatest(client, session) {
   return { semesters, registrationcode: sem.registrationcode ?? null, rows };
 }
 
-/** Previous-day L/T/P detail for one subject call. Same payload as current. */
-export async function getPreviousSubjectAttendance(client, session, { subjectid, registrationid, components, subjectcode, registrationcode }) {
-  const body = await client.post("/StudentClassAttendance/getpreviousstudentsubjectpersentage", {
-    instituteid: session.instituteid,
-    subjectid,
-    registrationid,
-    cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
-    subjectcode,
-    registrationcode,
-  });
-  return body.response;
+/** Previous-day L/T/P fan-out, mirroring getSubjectAttendanceAll. */
+export async function getPreviousSubjectAttendanceAll(client, session, row, ctx) {
+  return getSubjectAttendanceAll(client, session, row, ctx, "previous");
 }
 
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */

@@ -58,43 +58,26 @@ function SubjectDetail({ row, registrationid, registrationcode, session, onLogou
   onLogout: () => void;
   which: "current" | "previous";
 }) {
-  const base = { subjectid: row.subjectid, registrationid, subjectcode: row.individualsubjectcode ?? row.subjectcode, registrationcode };
-  const current = useFeature<Record<string, Record<string, unknown>>>({
-    run: () => features.getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }),
-    deps: [session, registrationid, String(row.subjectid)],
-    enabled: which === "current",
+  const base = { registrationid, registrationcode };
+  const detail = useFeature<Record<string, Record<string, unknown>>>({
+    run: () => features.getSubjectAttendanceAll(client, session, row, base, which),
+    deps: [session, registrationid, String(row.subjectid), which],
     onUnauthorized: onLogout,
   });
-  const previous = useFeature<Record<string, unknown>>({
-    run: () =>
-      features.getPreviousSubjectAttendance(client, session, {
-        ...base,
-        components: [row.Lsubjectcomponentid, row.Tsubjectcomponentid, row.Psubjectcomponentid]
-          .filter(Boolean)
-          .join(","),
-      }),
-    deps: [session, registrationid, String(row.subjectid)],
-    enabled: which === "previous",
-    onUnauthorized: onLogout,
-  });
-  const active = which === "current" ? current : previous;
-  if (active.loading) return <p className="muted">Loading detail…</p>;
-  if (active.error) return <SectionError label="Subject detail" error={active.error} retry={active.retry} />;
-  if (which === "current") {
-    const types = Object.keys(current.data ?? {});
-    if (types.length === 0) return <p className="muted">No detail rows.</p>;
-    return (
-      <>
-        {types.map((t) => (
-          <div key={t}>
-            <h3>{t} component</h3>
-            <UnknownData data={current.data?.[t]} />
-          </div>
-        ))}
-      </>
-    );
-  }
-  return <UnknownData data={previous.data} />;
+  if (detail.loading) return <p className="muted">Loading detail…</p>;
+  if (detail.error) return <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />;
+  const types = Object.keys(detail.data ?? {});
+  if (types.length === 0) return <p className="muted">No detail rows.</p>;
+  return (
+    <>
+      {types.map((t) => (
+        <div key={t}>
+          <h3>{t} component</h3>
+          <UnknownData data={detail.data?.[t]} />
+        </div>
+      ))}
+    </>
+  );
 }
 
 export function AttendanceSection({ session, onLogout }: SectionProps) {

@@ -14,6 +14,26 @@ export async function fetchCaptcha(client) {
 }
 
 /**
+ * Refresh a dead session. Plain JSON (official app sends it unencrypted).
+ * Returns {ok, token?}: ok means the old token works again; token is set
+ * when the server rotates it (field name varies, so sniff a few keys).
+ */
+export async function refreshSession(client, session) {
+  const body = await client.postRaw(
+    "/token/refreshTokenRequest",
+    { username: session.username, tokendate: session.tokendate },
+    { skipRefresh: true }
+  );
+  const res = body.response ?? {};
+  if (res.msg !== "Success") return { ok: false };
+  const token =
+    ["token", "Token", "newToken", "accessToken", "jwt", "jwttoken"]
+      .map((k) => res[k])
+      .find((v) => typeof v === "string" && v.length > 0) ?? null;
+  return { ok: true, token };
+}
+
+/**
  * Full login. First manual login solves the image captcha;
  * afterwards the returned session is persisted by session store.
  */
@@ -52,6 +72,7 @@ export async function login(
     institutename: institute?.label ?? null,
     institutelist: r.institutelist ?? [],
     username: userField,
+    tokendate: new Date().toString(),
     bypassValue: r.bypass ?? null,
   };
 }

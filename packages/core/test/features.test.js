@@ -8,7 +8,7 @@ import { getFeeSummary, getAttendance, getMarksSemesters, getMarks, getMarksLate
   getNoDuesFeeStatus, getNoDuesActivities, getHostelDetail, getDisciplinary,
   getNotices, getMedicalInfo, getFacultiesLatest, getFeeEvents, getSubjectAttendanceAll,
   getBankInfo, getPhotoWindow, getChoiceSemesters, getChoiceSubjects, getChoiceLatest,
-  getPreviousSubjectAttendance } from "../src/features.js";
+  getPreviousSubjectAttendance, getPreviousSubjectAttendanceAll } from "../src/features.js";
 
 describe("features", () => {
   it("getFeeSummary posts raw instituteid and returns rows", async () => {
@@ -598,5 +598,52 @@ describe("features", () => {
       "/StudentClassAttendance/getpreviousstudentsubjectpersentage",
       { instituteid: "i1", subjectid: "s1", registrationid: "r1", cmpidkey: [{ subjectcomponentid: "c1" }], subjectcode: "SC1", registrationcode: "RC1" },
     ]);
+  });
+
+  it("getPreviousSubjectAttendanceAll fans out over the mirrored endpoint", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: {} };
+      },
+    };
+    const row = { subjectid: "s1", subjectcode: "SC1", Psubjectcomponentid: "c9" };
+    const out = await getPreviousSubjectAttendanceAll(fake, {}, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.deepEqual(Object.keys(out), ["P"]);
+    assert.ok(calls.every(([e]) => e.endsWith("getpreviousstudentsubjectpersentage")));
+  });
+
+  it("leaf getters pass through their endpoints", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push(endpoint);
+        return { response: {} };
+      },
+      async postRaw(endpoint) {
+        calls.push(endpoint);
+        return { response: {} };
+      },
+    };
+    const { getAttendanceRegistrations: reg, getAttendanceDetail: det, getGradeStudentInfo: gsi,
+      getGradeRegistrations: gr, getGradeCard: gc, getFacultyRegistrations: fr, getFaculties: fac } =
+      await import("../src/features.js");
+    await reg(fake, { instituteid: "i1" });
+    await det(fake, { instituteid: "i1" }, { stynumber: "s", registrationid: "r", registrationcode: "c" });
+    await gsi(fake, { instituteid: "i1" });
+    await gr(fake, { instituteid: "i1" });
+    await gc(fake, { instituteid: "i1" }, { registrationid: "r", branchid: "b", programid: "p" });
+    await fr(fake, { instituteid: "i1" });
+    await fac(fake, { instituteid: "i1" }, { registrationid: "r" });
+    for (const e of [
+      "/StudentClassAttendance/getstudentInforegistrationforattendence",
+      "/StudentClassAttendance/getstudentattendancedetail",
+      "/studentgradecard/getstudentinfo",
+      "/studentgradecard/getregistrationList",
+      "/studentgradecard/showstudentgradecard",
+      "/reqsubfaculty/getregistrationList",
+      "/reqsubfaculty/getfaculties",
+    ]) assert.ok(calls.includes(e), e);
   });
 });
