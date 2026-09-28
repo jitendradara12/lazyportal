@@ -11,6 +11,7 @@ interface GradeRow {
   grade?: string;
   earnedcredit?: string | number;
   gradepoint?: string | number;
+  minorsubject?: string;
 }
 
 interface GradeInfo {
@@ -83,7 +84,7 @@ export function GradesSection({ session, onLogout }: SectionProps) {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td>{r.subjectcode}</td><td>{r.subjectdesc}</td><td>{r.grade}</td><td>{String(r.earnedcredit ?? "")}</td><td>{String(r.gradepoint ?? "")}</td>
+                  <td>{r.subjectcode}{r.minorsubject === "Y" ? " (minor)" : ""}</td><td>{r.subjectdesc}</td><td>{r.grade}</td><td>{String(r.earnedcredit ?? "")}</td><td>{String(r.gradepoint ?? "")}</td>
                 </tr>
               ))}
             </tbody>

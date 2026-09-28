@@ -14,6 +14,11 @@ export function prettyKey(k: string): string {
 export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (rows.length === 0) return null;
   const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  const cell = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  };
   return (
     <div className="table-scroll">
       <table>
@@ -22,7 +27,7 @@ export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i}>{cols.map((c) => <td key={c}>{String(r[c] ?? "")}</td>)}</tr>
+            <tr key={i}>{cols.map((c) => <td key={c}>{cell(r[c])}</td>)}</tr>
           ))}
         </tbody>
       </table>
@@ -45,6 +50,7 @@ export function personalScalars(general: Record<string, unknown> | null): [strin
 /** Render an unmapped response: arrays as tables, objects as key/value lists (nested included). */
 export function UnknownData({ data }: { data: unknown }) {
   if (Array.isArray(data)) return <AutoTable rows={data as Record<string, unknown>[]} />;
+  if (data !== null && typeof data !== "object") return <p className="muted">{String(data)}</p>;
   if (data && typeof data === "object") {
     const entries = personalScalars(data as Record<string, unknown>);
     const nested = Object.entries(data as Record<string, unknown>).filter(

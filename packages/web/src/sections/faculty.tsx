@@ -10,7 +10,15 @@ export function FacultySection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  if (!faculty.data && !faculty.error) return null;
+  if (!faculty.data && !faculty.error) {
+    if (!faculty.loading) return null;
+    return (
+      <section className="card" id="faculty" aria-busy="true">
+        <h2>Faculty</h2>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
   return (
     <section className="card" id="faculty">
       <h2>Faculty{faculty.data?.registrationcode ? ` · ${faculty.data.registrationcode}` : ""}</h2>

@@ -42,6 +42,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
     if (first != null && semId === null) setSemId(String(first));
   }, [att.data, semId]);
   const sem = att.data?.semesters?.find((s) => String(s.registrationid) === semId) ?? null;
+  const isDefault = semId === String(att.data?.semesters?.[0]?.registrationid);
   const detail = useFeature<{ rows: AttRow[] }>({
     run: () =>
       features.getAttendanceDetail(client, session, {
@@ -50,7 +51,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
         registrationcode: sem?.registrationcode,
       }),
     deps: [session, semId],
-    enabled: sem !== null,
+    enabled: sem !== null && !isDefault,
     onUnauthorized: onLogout,
   });
 
@@ -86,7 +87,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
           {detail.loading && <span className="muted">Loading…</span>}
         </label>
       )}
-      <p className="muted">Previous day's entry. Today's attendance reflects tomorrow. Below 75% counts as short.</p>
+      <p className="muted">Previous day's entry. Today's attendance reflects tomorrow. Below 75% counts as short — confirm your course rules.</p>
       {rows.length > 0 && (
         <div className="table-scroll">
           <table>

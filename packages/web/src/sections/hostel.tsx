@@ -10,7 +10,15 @@ export function HostelSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  if (!hostel.data && !hostel.error) return null;
+  if (!hostel.data && !hostel.error) {
+    if (!hostel.loading) return null;
+    return (
+      <section className="card" id="hostel" aria-busy="true">
+        <h2>Hostel</h2>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
   return (
     <section className="card" id="hostel">
       <h2>Hostel</h2>

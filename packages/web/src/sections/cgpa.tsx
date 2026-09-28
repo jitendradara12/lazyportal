@@ -29,7 +29,6 @@ export function CgpaSection({ session, onLogout }: SectionProps) {
     if (first != null && sty === null) setSty(String(first));
   }, [lov.data, sty]);
   const sem = lov.data?.semesters?.find((s) => String(s.stynumber) === sty) ?? null;
-  const isDefault = sty === String(lov.data?.semesters?.[0]?.stynumber);
   const detail = useFeature<{ semesterList?: SgpaRow[] }>({
     run: () =>
       features.getSgpaDetail(client, session, {
@@ -37,7 +36,7 @@ export function CgpaSection({ session, onLogout }: SectionProps) {
         stynumber: sem?.stynumber,
       }),
     deps: [session, sty],
-    enabled: sem !== null && !isDefault,
+    enabled: sem !== null,
     onUnauthorized: onLogout,
   });
 
@@ -71,8 +70,11 @@ export function CgpaSection({ session, onLogout }: SectionProps) {
           {detail.loading && <span className="muted">Loading…</span>}
         </label>
       )}
-      {!detail.data && semesters.length > 0 && <AutoTable rows={semesters as Record<string, unknown>[]} />}
+      {!detail.data && semesters.length > 0 && !detail.loading && <AutoTable rows={semesters as Record<string, unknown>[]} />}
       {detail.data && detailRows.length > 0 && <AutoTable rows={detailRows as Record<string, unknown>[]} />}
+      {detail.data && detailRows.length === 0 && !error && !loading && (
+        <p className="muted">No subject rows for this semester.</p>
+      )}
       {lov.data && semesters.length === 0 && !error && !loading && (
         <p className="muted">No semester GPA data.</p>
       )}

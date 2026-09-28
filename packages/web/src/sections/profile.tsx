@@ -23,8 +23,17 @@ export function ProfileSection({ session, onLogout }: SectionProps) {
   });
 
   const scalars = personalScalars(personal.data?.general ?? null);
+  const loading = personal.loading || medical.loading || disciplinary.loading;
   if (scalars.length === 0 && !personal.error && medical.data == null && !medical.error
-    && !disciplinary.data && !disciplinary.error) return null;
+    && !disciplinary.data && !disciplinary.error) {
+    if (!loading) return null;
+    return (
+      <section className="card personal" id="profile" aria-busy="true">
+        <h2>Profile</h2>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
   return (
     <section className="card personal" id="profile">
       <h2>Profile</h2>

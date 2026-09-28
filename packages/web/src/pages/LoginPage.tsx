@@ -50,9 +50,9 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           setError(null);
           try {
             const s = (await auth.login(client, {
-              username,
+              username: username.trim(),
               password,
-              captchaText,
+              captchaText: captchaText.trim(),
               captcha,
               usertype,
             })) as unknown as Session;
@@ -77,12 +77,13 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         </label>
         <label>
           Enrollment no
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+          <input required value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         </label>
         <label>
           Password
           <span className="pwrow">
             <input
+              required
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -95,7 +96,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         </label>
         {captcha ? (
           <div className="captcharow">
-            <img src={captcha.imageDataUrl} alt="captcha" className="captcha" />
+            <img src={captcha.imageDataUrl} alt="Captcha distorted text to type in" className="captcha" />
             <button
               type="button"
               onClick={() => {
@@ -124,7 +125,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         )}
         <label>
           Captcha text
-          <input value={captchaText} onChange={(e) => setCaptchaText(e.target.value)} />
+          <input required value={captchaText} onChange={(e) => setCaptchaText(e.target.value)} />
         </label>
         <button type="submit" disabled={!ready}>
           {busy ? "Signing in…" : "Login once, stay logged in"}

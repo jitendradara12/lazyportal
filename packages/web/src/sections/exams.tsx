@@ -79,7 +79,15 @@ export function ExamsSection({ session, onLogout }: SectionProps) {
   const loading = examEvents.loading || examRows.loading;
   const error = examSems.error ?? examEvents.error ?? examRows.error;
   const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
-  if (!examSems.data && !error) return null;
+  if (!examSems.data && !error) {
+    if (!examSems.loading) return null;
+    return (
+      <section className="card" id="exams" aria-busy="true">
+        <h2>Exam schedule</h2>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
   return (
     <section className="card" id="exams">
       <h2>Exam schedule</h2>

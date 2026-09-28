@@ -14,7 +14,15 @@ export function NoduesSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  if (!nodues.data && !nodues.error) return null;
+  if (!nodues.data && !nodues.error) {
+    if (!nodues.loading) return null;
+    return (
+      <section className="card" id="nodues" aria-busy="true">
+        <h2>No-dues status</h2>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
   return (
     <section className="card" id="nodues">
       <h2>No-dues status</h2>

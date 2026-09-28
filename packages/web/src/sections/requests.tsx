@@ -38,7 +38,15 @@ export function RequestsSection({ session, onLogout }: SectionProps) {
     deps: [session, reqStatus],
     onUnauthorized: onLogout,
   });
-  if (!requests.data && !requests.error) return null;
+  if (!requests.data && !requests.error) {
+    if (!requests.loading) return null;
+    return (
+      <section className="card" id="requests" aria-busy="true">
+        <h2>Service requests</h2>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
   return (
     <section className="card" id="requests">
       <h2>Service requests</h2>

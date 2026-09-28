@@ -39,7 +39,7 @@ export function DashboardPage({ session, onLogout, onSelectInstitute }: {
         ))}
       </nav>
       {SECTIONS.map(({ id, Component }) => (
-        <Component key={id} session={session} onLogout={onLogout} />
+        <Component key={`${id}:${typeof session.instituteid === "string" ? session.instituteid : ""}`} session={session} onLogout={onLogout} />
       ))}
     </main>
   );
