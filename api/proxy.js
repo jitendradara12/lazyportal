@@ -4,11 +4,47 @@
 // browser => no CORS preflight. Zero deps, free-tier safe.
 // Upstream base mirrors packages/web/vite.config.js dev proxy.
 
+import https from "node:https";
+
 const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
 const PORTAL_REFERER = "https://studentportal.juet.ac.in/studentportal/";
 
 export const config = { api: { bodyParser: false } };
+
+/** Upstream fetch via node:https: the portal omits its intermediate cert, so
+ * strict Node verification fails ("unable to verify the first certificate").
+ * rejectUnauthorized:false is scoped to this single upstream host only. */
+function fetchUpstream(target, { method, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(target);
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        method,
+        headers,
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 502,
+            contentType: res.headers["content-type"],
+            text: Buffer.concat(chunks).toString("utf8"),
+          })
+        );
+      }
+    );
+    req.on("error", reject);
+    req.setTimeout(20000, () => req.destroy(new Error("upstream timeout")));
+    if (body) req.write(body);
+    req.end();
+  });
+}
 
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -47,7 +83,7 @@ export default async function handler(req, res) {
 
   let upstream;
   try {
-    upstream = await fetch(target, { method: req.method, headers, body });
+    upstream = await fetchUpstream(target, { method: req.method, headers, body });
   } catch (err) {
     console.error("proxy upstream fetch failed:", err);
     res.status(502).json({
@@ -58,8 +94,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const text = await upstream.text();
   res.status(upstream.status);
-  res.setHeader("content-type", upstream.headers.get("content-type") ?? "application/json");
-  res.send(text);
+  res.setHeader("content-type", upstream.contentType ?? "application/json");
+  res.send(upstream.text);
 }
