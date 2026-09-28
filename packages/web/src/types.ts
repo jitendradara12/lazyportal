@@ -15,3 +15,14 @@ export interface Captcha {
   image: string;
   imageDataUrl: string;
 }
+
+export interface Semester {
+  registrationid?: string;
+  registrationcode?: string;
+  registrationdesc?: string;
+}
+
+export interface SectionProps {
+  session: Session;
+  onLogout: () => void;
+}

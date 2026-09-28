@@ -8,7 +8,17 @@ import "./styles.css";
 function App() {
   const { session, save, logout } = useSession();
   if (!session) return <LoginPage onDone={save} />;
-  return <DashboardPage session={session} onLogout={logout} />;
+  return (
+    <DashboardPage
+      session={session}
+      onLogout={logout}
+      onSelectInstitute={(instituteid) => {
+        const match = ((session.institutelist as { value?: string; label?: string }[] | undefined) ?? [])
+          .find((o) => String(o.value) === instituteid);
+        save({ ...session, instituteid, institutename: match?.label ?? session.institutename });
+      }}
+    />
+  );
 }
 
 const el = document.getElementById("root");

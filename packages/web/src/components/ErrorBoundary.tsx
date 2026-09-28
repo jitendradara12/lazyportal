@@ -14,13 +14,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
         <main style={{ padding: 24, fontFamily: "system-ui" }}>
           <h1>Something broke</h1>
           <p>{this.state.error.message}</p>
+          <button onClick={() => location.reload()}>Reload</button>{" "}
           <button
             onClick={() => {
               store.clear();
               location.reload();
             }}
           >
-            Reset session and reload
+            Log out and reload
           </button>
         </main>
       );

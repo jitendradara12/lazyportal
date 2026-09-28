@@ -70,11 +70,6 @@ export function createClient({
       });
       return handle(res);
     },
-    async get(endpoint) {
-      const h = await headers();
-      const res = await fetchImpl(`${baseUrl}${endpoint}`, { headers: h });
-      return handle(res);
-    },
     /** Public GET: no Auth/LocalName/Content-Type, so no CORS preflight.
      * Use for unauthenticated endpoints (captcha, logo, marquee). */
     async getPublic(endpoint) {

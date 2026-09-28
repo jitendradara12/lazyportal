@@ -58,6 +58,148 @@ export async function getFeeSummary(client, session) {
   return Array.isArray(rows) ? rows : [];
 }
 
+/** Exam semesters. Encrypted {clientid, instituteid}. */
+export async function getExamSemesters(client, session) {
+  const body = await client.post("/studentcommonsontroller/getsemestercode-withstudentexamevents", {
+    clientid: session.clientid,
+    instituteid: session.instituteid,
+  });
+  return body.response?.semesterCodeinfo?.semestercode ?? [];
+}
+
+/** Exam events for a semester. Encrypted; backend key has a typo (`registationid`). */
+export async function getExamEvents(client, session, { registrationid }) {
+  const body = await client.post("/studentcommonsontroller/getstudentexamevents", {
+    instituteid: session.instituteid,
+    registationid: registrationid,
+  });
+  return body.response?.eventcode?.examevent ?? [];
+}
+
+/** Exam timetable rows: datetime, datetimeupto, subjectdesc, roomcode, seatno. */
+export async function getExamSchedule(client, session, { registrationid, exameventid }) {
+  const body = await client.post("/studentsttattview/getstudent-examschedule", {
+    instituteid: session.instituteid,
+    registrationid,
+    exameventid,
+  });
+  return body.response?.subjectinfo ?? [];
+}
+
+/** Grade card student info (branch/program needed for the grade call). Encrypted {instituteid}. */
+export async function getGradeStudentInfo(client, session) {
+  const body = await client.post("/studentgradecard/getstudentinfo", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.studentinfo ?? null;
+}
+
+/** Grade card semester list. Encrypted {instituteid}. */
+export async function getGradeRegistrations(client, session) {
+  const body = await client.post("/studentgradecard/getregistrationList", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.registrations ?? [];
+}
+
+/** Grade rows: subjectcode, subjectdesc, grade, earnedcredit, gradepoint, minorsubject. */
+export async function getGradeCard(client, session, { registrationid, branchid, programid }) {
+  const body = await client.post("/studentgradecard/showstudentgradecard", {
+    instituteid: session.instituteid,
+    registrationid,
+    branchid,
+    programid,
+  });
+  return body.response?.gradecard ?? [];
+}
+
+/** Grades in one call: info -> latest registration -> rows. */
+export async function getGradesLatest(client, session) {
+  const [info, semesters] = await Promise.all([
+    getGradeStudentInfo(client, session),
+    getGradeRegistrations(client, session),
+  ]);
+  const sem = semesters[0];
+  if (!sem || !info) return { info, semesters, registrationcode: sem?.registrationcode ?? null, rows: [] };
+  const rows = await getGradeCard(client, session, {
+    registrationid: sem.registrationid,
+    branchid: info?.branchid,
+    programid: info?.programid,
+  });
+  return { info, semesters, registrationcode: sem.registrationcode, rows };
+}
+
+/** Personal info. Plain JSON (official app skips AES here). */
+export async function getPersonalInfo(client, session) {
+  const body = await client.postRaw("/studentpersinfo/getstudent-personalinformation", {
+    instituteid: session.instituteid,
+  });
+  return {
+    general: body.response?.generalinformation ?? null,
+    qualification: body.response?.qualification ?? null,
+  };
+}
+
+/** Pending service requests. Plain JSON. Read-only list. */
+export async function getPendingServiceRequests(client, session) {
+  const body = await client.postRaw("/servicerequestbystudent/getpendingservicerequestgrid", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.pendingList ?? [];
+}
+
+/** Payslip dues by enrollment. Encrypted. Read-only. */
+export async function getPayslipDues(client, session) {
+  const body = await client.post("/feepayslipcontroller/getdueamountdetails", {
+    enrollmentno: session.enrollmentno,
+  });
+  return body.response?.studentlist ?? [];
+}
+
+/** Announcements. Auth-free GET. */
+export async function getNotices(client) {
+  const body = await client.getPublic("/token/marqeelist");
+  const text = body.response?.text;
+  return Array.isArray(text) ? text : text == null ? [] : [text];
+}
+
+/** Medical info. Plain JSON (official app sends {} unencrypted). */
+export async function getMedicalInfo(client, session) {
+  const body = await client.postRaw("/studentinformation/getstudentmedicalinfo", {
+    instituteid: session.instituteid,
+  });
+  return body.response ?? null;
+}
+
+/** Semesters for the faculty lookup. Encrypted {instituteid}. */
+export async function getFacultyRegistrations(client, session) {
+  const body = await client.post("/reqsubfaculty/getregistrationList", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.registrations ?? body.response?.registrationList ?? [];
+}
+
+/** Subject-faculty rows + credit total. Encrypted {instituteid, registrationid}. */
+export async function getFaculties(client, session, { registrationid }) {
+  const body = await client.post("/reqsubfaculty/getfaculties", {
+    instituteid: session.instituteid,
+    registrationid,
+  });
+  return {
+    rows: body.response?.registrations ?? [],
+    totalcreditpoints: body.response?.totalcreditpoints ?? null,
+  };
+}
+
+/** Faculty lookup in one call: latest registration -> rows. */
+export async function getFacultiesLatest(client, session) {
+  const semesters = await getFacultyRegistrations(client, session);
+  const sem = semesters[0];
+  if (!sem) return { semesters, registrationcode: null, rows: [], totalcreditpoints: null };
+  const detail = await getFaculties(client, session, { registrationid: sem.registrationid });
+  return { semesters, registrationcode: sem.registrationcode ?? null, ...detail };
+}
+
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */
 export async function getMarksSemesters(client, session) {
   const body = await client.post("/studentcommonsontroller/getsemestercode-exammarks", {
@@ -98,4 +240,141 @@ export async function getMarksLatest(client, session) {
     };
   const detail = await getMarks(client, session, { registrationid: sem.registrationid });
   return { semesters, registrationcode: sem.registrationcode, ...detail };
+}
+
+/** SGPA/CGPA student info. Encrypted {instituteid} -> response.studentInfo[0]. */
+export async function getSgpaStudentInfo(client, session) {
+  const body = await client.post("/studentsgpacgpa/loadData", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.studentInfo?.[0] ?? null;
+}
+
+/** SGPA/CGPA current semester. Encrypted {instituteid, studentid, name, enrollmentno}. */
+export async function getSgpaCurrentSem(client, session, { studentid, name, enrollmentno }) {
+  const body = await client.post("/studentsgpacgpa/checkIfstudentmasterexist", {
+    instituteid: session.instituteid,
+    studentid,
+    name,
+    enrollmentno,
+  });
+  return body.response?.studentlov?.currentsemester ?? null;
+}
+
+/** SGPA/CGPA semester list (credit-wise rows with sgpa/cgpa). Encrypted {instituteid, studentid, stynumber}. */
+export async function getSgpaSemesters(client, session, { studentid, stynumber }) {
+  const body = await client.post("/studentsgpacgpa/getallsemesterdata", {
+    instituteid: session.instituteid,
+    studentid,
+    stynumber,
+  });
+  return body.response?.semesterList ?? [];
+}
+
+/** SGPA/CGPA semester detail (subject rows). Encrypted {instituteid, studentid, stynumber}. Returns response as-is. */
+export async function getSgpaDetail(client, session, { studentid, stynumber }) {
+  const body = await client.post("/studentsgpacgpa/getallsemesterdatadetail", {
+    instituteid: session.instituteid,
+    studentid,
+    stynumber,
+  });
+  return body.response;
+}
+
+/** SGPA/CGPA in one call: loadData -> checkexist -> currentsem -> semester list. */
+export async function getSgpaLatest(client, session) {
+  const student = await getSgpaStudentInfo(client, session);
+  if (!student) return { student: null, currentsem: null, semesters: [] };
+  const currentsem =
+    (await getSgpaCurrentSem(client, session, {
+      studentid: student.studentid,
+      name: student.name,
+      enrollmentno: student.enrollmentno,
+    })) ?? student.stynumber ?? null;
+  const semesters = await getSgpaSemesters(client, session, {
+    studentid: student.studentid,
+    stynumber: currentsem,
+  });
+  return { student, currentsem, semesters };
+}
+
+/** Approved service requests. Plain JSON {instituteid}. Read-only list. */
+export async function getApprovedRequests(client, session) {
+  const body = await client.postRaw("/servicerequestbystudent/getapprovedrequestgrid", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.approvedList ?? [];
+}
+
+/** Closed service requests. Plain JSON {instituteid}. Read-only list. */
+export async function getClosedRequests(client, session) {
+  const body = await client.postRaw("/servicerequestbystudent/getclosedservicerequests", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.closedRequestList ?? [];
+}
+
+/** Fee-paid service requests. Plain JSON {instituteid}. Read-only list. */
+export async function getPaidRequests(client, session) {
+  const body = await client.postRaw("/servicerequestbystudent/getfeepaidservicerequests", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.feePaidList ?? [];
+}
+
+/** Withdrawn service requests. Plain JSON {instituteid}. Read-only list. */
+export async function getWithdrawnRequests(client, session) {
+  const body = await client.postRaw("/servicerequestbystudent/getwithdwalservicerequests", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.withdwalRequestList ?? [];
+}
+
+/** Cancelled service requests. Plain JSON {instituteid}. Read-only list. Backend key has a typo (`cencelled`). */
+export async function getCancelledRequests(client, session) {
+  const body = await client.postRaw("/servicerequestbystudent/getcancelledwalservicerequests", {
+    instituteid: session.instituteid,
+  });
+  return body.response?.cencelledRequestList ?? [];
+}
+
+/** No-dues form flag. Encrypted {instituteid}. Returns response as-is. */
+export async function getNoDuesForm(client, session) {
+  const body = await client.post("/noduesstatus/showform", {
+    instituteid: session.instituteid,
+  });
+  return body.response;
+}
+
+/** No-dues fee status. Encrypted {instituteid}. Returns response as-is. */
+export async function getNoDuesFeeStatus(client, session) {
+  const body = await client.post("/noduesstatus/getfeestatus", {
+    instituteid: session.instituteid,
+  });
+  return body.response;
+}
+
+/** No-dues activities. Encrypted {instituteid}. Backend path has a typo (`activites`). Returns response as-is. */
+export async function getNoDuesActivities(client, session) {
+  const body = await client.post("/noduesstatus/getactivites", {
+    instituteid: session.instituteid,
+  });
+  return body.response;
+}
+
+/** Hostel allocation detail. Plain JSON {instituteid} — official app sends it unencrypted here. */
+export async function getHostelDetail(client, session) {
+  const body = await client.postRaw("/myhostelallocationdetail/gethostelallocationdetail", {
+    instituteid: session.instituteid,
+  });
+  return {
+    present: body.response?.presenthosteldetail,
+    authorities: body.response?.presenthostelauthoritiesdetail,
+  };
+}
+
+/** Disciplinary details. Encrypted {} (empty object). */
+export async function getDisciplinary(client, session) {
+  const body = await client.post("/studentdisciplinarydetails/getstudentdisciplinarydetails", {});
+  return body.response?.studentdisciplinarydetails ?? [];
 }

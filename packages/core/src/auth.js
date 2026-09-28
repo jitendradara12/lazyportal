@@ -21,8 +21,7 @@ export async function login(
   client,
   { username, password, captchaText, captcha, usertype = "S" }
 ) {
-  const clean = username.startsWith("P") && usertype === "P" ? username : username;
-  const userField = usertype === "P" && !clean.startsWith("P") ? `P${clean}` : clean;
+  const userField = usertype === "P" && !username.startsWith("P") ? `P${username}` : username;
 
   const pre = await client.post(PRETOKEN, {
     username: userField,
@@ -53,8 +52,6 @@ export async function login(
     institutename: institute?.label ?? null,
     institutelist: r.institutelist ?? [],
     username: userField,
-    tokendate: new Date().toString(),
-    bypass: r.bypass ?? null,
-    clientidforlink: gen.response.clientidforlink ?? null,
+    bypassValue: r.bypass ?? null,
   };
 }
