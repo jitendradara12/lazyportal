@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
@@ -30,40 +31,79 @@ function short(r: AttRow): boolean {
   return [pct(r.Lpercentage), pct(r.Tpercentage), pct(r.Ppercentage)].some((n) => n !== null && n < 75);
 }
 
-function SubjectDetail({ row, registrationid, registrationcode, session, onLogout }: {
+function SubjectDetailToggle(props: {
   row: AttRow & Record<string, unknown>;
   registrationid?: string;
   registrationcode?: string;
   session: SectionProps["session"];
   onLogout: () => void;
 }) {
-  const detail = useFeature<Record<string, Record<string, unknown>>>({
-    run: () => features.getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }),
-    deps: [session, registrationid, String(row.subjectid)],
-    onUnauthorized: onLogout,
-  });
-  if (detail.loading) return <p className="muted">Loading detail…</p>;
-  if (detail.error) return <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />;
-  const types = Object.keys(detail.data ?? {});
-  if (types.length === 0) return <p className="muted">No detail rows.</p>;
+  const [which, setWhich] = useState<"current" | "previous">("current");
   return (
     <>
-      {types.map((t) => (
-        <div key={t}>
-          <h3>{t} component</h3>
-          <UnknownData data={detail.data?.[t]} />
-        </div>
-      ))}
+      <span className="semrow">
+        <button onClick={() => setWhich("current")} disabled={which === "current"}>Current</button>
+        <button onClick={() => setWhich("previous")} disabled={which === "previous"}>Previous</button>
+      </span>
+      <SubjectDetail {...props} which={which} />
     </>
   );
 }
 
-export function AttendanceSection({ session, onLogout }: SectionProps) {  const att = useFeature<AttData>({
+function SubjectDetail({ row, registrationid, registrationcode, session, onLogout, which }: {
+  row: AttRow & Record<string, unknown>;
+  registrationid?: string;
+  registrationcode?: string;
+  session: SectionProps["session"];
+  onLogout: () => void;
+  which: "current" | "previous";
+}) {
+  const base = { subjectid: row.subjectid, registrationid, subjectcode: row.individualsubjectcode ?? row.subjectcode, registrationcode };
+  const current = useFeature<Record<string, Record<string, unknown>>>({
+    run: () => features.getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }),
+    deps: [session, registrationid, String(row.subjectid)],
+    enabled: which === "current",
+    onUnauthorized: onLogout,
+  });
+  const previous = useFeature<Record<string, unknown>>({
+    run: () =>
+      features.getPreviousSubjectAttendance(client, session, {
+        ...base,
+        components: [row.Lsubjectcomponentid, row.Tsubjectcomponentid, row.Psubjectcomponentid]
+          .filter(Boolean)
+          .join(","),
+      }),
+    deps: [session, registrationid, String(row.subjectid)],
+    enabled: which === "previous",
+    onUnauthorized: onLogout,
+  });
+  const active = which === "current" ? current : previous;
+  if (active.loading) return <p className="muted">Loading detail…</p>;
+  if (active.error) return <SectionError label="Subject detail" error={active.error} retry={active.retry} />;
+  if (which === "current") {
+    const types = Object.keys(current.data ?? {});
+    if (types.length === 0) return <p className="muted">No detail rows.</p>;
+    return (
+      <>
+        {types.map((t) => (
+          <div key={t}>
+            <h3>{t} component</h3>
+            <UnknownData data={current.data?.[t]} />
+          </div>
+        ))}
+      </>
+    );
+  }
+  return <UnknownData data={previous.data} />;
+}
+
+export function AttendanceSection({ session, onLogout }: SectionProps) {
+  const att = useFeature<AttData>({
     run: () => features.getAttendance(client, session),
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [semId, setSemId] = useState<string | null>(null);
+  const [semId, setSemId] = usePersistentState("sem.attendance", null);
   useEffect(() => {
     const first = att.data?.semesters?.[0]?.registrationid;
     if (first != null && semId === null) setSemId(String(first));
@@ -137,7 +177,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {  const 
                   {open === i && (
                     <tr key={`${i}-detail`}>
                       <td colSpan={6}>
-                        <SubjectDetail
+                        <SubjectDetailToggle
                           row={r as AttRow & Record<string, unknown>}
                           registrationid={sem?.registrationid}
                           registrationcode={sem?.registrationcode}

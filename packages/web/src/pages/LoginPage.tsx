@@ -118,7 +118,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         )}
         <label>
           Captcha text
-          <input required value={captchaText} onChange={(e) => setCaptchaText(e.target.value)} />
+          <input required autoComplete="off" inputMode="text" autoCapitalize="off" value={captchaText} onChange={(e) => setCaptchaText(e.target.value)} />
         </label>
         <button type="submit" disabled={!ready}>
           {busy ? "Signing in…" : "Login once, stay logged in"}

@@ -248,6 +248,44 @@ export async function getPhotoWindow(client, session) {
   return body.response ?? null;
 }
 
+/** Choice-print semesters. Encrypted {} -> registrationcodelist. */
+export async function getChoiceSemesters(client) {
+  const body = await client.post("/studentchoiceprint/getsemestercodelist", {});
+  return body.response?.registrationcodelist ?? [];
+}
+
+/** Enrolled subjects for a semester. Encrypted {instituteid, clientid, registrationid}. */
+export async function getChoiceSubjects(client, session, { registrationid }) {
+  const body = await client.post("/studentchoiceprint/getsubjectpreference", {
+    instituteid: session.instituteid,
+    clientid: session.clientid,
+    registrationid,
+  });
+  return body.response?.subjectpreferencegrid ?? [];
+}
+
+/** Enrolled subjects in one call: latest semester -> rows. */
+export async function getChoiceLatest(client, session) {
+  const semesters = await getChoiceSemesters(client);
+  const sem = semesters[0];
+  if (!sem) return { semesters, registrationcode: null, rows: [] };
+  const rows = await getChoiceSubjects(client, session, { registrationid: sem.registrationid });
+  return { semesters, registrationcode: sem.registrationcode ?? null, rows };
+}
+
+/** Previous-day L/T/P detail for one subject call. Same payload as current. */
+export async function getPreviousSubjectAttendance(client, session, { subjectid, registrationid, components, subjectcode, registrationcode }) {
+  const body = await client.post("/StudentClassAttendance/getpreviousstudentsubjectpersentage", {
+    instituteid: session.instituteid,
+    subjectid,
+    registrationid,
+    cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
+    subjectcode,
+    registrationcode,
+  });
+  return body.response;
+}
+
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */
 export async function getMarksSemesters(client, session) {
   const body = await client.post("/studentcommonsontroller/getsemestercode-exammarks", {

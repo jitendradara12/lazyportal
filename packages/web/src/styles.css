@@ -5,7 +5,7 @@ body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; }
 .card label { display: grid; gap: 6px; font-size: 14px; }
 .card input { padding: 10px; font-size: 16px; }
 .card button { padding: 12px; font-size: 16px; }
-.captcha { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+.captcha { max-width: 100%; min-height: 60px; background: #eee; border: 1px solid #ddd; border-radius: 8px; }
 .pwrow { display: flex; gap: 8px; }
 .pwrow input { flex: 1; min-width: 0; }
 .pwrow button { white-space: nowrap; }
@@ -24,7 +24,6 @@ body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; }
 .anchor-nav a { font-size: 15px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; white-space: nowrap; }
-thead th { position: sticky; top: 0; background: #fff; }
 tr.short td:last-child { color: #b00020; font-weight: 600; }
 .card h2 { margin: 0 0 4px; font-size: 18px; }
 .semrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; font-size: 16px; }

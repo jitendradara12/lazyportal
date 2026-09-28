@@ -46,12 +46,12 @@ function safeStorage() {
   }
 }
 
-const EXPIRED_KEY = "juet.portal.expired";
+const EXPIRED_KEY = "expired";
 
 /** Remember that the last logout was a server-side expiry (LoginPage shows a notice). */
 export function markSessionExpired() {
   try {
-    safeStorage()?.setItem(EXPIRED_KEY, "1");
+    safeStorage()?.setItem(PREFIX + EXPIRED_KEY, "1");
   } catch {
     /* storage blocked */
   }
@@ -59,10 +59,14 @@ export function markSessionExpired() {
 
 /** Read + clear the expiry flag. */
 export function consumeSessionExpired() {
+  return consumeKey(EXPIRED_KEY);
+}
+
+function consumeKey(key) {
   try {
     const s = safeStorage();
-    if (s?.getItem(EXPIRED_KEY) === "1") {
-      s.removeItem(EXPIRED_KEY);
+    if (s?.getItem(PREFIX + key) === "1") {
+      s.removeItem(PREFIX + key);
       return true;
     }
   } catch {

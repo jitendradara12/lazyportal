@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
@@ -25,7 +26,7 @@ export function GradesSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [semId, setSemId] = useState<string | null>(null);
+  const [semId, setSemId] = usePersistentState("sem.grades", null);
   useEffect(() => {
     const first = lov.data?.semesters?.[0]?.registrationid;
     if (first != null && semId === null) setSemId(String(first));

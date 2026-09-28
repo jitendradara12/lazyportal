@@ -7,7 +7,8 @@ import { getFeeSummary, getAttendance, getMarksSemesters, getMarks, getMarksLate
   getPaidRequests, getWithdrawnRequests, getCancelledRequests, getNoDuesForm,
   getNoDuesFeeStatus, getNoDuesActivities, getHostelDetail, getDisciplinary,
   getNotices, getMedicalInfo, getFacultiesLatest, getFeeEvents, getSubjectAttendanceAll,
-  getBankInfo, getPhotoWindow } from "../src/features.js";
+  getBankInfo, getPhotoWindow, getChoiceSemesters, getChoiceSubjects, getChoiceLatest,
+  getPreviousSubjectAttendance } from "../src/features.js";
 
 describe("features", () => {
   it("getFeeSummary posts raw instituteid and returns rows", async () => {
@@ -562,5 +563,40 @@ describe("features", () => {
     const out = await getPhotoWindow(fake, { instituteid: "i1" });
     assert.deepEqual(seen, ["/studentpersinfo/checkphotouploadevent", { instituteid: "i1" }]);
     assert.equal(out, "Change Photo");
+  });
+
+  it("getChoiceLatest chains empty-object LOV into subject rows", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        if (endpoint.endsWith("getsemestercodelist")) {
+          return { response: { registrationcodelist: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
+        }
+        return { response: { subjectpreferencegrid: [{ subjectcode: "S1" }] } };
+      },
+    };
+    const out = await getChoiceLatest(fake, { instituteid: "i1", clientid: "c1" });
+    assert.deepEqual(calls[0][1], {});
+    assert.deepEqual(calls[1][1], { instituteid: "i1", clientid: "c1", registrationid: "r1" });
+    assert.equal(out.rows.length, 1);
+  });
+
+  it("getPreviousSubjectAttendance mirrors the current payload shape", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: {} };
+      },
+    };
+    await getPreviousSubjectAttendance(fake, { instituteid: "i1" }, {
+      subjectid: "s1", registrationid: "r1", components: "c1",
+      subjectcode: "SC1", registrationcode: "RC1",
+    });
+    assert.deepEqual(seen, [
+      "/StudentClassAttendance/getpreviousstudentsubjectpersentage",
+      { instituteid: "i1", subjectid: "s1", registrationid: "r1", cmpidkey: [{ subjectcomponentid: "c1" }], subjectcode: "SC1", registrationcode: "RC1" },
+    ]);
   });
 });

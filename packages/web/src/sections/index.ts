@@ -12,6 +12,7 @@ import { ProfileSection } from "./profile";
 import { FacultySection } from "./faculty";
 import { NoduesSection } from "./nodues";
 import { HostelSection } from "./hostel";
+import { SubjectsSection } from "./subjects";
 
 export interface SectionEntry {
   id: string;
@@ -37,4 +38,5 @@ export const SECTIONS: SectionEntry[] = [
   { id: "faculty", label: "Faculty", Component: FacultySection },
   { id: "nodues", label: "No-dues", Component: NoduesSection },
   { id: "hostel", label: "Hostel", Component: HostelSection },
+  { id: "subjects", label: "Subjects", Component: SubjectsSection },
 ];

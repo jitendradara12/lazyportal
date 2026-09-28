@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
@@ -23,7 +24,7 @@ export function CgpaSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [sty, setSty] = useState<string | null>(null);
+  const [sty, setSty] = usePersistentState("sem.cgpa", null);
   useEffect(() => {
     const first = lov.data?.semesters?.[0]?.stynumber;
     if (first != null && sty === null) setSty(String(first));

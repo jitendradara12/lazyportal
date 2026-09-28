@@ -35,3 +35,5 @@ add a file plus one registry line. Nothing else changes.
 ## Adding a feature
 
 Check `main.*.js` for the `dataService.post("/xxx",…)` call and whether the call site encrypts. Add one function in `features.js` with a mocked-client test, then call it from a page. UI never imports `crypto`.
+
+To get the bundle: open `https://studentportal.juet.ac.in/studentportal/`, find the `main.*.js` script URL in page source, download it, and grep. The class timetable does not exist there, only the exam-schedule endpoint, so don't promise one.
