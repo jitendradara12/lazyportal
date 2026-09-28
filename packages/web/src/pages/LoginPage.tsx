@@ -82,7 +82,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
             />
-            <button type="button" onClick={() => setShowPassword((v) => !v)} disabled={busy}>
+            <button type="button" onClick={() => setShowPassword((v) => !v)} disabled={busy} aria-pressed={showPassword} aria-label={showPassword ? "Hide password" : "Show password"}>
               {showPassword ? "Hide" : "Show"}
             </button>
           </span>

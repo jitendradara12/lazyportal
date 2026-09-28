@@ -45,6 +45,7 @@ export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized }
     let live = true;
     setLoading(true);
     setError(null);
+    setData(null);
     runRef.current().then(
       (d) => {
         if (!live) return;

@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useState } from "react";
-import { usePersistentState } from "../hooks/usePersistentState";
+import { Fragment, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
-import { SectionError, UnknownData } from "../components/DataViews";
+import { useSemester } from "../hooks/useSemester";
+import { SectionError, UnknownData, isShort } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
 interface AttRow {
@@ -18,17 +18,6 @@ interface AttData {
   semesters: Semester[];
   registrationcode?: string | null;
   rows: AttRow[];
-}
-
-function pct(v: string | undefined): number | null {
-  if (v == null) return null;
-  const n = Number(String(v).replace("%", ""));
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Below 75% in any component counts as short. */
-function short(r: AttRow): boolean {
-  return [pct(r.Lpercentage), pct(r.Tpercentage), pct(r.Ppercentage)].some((n) => n !== null && n < 75);
 }
 
 function SubjectDetailToggle(props: {
@@ -86,12 +75,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [semId, setSemId] = usePersistentState("sem.attendance", null);
-  useEffect(() => {
-    const first = att.data?.semesters?.[0]?.registrationid;
-    if (first != null && semId === null) setSemId(String(first));
-  }, [att.data, semId]);
-  const sem = att.data?.semesters?.find((s) => String(s.registrationid) === semId) ?? null;
+  const [semId, setSemId, sem] = useSemester("attendance", att.data?.semesters);
   const isDefault = semId === String(att.data?.semesters?.[0]?.registrationid);
   const detail = useFeature<{ rows: AttRow[] }>({
     run: () =>
@@ -143,14 +127,14 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
         <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>Subject</th><th>L%</th><th>T%</th><th>P%</th><th></th><th></th></tr>
+              <tr><th>Subject</th><th>L%</th><th>T%</th><th>P%</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <Fragment key={i}>
-                  <tr className={short(r) ? "short" : undefined}>
+                  <tr className={isShort(r) ? "short" : undefined}>
                     <td>{r.subjectcode}</td><td>{r.Lpercentage}</td><td>{r.Tpercentage}</td><td>{r.Ppercentage}</td>
-                    <td>{short(r) ? "Short" : ""}</td>
+                    <td>{isShort(r) ? "Short" : ""}</td>
                     <td>
                       <button onClick={() => setOpen(open === i ? null : i)}>
                         {open === i ? "Hide" : "Detail"}

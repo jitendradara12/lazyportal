@@ -1,14 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getFeeSummary, getAttendance, getMarksSemesters, getMarks, getMarksLatest,
-  getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getPersonalInfo,
-  getPendingServiceRequests, getPayslipDues, getSgpaStudentInfo, getSgpaCurrentSem,
-  getSgpaSemesters, getSgpaDetail, getSgpaLatest, getApprovedRequests, getClosedRequests,
-  getPaidRequests, getWithdrawnRequests, getCancelledRequests, getNoDuesForm,
-  getNoDuesFeeStatus, getNoDuesActivities, getHostelDetail, getDisciplinary,
-  getNotices, getMedicalInfo, getFacultiesLatest, getFeeEvents, getSubjectAttendanceAll,
-  getBankInfo, getPhotoWindow, getChoiceSemesters, getChoiceSubjects, getChoiceLatest,
-  getPreviousSubjectAttendance, getPreviousSubjectAttendanceAll } from "../src/features.js";
+import { getFeeSummary, getPayslipDues, getFeeEvents, getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getPersonalInfo, getPendingServiceRequests, getMedicalInfo, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getApprovedRequests, getClosedRequests, getPaidRequests, getWithdrawnRequests, getCancelledRequests, getFacultyRegistrations, getSubjectAttendanceAll, getChoiceSemesters, getChoiceSubjects } from "../src/features.js";
 
 describe("features", () => {
   it("getFeeSummary posts raw instituteid and returns rows", async () => {
@@ -21,6 +13,41 @@ describe("features", () => {
     };
     const rows = await getFeeSummary(fake, { instituteid: "i1" });
     assert.deepEqual(seen, ["/studentfeeledger/loadfeesummary", { instituteid: "i1" }]);
+    assert.equal(rows.length, 1);
+  });
+
+  it("getFeeSummary returns [] on odd shapes", async () => {
+    const fake = {
+      async postRaw() {
+        return { response: { feesummarydata: { dueamount: "10" } } };
+      },
+    };
+    assert.deepEqual(await getFeeSummary(fake, { instituteid: "i1" }), []);
+  });
+
+  it("getPayslipDues posts encrypted enrollmentno", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { studentlist: [{ dueamount: "5" }] } };
+      },
+    };
+    const rows = await getPayslipDues(fake, { enrollmentno: "E1" });
+    assert.deepEqual(seen, ["/feepayslipcontroller/getdueamountdetails", { enrollmentno: "E1" }]);
+    assert.equal(rows.length, 1);
+  });
+
+  it("getFeeEvents posts encrypted instituteid+maineventid", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { formdatetodate: [{ eventid: "e1" }] } };
+      },
+    };
+    const rows = await getFeeEvents(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/onlinefeepayment/getmyactivefeeevents", { instituteid: "i1", maineventid: "" }]);
     assert.equal(rows.length, 1);
   });
 
@@ -206,44 +233,21 @@ describe("features", () => {
     assert.deepEqual(calls[2][1], { instituteid: "i1", registrationid: "r1", branchid: "b1", programid: "p1" });
   });
 
-  it("getPersonalInfo posts raw instituteid", async () => {
-    let seen;
+  it("getGradesLatest returns empty rows when no registrations", async () => {
     const fake = {
-      async postRaw(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { generalinformation: { name: "N" }, qualification: [] } };
+      async post(endpoint) {
+        if (endpoint.endsWith("getstudentinfo")) return { response: { studentinfo: { branchid: "b1", programid: "p1" } } };
+        if (endpoint.endsWith("getregistrationList")) return { response: { registrations: [] } };
+        throw new Error("should not be called");
       },
     };
-    const info = await getPersonalInfo(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/studentpersinfo/getstudent-personalinformation", { instituteid: "i1" }]);
-    assert.equal(info.general.name, "N");
+    const out = await getGradesLatest(fake, { instituteid: "i1" });
+    assert.deepEqual(out.rows, []);
+    assert.equal(out.registrationcode, null);
   });
 
-  it("getPendingServiceRequests posts raw instituteid", async () => {
-    let seen;
-    const fake = {
-      async postRaw(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { pendingList: [{ requestno: "R1" }] } };
-      },
-    };
-    const rows = await getPendingServiceRequests(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/servicerequestbystudent/getpendingservicerequestgrid", { instituteid: "i1" }]);
-    assert.equal(rows.length, 1);
-  });
 
-  it("getPayslipDues posts encrypted enrollmentno", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { studentlist: [{ dueamount: "5" }] } };
-      },
-    };
-    const rows = await getPayslipDues(fake, { enrollmentno: "E1" });
-    assert.deepEqual(seen, ["/feepayslipcontroller/getdueamountdetails", { enrollmentno: "E1" }]);
-    assert.equal(rows.length, 1);
-  });
+
 
   it("getSgpaStudentInfo posts encrypted instituteid and returns studentInfo[0]", async () => {
     let seen;
@@ -337,6 +341,211 @@ describe("features", () => {
     assert.deepEqual(out.semesters, []);
   });
 
+  it("getSgpaLatest falls back to stynumber when currentsemester is null", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        if (endpoint.endsWith("/loadData")) {
+          return { response: { studentInfo: [{ studentid: "s1", name: "N", enrollmentno: "E1", stynumber: "3" }] } };
+        }
+        if (endpoint.endsWith("checkIfstudentmasterexist")) {
+          return { response: { studentlov: { currentsemester: null } } };
+        }
+        return { response: { semesterList: [{ stynumber: "3" }] } };
+      },
+    };
+    const out = await getSgpaLatest(fake, { instituteid: "i1" });
+    assert.equal(out.currentsem, "3");
+    assert.deepEqual(calls[2][1], { instituteid: "i1", studentid: "s1", stynumber: "3" });
+  });
+
+
+
+
+
+
+
+
+
+
+
+
+
+  it("getFacultyRegistrations empty list means no detail call", async () => {
+    const fake = {
+      async post(endpoint) {
+        if (endpoint.endsWith("getregistrationList")) return { response: { registrations: [] } };
+        throw new Error("should not be called");
+      },
+    };
+    assert.deepEqual(await getFacultyRegistrations(fake, { instituteid: "i1" }), []);
+  });
+
+
+  it("getSubjectAttendanceAll fans out over L/T/P components", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [] } };
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1", individualsubjectcode: "ISC1",
+      Lsubjectcomponentid: "c1,c2", Tsubjectcomponentid: "", Psubjectcomponentid: "c3",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.deepEqual(Object.keys(out).sort(), ["L", "P"]);
+    assert.deepEqual(calls[0][1].cmpidkey, [{ subjectcomponentid: "c1" }, { subjectcomponentid: "c2" }]);
+    assert.equal(calls[0][1].subjectcode, "ISC1");
+  });
+
+
+
+
+
+
+  it("getChoiceSemesters posts empty object and returns registrationcodelist", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { registrationcodelist: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
+      },
+    };
+    const sems = await getChoiceSemesters(fake);
+    assert.deepEqual(seen, ["/studentchoiceprint/getsemestercodelist", {}]);
+    assert.equal(sems.length, 1);
+    assert.equal(sems[0].registrationid, "r1");
+  });
+
+  it("getChoiceSemesters returns [] on odd shapes", async () => {
+    const fake = { async post() { return { response: { registrationcodelist: {} } }; } };
+    assert.deepEqual(await getChoiceSemesters(fake), []);
+  });
+
+  it("getChoiceSubjects posts instituteid/clientid/registrationid and returns grid", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { subjectpreferencegrid: [{ subjectcode: "S1" }] } };
+      },
+    };
+    const rows = await getChoiceSubjects(fake, { instituteid: "i1", clientid: "c1" }, { registrationid: "r1" });
+    assert.deepEqual(seen, [
+      "/studentchoiceprint/getsubjectpreference",
+      { instituteid: "i1", clientid: "c1", registrationid: "r1" },
+    ]);
+    assert.equal(rows.length, 1);
+  });
+
+  it("getSubjectAttendanceAll previous branch hits mirrored endpoint", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [] } };
+      },
+    };
+    const row = { subjectid: "s1", subjectcode: "SC1", Psubjectcomponentid: "c9" };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }, "previous");
+    assert.deepEqual(Object.keys(out), ["P"]);
+    assert.ok(calls.every(([e]) => e.endsWith("getpreviousstudentsubjectpersentage")));
+  });
+
+  it("fetchSubjectAttendance current branch posts percentage endpoint", async () => {
+    let seen;
+    const fake = {
+      async post(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { summary: [] } };
+      },
+    };
+    const { fetchSubjectAttendance } = await import("../src/features.js");
+    await fetchSubjectAttendance(fake, { instituteid: "i1" }, "current", {
+      subjectid: "s1", registrationid: "r1", components: "c1,c2",
+      subjectcode: "SC1", registrationcode: "RC1",
+    });
+    assert.deepEqual(seen, [
+      "/StudentClassAttendance/getstudentsubjectpersentage",
+      { instituteid: "i1", subjectid: "s1", registrationid: "r1", cmpidkey: [{ subjectcomponentid: "c1" }, { subjectcomponentid: "c2" }], subjectcode: "SC1", registrationcode: "RC1" },
+    ]);
+  });
+
+  it("leaf getters pass through their endpoints", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push(endpoint);
+        return { response: {} };
+      },
+      async postRaw(endpoint) {
+        calls.push(endpoint);
+        return { response: {} };
+      },
+    };
+    const { getAttendanceRegistrations: reg, getAttendanceDetail: det, getGradeStudentInfo: gsi,
+      getGradeRegistrations: gr, getGradeCard: gc, getFacultyRegistrations: fr, getFaculties: fac } =
+      await import("../src/features.js");
+    await reg(fake, { instituteid: "i1" });
+    await det(fake, { instituteid: "i1" }, { stynumber: "s", registrationid: "r", registrationcode: "c" });
+    await gsi(fake, { instituteid: "i1" });
+    await gr(fake, { instituteid: "i1" });
+    await gc(fake, { instituteid: "i1" }, { registrationid: "r", branchid: "b", programid: "p" });
+    await fr(fake, { instituteid: "i1" });
+    await fac(fake, { instituteid: "i1" }, { registrationid: "r" });
+    for (const e of [
+      "/StudentClassAttendance/getstudentInforegistrationforattendence",
+      "/StudentClassAttendance/getstudentattendancedetail",
+      "/studentgradecard/getstudentinfo",
+      "/studentgradecard/getregistrationList",
+      "/studentgradecard/showstudentgradecard",
+      "/reqsubfaculty/getregistrationList",
+      "/reqsubfaculty/getfaculties",
+    ]) assert.ok(calls.includes(e), e);
+  });
+
+  it("getPersonalInfo posts raw instituteid and returns general+qualification", async () => {
+    let seen;
+    const fake = {
+      async postRaw(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { generalinformation: { name: "N" }, qualification: [] } };
+      },
+    };
+    const info = await getPersonalInfo(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/studentpersinfo/getstudent-personalinformation", { instituteid: "i1" }]);
+    assert.equal(info.general.name, "N");
+  });
+
+  it("getMedicalInfo posts raw instituteid and returns response", async () => {
+    let seen;
+    const fake = {
+      async postRaw(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { bloodgroup: "O+" } };
+      },
+    };
+    const info = await getMedicalInfo(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/studentinformation/getstudentmedicalinfo", { instituteid: "i1" }]);
+    assert.equal(info.bloodgroup, "O+");
+  });
+
+  it("getPendingServiceRequests posts raw instituteid and returns pendingList", async () => {
+    let seen;
+    const fake = {
+      async postRaw(endpoint, payload) {
+        seen = [endpoint, payload];
+        return { response: { pendingList: [{ requestno: "R1" }] } };
+      },
+    };
+    const rows = await getPendingServiceRequests(fake, { instituteid: "i1" });
+    assert.deepEqual(seen, ["/servicerequestbystudent/getpendingservicerequestgrid", { instituteid: "i1" }]);
+    assert.equal(rows.length, 1);
+  });
+
   it("getApprovedRequests posts raw instituteid and returns approvedList", async () => {
     let seen;
     const fake = {
@@ -400,250 +609,5 @@ describe("features", () => {
     const rows = await getCancelledRequests(fake, { instituteid: "i1" });
     assert.deepEqual(seen, ["/servicerequestbystudent/getcancelledwalservicerequests", { instituteid: "i1" }]);
     assert.equal(rows.length, 1);
-  });
-
-  it("getNoDuesForm posts encrypted instituteid and returns response", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { formflag: true } };
-      },
-    };
-    const res = await getNoDuesForm(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/noduesstatus/showform", { instituteid: "i1" }]);
-    assert.equal(res.formflag, true);
-  });
-
-  it("getNoDuesFeeStatus posts encrypted instituteid and returns response", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: [{ fee: "0" }] };
-      },
-    };
-    const res = await getNoDuesFeeStatus(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/noduesstatus/getfeestatus", { instituteid: "i1" }]);
-    assert.equal(res.length, 1);
-  });
-
-  it("getNoDuesActivities posts encrypted instituteid and returns response", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: [{ activity: "LIB" }] };
-      },
-    };
-    const res = await getNoDuesActivities(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/noduesstatus/getactivites", { instituteid: "i1" }]);
-    assert.equal(res.length, 1);
-  });
-
-  it("getHostelDetail posts raw instituteid and returns present+authorities", async () => {
-    let seen;
-    const fake = {
-      async postRaw(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { presenthosteldetail: { hosteldescription: "H1" }, presenthostelauthoritiesdetail: [{ employeename: "W" }] } };
-      },
-    };
-    const out = await getHostelDetail(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/myhostelallocationdetail/gethostelallocationdetail", { instituteid: "i1" }]);
-    assert.equal(out.present.hosteldescription, "H1");
-    assert.equal(out.authorities.length, 1);
-  });
-
-  it("getDisciplinary posts encrypted empty object and returns list", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { studentdisciplinarydetails: [{ misconduct: "M1" }] } };
-      },
-    };
-    const rows = await getDisciplinary(fake, {});
-    assert.deepEqual(seen, ["/studentdisciplinarydetails/getstudentdisciplinarydetails", {}]);
-    assert.equal(rows.length, 1);
-  });
-
-  it("getNotices uses public GET and normalizes text", async () => {
-    const fake = {
-      async getPublic(endpoint) {
-        assert.equal(endpoint, "/token/marqeelist");
-        return { response: { text: ["a", "b"] } };
-      },
-    };
-    assert.deepEqual(await getNotices(fake), ["a", "b"]);
-  });
-
-  it("getMedicalInfo posts raw instituteid", async () => {
-    let seen;
-    const fake = {
-      async postRaw(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { studentMap: [] } };
-      },
-    };
-    const out = await getMedicalInfo(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/studentinformation/getstudentmedicalinfo", { instituteid: "i1" }]);
-    assert.ok(out.studentMap);
-  });
-
-  it("getFacultiesLatest chains registrations into faculty rows", async () => {
-    const calls = [];
-    const fake = {
-      async post(endpoint, payload) {
-        calls.push([endpoint, payload]);
-        if (endpoint.endsWith("getregistrationList")) {
-          return { response: { registrations: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
-        }
-        return { response: { registrations: [{ subjectcode: "S1" }], totalcreditpoints: "20" } };
-      },
-    };
-    const out = await getFacultiesLatest(fake, { instituteid: "i1" });
-    assert.equal(out.rows.length, 1);
-    assert.equal(out.totalcreditpoints, "20");
-    assert.deepEqual(calls[1][1], { instituteid: "i1", registrationid: "r1" });
-  });
-
-  it("getFeeEvents posts encrypted instituteid+maineventid", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { formdatetodate: [{ eventid: "e1" }] } };
-      },
-    };
-    const rows = await getFeeEvents(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/onlinefeepayment/getmyactivefeeevents", { instituteid: "i1", maineventid: "" }]);
-    assert.equal(rows.length, 1);
-  });
-
-  it("getSubjectAttendanceAll fans out over L/T/P components", async () => {
-    const calls = [];
-    const fake = {
-      async post(endpoint, payload) {
-        calls.push([endpoint, payload]);
-        return { response: { summary: [] } };
-      },
-    };
-    const row = {
-      subjectid: "s1", subjectcode: "SC1", individualsubjectcode: "ISC1",
-      Lsubjectcomponentid: "c1,c2", Tsubjectcomponentid: "", Psubjectcomponentid: "c3",
-    };
-    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
-    assert.deepEqual(Object.keys(out).sort(), ["L", "P"]);
-    assert.deepEqual(calls[0][1].cmpidkey, [{ subjectcomponentid: "c1" }, { subjectcomponentid: "c2" }]);
-    assert.equal(calls[0][1].subjectcode, "ISC1");
-  });
-
-  it("getBankInfo posts encrypted instituteid", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { bankinfo: {} } };
-      },
-    };
-    const out = await getBankInfo(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/studentbankdetails/getstudentbankinfo", { instituteid: "i1" }]);
-    assert.ok(out.bankinfo);
-  });
-
-  it("getPhotoWindow posts raw instituteid", async () => {
-    let seen;
-    const fake = {
-      async postRaw(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: "Change Photo" };
-      },
-    };
-    const out = await getPhotoWindow(fake, { instituteid: "i1" });
-    assert.deepEqual(seen, ["/studentpersinfo/checkphotouploadevent", { instituteid: "i1" }]);
-    assert.equal(out, "Change Photo");
-  });
-
-  it("getChoiceLatest chains empty-object LOV into subject rows", async () => {
-    const calls = [];
-    const fake = {
-      async post(endpoint, payload) {
-        calls.push([endpoint, payload]);
-        if (endpoint.endsWith("getsemestercodelist")) {
-          return { response: { registrationcodelist: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
-        }
-        return { response: { subjectpreferencegrid: [{ subjectcode: "S1" }] } };
-      },
-    };
-    const out = await getChoiceLatest(fake, { instituteid: "i1", clientid: "c1" });
-    assert.deepEqual(calls[0][1], {});
-    assert.deepEqual(calls[1][1], { instituteid: "i1", clientid: "c1", registrationid: "r1" });
-    assert.equal(out.rows.length, 1);
-  });
-
-  it("getPreviousSubjectAttendance mirrors the current payload shape", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: {} };
-      },
-    };
-    await getPreviousSubjectAttendance(fake, { instituteid: "i1" }, {
-      subjectid: "s1", registrationid: "r1", components: "c1",
-      subjectcode: "SC1", registrationcode: "RC1",
-    });
-    assert.deepEqual(seen, [
-      "/StudentClassAttendance/getpreviousstudentsubjectpersentage",
-      { instituteid: "i1", subjectid: "s1", registrationid: "r1", cmpidkey: [{ subjectcomponentid: "c1" }], subjectcode: "SC1", registrationcode: "RC1" },
-    ]);
-  });
-
-  it("getPreviousSubjectAttendanceAll fans out over the mirrored endpoint", async () => {
-    const calls = [];
-    const fake = {
-      async post(endpoint, payload) {
-        calls.push([endpoint, payload]);
-        return { response: {} };
-      },
-    };
-    const row = { subjectid: "s1", subjectcode: "SC1", Psubjectcomponentid: "c9" };
-    const out = await getPreviousSubjectAttendanceAll(fake, {}, row, { registrationid: "r1", registrationcode: "RC1" });
-    assert.deepEqual(Object.keys(out), ["P"]);
-    assert.ok(calls.every(([e]) => e.endsWith("getpreviousstudentsubjectpersentage")));
-  });
-
-  it("leaf getters pass through their endpoints", async () => {
-    const calls = [];
-    const fake = {
-      async post(endpoint, payload) {
-        calls.push(endpoint);
-        return { response: {} };
-      },
-      async postRaw(endpoint) {
-        calls.push(endpoint);
-        return { response: {} };
-      },
-    };
-    const { getAttendanceRegistrations: reg, getAttendanceDetail: det, getGradeStudentInfo: gsi,
-      getGradeRegistrations: gr, getGradeCard: gc, getFacultyRegistrations: fr, getFaculties: fac } =
-      await import("../src/features.js");
-    await reg(fake, { instituteid: "i1" });
-    await det(fake, { instituteid: "i1" }, { stynumber: "s", registrationid: "r", registrationcode: "c" });
-    await gsi(fake, { instituteid: "i1" });
-    await gr(fake, { instituteid: "i1" });
-    await gc(fake, { instituteid: "i1" }, { registrationid: "r", branchid: "b", programid: "p" });
-    await fr(fake, { instituteid: "i1" });
-    await fac(fake, { instituteid: "i1" }, { registrationid: "r" });
-    for (const e of [
-      "/StudentClassAttendance/getstudentInforegistrationforattendence",
-      "/StudentClassAttendance/getstudentattendancedetail",
-      "/studentgradecard/getstudentinfo",
-      "/studentgradecard/getregistrationList",
-      "/studentgradecard/showstudentgradecard",
-      "/reqsubfaculty/getregistrationList",
-      "/reqsubfaculty/getfaculties",
-    ]) assert.ok(calls.includes(e), e);
   });
 });

@@ -92,3 +92,49 @@ export function num(v: unknown): number {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 }
+
+/** Parse an exam datetime; null when missing/unparseable. */
+export function examTime(v?: string): number | null {
+  if (!v) return null;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : t;
+}
+
+export function countdown(ms: number): string {
+  const days = Math.floor(ms / 86400000);
+  if (days > 1) return `in ${days} days`;
+  if (days === 1) return "tomorrow";
+  const hours = Math.floor(ms / 3600000);
+  if (hours >= 1) return `in ${hours}h`;
+  return "today";
+}
+
+export function pct(v: string | undefined): number | null {
+  if (v == null) return null;
+  const n = Number(String(v).replace("%", ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Below 75% in any component counts as short. */
+export function isShort(r: { Lpercentage?: string; Tpercentage?: string; Ppercentage?: string }): boolean {
+  return [pct(r.Lpercentage), pct(r.Tpercentage), pct(r.Ppercentage)].some((n) => n !== null && n < 75);
+}
+
+/** Keep only columns matching any pattern (case-insensitive key spelling varies live). */
+export function selectColumns(rows: Record<string, unknown>[], keep: RegExp[]): Record<string, unknown>[] {
+  return rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => keep.some((re) => re.test(k)))));
+}
+
+export interface PayslipRow {
+  currencycode?: string;
+  dueamount?: string | number;
+}
+
+export function payslipTotals(rows: PayslipRow[]): { currency: string; total: number }[] {
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const cur = r.currencycode ?? "";
+    sums.set(cur, (sums.get(cur) ?? 0) + num(r.dueamount));
+  }
+  return [...sums.entries()].map(([currency, total]) => ({ currency, total }));
+}

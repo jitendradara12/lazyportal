@@ -40,15 +40,6 @@ export async function getAttendance(client, session) {
   return { header, semesters, registrationcode: sem.registrationcode, ...detail };
 }
 
-/** Fee summary rows (raw JSON endpoint, unencrypted). Returns array, [] on odd shapes. */
-export async function getFeeSummary(client, session) {
-  const body = await client.postRaw("/studentfeeledger/loadfeesummary", {
-    instituteid: session.instituteid,
-  });
-  const rows = body.response?.feesummarydata ?? body.response ?? [];
-  return Array.isArray(rows) ? rows : [];
-}
-
 /** Exam semesters. Encrypted {clientid, instituteid}. */
 export async function getExamSemesters(client, session) {
   const body = await client.post("/studentcommonsontroller/getsemestercode-withstudentexamevents", {
@@ -120,7 +111,7 @@ export async function getGradesLatest(client, session) {
   return { info, semesters, registrationcode: sem.registrationcode, rows };
 }
 
-/** Personal info. Plain JSON (official app skips AES here). */
+/** Personal info. Plain JSON (official app skips AES here). Read-only; no edits/uploads. */
 export async function getPersonalInfo(client, session) {
   const body = await client.postRaw("/studentpersinfo/getstudent-personalinformation", {
     instituteid: session.instituteid,
@@ -139,22 +130,7 @@ export async function getPendingServiceRequests(client, session) {
   return body.response?.pendingList ?? [];
 }
 
-/** Payslip dues by enrollment. Encrypted. Read-only. */
-export async function getPayslipDues(client, session) {
-  const body = await client.post("/feepayslipcontroller/getdueamountdetails", {
-    enrollmentno: session.enrollmentno,
-  });
-  return body.response?.studentlist ?? [];
-}
-
-/** Announcements. Auth-free GET. */
-export async function getNotices(client) {
-  const body = await client.getPublic("/token/marqeelist");
-  const text = body.response?.text;
-  return Array.isArray(text) ? text : text == null ? [] : [text];
-}
-
-/** Medical info. Plain JSON (official app sends {} unencrypted). */
+/** Medical info. Plain JSON (official app sends {} unencrypted). Read-only. */
 export async function getMedicalInfo(client, session) {
   const body = await client.postRaw("/studentinformation/getstudentmedicalinfo", {
     instituteid: session.instituteid,
@@ -182,24 +158,6 @@ export async function getFaculties(client, session, { registrationid }) {
   };
 }
 
-/** Faculty lookup in one call: latest registration -> rows. */
-export async function getFacultiesLatest(client, session) {
-  const semesters = await getFacultyRegistrations(client, session);
-  const sem = semesters[0];
-  if (!sem) return { semesters, registrationcode: null, rows: [], totalcreditpoints: null };
-  const detail = await getFaculties(client, session, { registrationid: sem.registrationid });
-  return { semesters, registrationcode: sem.registrationcode ?? null, ...detail };
-}
-
-/** Active fee events (what is due now, read-only). Encrypted {instituteid, maineventid:""}. */
-export async function getFeeEvents(client, session) {
-  const body = await client.post("/onlinefeepayment/getmyactivefeeevents", {
-    instituteid: session.instituteid,
-    maineventid: "",
-  });
-  return body.response?.formdatetodate ?? [];
-}
-
 /** One subject-detail call. `previous` selects the previous-day endpoint. */
 export async function fetchSubjectAttendance(client, session, which, { subjectid, registrationid, components, subjectcode, registrationcode }) {
   const body = await client.post(
@@ -216,16 +174,6 @@ export async function fetchSubjectAttendance(client, session, which, { subjectid
     }
   );
   return body.response;
-}
-
-/** Per-subject attendance detail (which dates/components missed). One call per L/T/P type. */
-export async function getSubjectAttendance(client, session, args) {
-  return fetchSubjectAttendance(client, session, "current", args);
-}
-
-/** Previous-day variant of getSubjectAttendance. Same payload, mirrored endpoint. */
-export async function getPreviousSubjectAttendance(client, session, args) {
-  return fetchSubjectAttendance(client, session, "previous", args);
 }
 
 /** L/T/P detail for one attendance row in parallel. Skips types with no components. */
@@ -247,26 +195,11 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
   return out;
 }
 
-/** Bank info (read-only; refunds depend on it). Encrypted {instituteid}. */
-export async function getBankInfo(client, session) {
-  const body = await client.post("/studentbankdetails/getstudentbankinfo", {
-    instituteid: session.instituteid,
-  });
-  return body.response ?? null;
-}
-
-/** Photo upload window state. Plain JSON; response is a message string. */
-export async function getPhotoWindow(client, session) {
-  const body = await client.postRaw("/studentpersinfo/checkphotouploadevent", {
-    instituteid: session.instituteid,
-  });
-  return body.response ?? null;
-}
-
 /** Choice-print semesters. Encrypted {} -> registrationcodelist. */
 export async function getChoiceSemesters(client) {
   const body = await client.post("/studentchoiceprint/getsemestercodelist", {});
-  return body.response?.registrationcodelist ?? [];
+  const rows = body.response?.registrationcodelist ?? [];
+  return Array.isArray(rows) ? rows : [];
 }
 
 /** Enrolled subjects for a semester. Encrypted {instituteid, clientid, registrationid}. */
@@ -276,21 +209,8 @@ export async function getChoiceSubjects(client, session, { registrationid }) {
     clientid: session.clientid,
     registrationid,
   });
-  return body.response?.subjectpreferencegrid ?? [];
-}
-
-/** Enrolled subjects in one call: latest semester -> rows. */
-export async function getChoiceLatest(client, session) {
-  const semesters = await getChoiceSemesters(client);
-  const sem = semesters[0];
-  if (!sem) return { semesters, registrationcode: null, rows: [] };
-  const rows = await getChoiceSubjects(client, session, { registrationid: sem.registrationid });
-  return { semesters, registrationcode: sem.registrationcode ?? null, rows };
-}
-
-/** Previous-day L/T/P fan-out, mirroring getSubjectAttendanceAll. */
-export async function getPreviousSubjectAttendanceAll(client, session, row, ctx) {
-  return getSubjectAttendanceAll(client, session, row, ctx, "previous");
+  const rows = body.response?.subjectpreferencegrid ?? [];
+  return Array.isArray(rows) ? rows : [];
 }
 
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */
@@ -391,6 +311,32 @@ export async function getSgpaLatest(client, session) {
   return { student, currentsem, semesters };
 }
 
+/** Fee summary rows (raw JSON endpoint, unencrypted). Returns array, [] on odd shapes. Read-only. */
+export async function getFeeSummary(client, session) {
+  const body = await client.postRaw("/studentfeeledger/loadfeesummary", {
+    instituteid: session.instituteid,
+  });
+  const rows = body.response?.feesummarydata ?? body.response ?? [];
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** Payslip dues by enrollment. Encrypted. Read-only. */
+export async function getPayslipDues(client, session) {
+  const body = await client.post("/feepayslipcontroller/getdueamountdetails", {
+    enrollmentno: session.enrollmentno,
+  });
+  return body.response?.studentlist ?? [];
+}
+
+/** Active fee events (what is due now, read-only). Encrypted {instituteid, maineventid:""}. */
+export async function getFeeEvents(client, session) {
+  const body = await client.post("/onlinefeepayment/getmyactivefeeevents", {
+    instituteid: session.instituteid,
+    maineventid: "",
+  });
+  return body.response?.formdatetodate ?? [];
+}
+
 /** Approved service requests. Plain JSON {instituteid}. Read-only list. */
 export async function getApprovedRequests(client, session) {
   const body = await client.postRaw("/servicerequestbystudent/getapprovedrequestgrid", {
@@ -431,43 +377,3 @@ export async function getCancelledRequests(client, session) {
   return body.response?.cencelledRequestList ?? [];
 }
 
-/** No-dues form flag. Encrypted {instituteid}. Returns response as-is. */
-export async function getNoDuesForm(client, session) {
-  const body = await client.post("/noduesstatus/showform", {
-    instituteid: session.instituteid,
-  });
-  return body.response;
-}
-
-/** No-dues fee status. Encrypted {instituteid}. Returns response as-is. */
-export async function getNoDuesFeeStatus(client, session) {
-  const body = await client.post("/noduesstatus/getfeestatus", {
-    instituteid: session.instituteid,
-  });
-  return body.response;
-}
-
-/** No-dues activities. Encrypted {instituteid}. Backend path has a typo (`activites`). Returns response as-is. */
-export async function getNoDuesActivities(client, session) {
-  const body = await client.post("/noduesstatus/getactivites", {
-    instituteid: session.instituteid,
-  });
-  return body.response;
-}
-
-/** Hostel allocation detail. Plain JSON {instituteid} — official app sends it unencrypted here. */
-export async function getHostelDetail(client, session) {
-  const body = await client.postRaw("/myhostelallocationdetail/gethostelallocationdetail", {
-    instituteid: session.instituteid,
-  });
-  return {
-    present: body.response?.presenthosteldetail,
-    authorities: body.response?.presenthostelauthoritiesdetail,
-  };
-}
-
-/** Disciplinary details. Encrypted {} (empty object). */
-export async function getDisciplinary(client, session) {
-  const body = await client.post("/studentdisciplinarydetails/getstudentdisciplinarydetails", {});
-  return body.response?.studentdisciplinarydetails ?? [];
-}

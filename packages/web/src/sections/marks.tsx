@@ -1,31 +1,36 @@
-import { useEffect } from "react";
-import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
+import { useSemester } from "../hooks/useSemester";
 import { AutoTable, SectionError } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
+interface MarksDetail {
+  rows: Record<string, unknown>[];
+}
+
+interface MarksLatest extends MarksDetail {
+  semesters: Semester[];
+  registrationcode?: string | null;
+}
+
 export function MarksSection({ session, onLogout }: SectionProps) {
-  const lov = useFeature<{ semesters: Semester[]; registrationcode?: string | null; rows: Record<string, unknown>[] }>({
+  const lov = useFeature<MarksLatest>({
     run: () => features.getMarksLatest(client, session),
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [semId, setSemId] = usePersistentState("sem.marks", null);
-  useEffect(() => {
-    const first = lov.data?.semesters?.[0]?.registrationid;
-    if (first != null && semId === null) setSemId(String(first));
-  }, [lov.data, semId]);
-  const sem = lov.data?.semesters?.find((s) => String(s.registrationid) === semId) ?? null;
-  const detail = useFeature<{ rows: Record<string, unknown>[] }>({
+  const [semId, setSemId, sem] = useSemester("marks", lov.data?.semesters);
+  const detail = useFeature<MarksDetail>({
     run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
     enabled: sem !== null && semId !== String(lov.data?.semesters?.[0]?.registrationid),
     onUnauthorized: onLogout,
   });
 
-  const rows = detail.data?.rows ?? lov.data?.rows ?? [];
+  const rows = (detail.data?.rows ?? lov.data?.rows ?? []).map((r) =>
+    Object.fromEntries(Object.entries(r).filter(([k]) => !/exameventid|eventcode/i.test(k)))
+  );
   const code = detail.data ? sem?.registrationcode : lov.data?.registrationcode;
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;

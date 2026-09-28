@@ -13,7 +13,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
       return (
         <main style={{ padding: 24, fontFamily: "system-ui" }}>
           <h1>Something broke</h1>
-          <p>{this.state.error.message}</p>
+          <p role="alert">{this.state.error.message}</p>
+          <button onClick={() => this.setState({ error: null })}>Try again</button>{" "}
           <button onClick={() => location.reload()}>Reload</button>{" "}
           <button
             onClick={() => {

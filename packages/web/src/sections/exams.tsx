@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
-import { SectionError } from "../components/DataViews";
+import { useSemester } from "../hooks/useSemester";
+import { SectionError, examTime, countdown } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
 interface ExamEvent {
@@ -27,32 +27,13 @@ function examEventLabel(e: ExamEvent): string {
   return e.exameventdesc ?? String(e.exameventid ?? "");
 }
 
-function examTime(r: ExamRow): number | null {
-  if (!r.datetime) return null;
-  const t = Date.parse(r.datetime);
-  return Number.isNaN(t) ? null : t;
-}
-
-function countdown(ms: number): string {
-  const days = Math.floor(ms / 86400000);
-  if (days > 1) return `in ${days} days`;
-  if (days === 1) return "tomorrow";
-  const hours = Math.floor(ms / 3600000);
-  if (hours >= 1) return `in ${hours}h`;
-  return "today";
-}
-
 export function ExamsSection({ session, onLogout }: SectionProps) {
   const examSems = useFeature<Semester[]>({
     run: () => features.getExamSemesters(client, session),
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [examSemId, setExamSemId] = usePersistentState("sem.exams", null);
-  useEffect(() => {
-    const first = examSems.data?.[0]?.registrationid;
-    if (first != null && examSemId === null) setExamSemId(String(first));
-  }, [examSems.data, examSemId]);
+  const [examSemId, setExamSemId] = useSemester("exams", examSems.data);
   const examEvents = useFeature<ExamEvent[]>({
     run: () => features.getExamEvents(client, session, { registrationid: examSemId }),
     deps: [session, examSemId],
@@ -66,7 +47,7 @@ export function ExamsSection({ session, onLogout }: SectionProps) {
       return;
     }
     const first = examEvents.data?.[0]?.exameventid;
-    if (first != null && examEventId === null) setExamEventId(String(first));
+    if (first != null && (examEventId === null || !examEvents.data.some((e) => String(e.exameventid) === examEventId))) setExamEventId(String(first));
     if (examEvents.data && examEvents.data.length === 0 && examEventId !== null) setExamEventId(null);
   }, [examSemId, examEvents.data, examEventId]);
   const examRows = useFeature<ExamRow[]>({
@@ -80,6 +61,8 @@ export function ExamsSection({ session, onLogout }: SectionProps) {
   const loading = examEvents.loading || examRows.loading;
   const error = examSems.error ?? examEvents.error ?? examRows.error;
   const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
+  // HTTP 204 = portal has nothing published for this semester yet, not a failure.
+  const notPublished = !!error && /204/.test(error);
   if (!examSems.data && !error) {
     if (!examSems.loading) return null;
     return (
@@ -132,9 +115,9 @@ export function ExamsSection({ session, onLogout }: SectionProps) {
             </thead>
             <tbody>
               {[...examRows.data]
-                .sort((a, b) => (examTime(a) ?? 0) - (examTime(b) ?? 0))
+                .sort((a, b) => (examTime(a.datetime) ?? 0) - (examTime(b.datetime) ?? 0))
                 .map((r, i) => {
-                  const t = examTime(r);
+                  const t = examTime(r.datetime);
                   const next = t !== null && t > Date.now();
                   return (
                     <tr key={i}>
@@ -149,7 +132,8 @@ export function ExamsSection({ session, onLogout }: SectionProps) {
       {examRows.data && examRows.data.length === 0 && !error && !loading && (
         <p className="muted">No exam rows for this event.</p>
       )}
-      {error && <SectionError label="Exam schedule" error={error} retry={retry} />}
+      {notPublished && <p className="muted">No exam schedule published for this semester yet.</p>}
+      {error && !notPublished && <SectionError label="Exam schedule" error={error} retry={retry} />}
     </section>
   );
 }

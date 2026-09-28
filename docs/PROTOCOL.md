@@ -18,7 +18,7 @@ Base page `https://studentportal.juet.ac.in/studentportal/`, API at `https://stu
 
 Same headers with the real token and a fresh `LocalName` each request. Most bodies are AES JSON, but not all. Plain-JSON endpoints (verified one by one,
 wrong mode returns 400): fee summary, attendance registration list, personal info,
-all service-request grids, medical info, hostel detail, photo window.
+all service-request grids, medical info.
 
 `401` means log in again. The official refresh call never stores a new token, so it buys nothing.
 

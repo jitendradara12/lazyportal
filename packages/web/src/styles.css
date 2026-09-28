@@ -33,3 +33,12 @@ tr.short td:last-child { color: #b00020; font-weight: 600; }
 .personal dl > div { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: 4px 12px; }
 .personal dt { font-weight: 600; font-size: 14px; }
 .personal dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .dash { padding: 12px; }
+  .card { padding: 16px; }
+  .anchor-nav { flex-wrap: nowrap; overflow-x: auto; }
+  .personal dl > div { grid-template-columns: 1fr; }
+  table { font-size: 13px; }
+  th, td { white-space: normal; padding: 8px 6px; }
+}
+input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }

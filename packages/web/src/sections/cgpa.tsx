@@ -1,8 +1,7 @@
-import { useEffect } from "react";
-import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
+import { useSemester } from "../hooks/useSemester";
 import { AutoTable, SectionError } from "../components/DataViews";
 import type { SectionProps } from "../types";
 
@@ -24,12 +23,7 @@ export function CgpaSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [sty, setSty] = usePersistentState("sem.cgpa", null);
-  useEffect(() => {
-    const first = lov.data?.semesters?.[0]?.stynumber;
-    if (first != null && sty === null) setSty(String(first));
-  }, [lov.data, sty]);
-  const sem = lov.data?.semesters?.find((s) => String(s.stynumber) === sty) ?? null;
+  const [sty, setSty, sem] = useSemester("cgpa", lov.data?.semesters, (s) => s.stynumber);
   const detail = useFeature<{ semesterList?: SgpaRow[] }>({
     run: () =>
       features.getSgpaDetail(client, session, {

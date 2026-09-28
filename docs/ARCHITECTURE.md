@@ -11,7 +11,7 @@ Small interfaces, everything tricky behind them. Each module below earns its pla
 | `session.js` | `createStore`, `memoryAdapter`, `browserLocalAdapter`, `isExpired` | JWT expiry checks, `juet.portal.*` key names |
 | `client.js` | `createClient` gives `{post, postRaw, getPublic}` | AES bodies, `Authorization` + `LocalName` headers, 401 mapping. `postRaw`/`getPublic` exist because some endpoints take plain JSON or no auth headers |
 | `auth.js` | `fetchCaptcha`, `login` | The two-step login, single-use `random`, parent `P` prefix |
-| `features.js` | `getNavigation`, `getFeeSummary`, `getAttendance*`, `getMarks*`, `getExam*`, `getGrade*`, `getSgpa*`, `getPersonalInfo`, `getPendingServiceRequests` + lifecycle, `getNoDues*`, `getHostelDetail`, `getDisciplinary`, `getPayslipDues`, `getNotices`, `getMedicalInfo`, `getFaculties*` | Endpoint paths and payload shapes |
+| `features.js` | `getAttendance*` (+`fetchSubjectAttendance`/`getSubjectAttendanceAll`), `getMarks*`, `getExam*`, `getGrade*`, `getSgpa*`, `getChoice*`, `getFacultyRegistrations`/`getFaculties`, `getFeeSummary`, `getPayslipDues`, `getFeeEvents`, `getPersonalInfo`, `getMedicalInfo`, `getPendingServiceRequests` + approved/closed/paid/withdrawn/cancelled | Endpoint paths and payload shapes (read-only views, no payments) |
 
 Tests inject the clock, random source, storage, and fetch, so nothing touches the network.
 
@@ -23,14 +23,17 @@ Wiring only. No crypto, no endpoint strings, no storage wiping.
 lib/portal.ts       # client + store singletons
 hooks/useSession.ts # restore session on boot, logout
 hooks/useFeature.ts # fetch + error + retry + 401 handling for sections
+hooks/useSemester.ts # persisted semester pick (defaults to first row)
 components/DataViews.tsx # tables, key/value lists, shared error line
 sections/           # one file per dashboard section + index.ts registry
 pages/LoginPage.tsx # captcha, login once, save session
-pages/DashboardPage.tsx # header, anchor nav, registry render
+pages/DashboardPage.tsx # header, anchor nav, registry render (skips enabled:false)
 ```
 
-To turn a section off, delete its line in `sections/index.ts`. To add one,
-add a file plus one registry line. Nothing else changes.
+To turn a section off, set `enabled: false` in `sections/index.ts`
+(grades/CGPA ship disabled: new portal returns 500/empty even officially).
+To drop it, delete its line + file. To add one, add a file plus one
+registry line and use `useSemester` for the semester pick. Nothing else changes.
 
 ## Adding a feature
 

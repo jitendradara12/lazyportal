@@ -1,8 +1,7 @@
-import { useEffect } from "react";
-import { usePersistentState } from "../hooks/usePersistentState";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
+import { useSemester } from "../hooks/useSemester";
 import { SectionError } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
@@ -26,14 +25,9 @@ export function GradesSection({ session, onLogout }: SectionProps) {
     deps: [session],
     onUnauthorized: onLogout,
   });
-  const [semId, setSemId] = usePersistentState("sem.grades", null);
-  useEffect(() => {
-    const first = lov.data?.semesters?.[0]?.registrationid;
-    if (first != null && semId === null) setSemId(String(first));
-  }, [lov.data, semId]);
-  const sem = lov.data?.semesters?.find((s) => String(s.registrationid) === semId) ?? null;
+  const [semId, setSemId, sem] = useSemester("grades", lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
-  const detail = useFeature<{ rows: GradeRow[] }>({
+  const detail = useFeature<GradeRow[]>({
     run: () =>
       features.getGradeCard(client, session, {
         registrationid: sem?.registrationid,
@@ -45,7 +39,7 @@ export function GradesSection({ session, onLogout }: SectionProps) {
     onUnauthorized: onLogout,
   });
 
-  const rows = detail.data?.rows ?? lov.data?.rows ?? [];
+  const rows = detail.data ?? lov.data?.rows ?? [];
   const code = detail.data ? sem?.registrationcode : lov.data?.registrationcode;
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;

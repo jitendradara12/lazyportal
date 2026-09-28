@@ -135,6 +135,30 @@ describe("client", () => {
     assert.match(err.message, /captcha/i);
   });
 
+  it("maps 200+empty body to PortalError", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: true, status: 200, text: async () => "" })),
+      now: () => NOW,
+    });
+    const err = await client.post("/a", {}).catch((e) => e);
+    assert.ok(err instanceof PortalError);
+    assert.equal(err.status, 200);
+    assert.match(err.message, /HTTP 200/);
+  });
+
+  it("maps invalid JSON to PortalError", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: true, status: 200, text: async () => "<html>not json" })),
+      now: () => NOW,
+    });
+    const err = await client.post("/a", {}).catch((e) => e);
+    assert.ok(err instanceof PortalError);
+    assert.equal(err.status, 200);
+    assert.match(err.message, /HTTP 200/);
+  });
+
   it("getPublic sends no custom headers (no CORS preflight)", async () => {    let seen;
     const client = createClient({
       baseUrl: "https://x",
