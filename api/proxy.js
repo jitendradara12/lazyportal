@@ -67,14 +67,36 @@ export default async function handler(req, res) {
   const qs = new URLSearchParams(rest).toString();
   const target = `${UPSTREAM}/${path}${qs ? `?${qs}` : ""}`;
 
+  // Dev parity: forward everything except hop-by-hop / infra headers.
+  // (The old allowlist silently dropped anything new: UA, Cookie, ...).
+  const DROP = new Set([
+    "host",
+    "connection",
+    "content-length", // recomputed below from exact bytes
+    "transfer-encoding",
+    "accept-encoding", // forced to identity: our utf8 relay can't pass gzip through
+    "origin",
+    "referer", // both spoofed to the portal below
+    "upgrade",
+    "forwarded",
+  ]);
   const headers = {
-    Accept: req.headers.accept ?? "application/json",
     Origin: PORTAL_ORIGIN,
     Referer: PORTAL_REFERER,
+    "Accept-Encoding": "identity",
   };
-  for (const h of ["authorization", "localname", "content-type", "cookie"]) {
-    if (req.headers[h]) headers[h] = req.headers[h];
+  for (const [k, v] of Object.entries(req.headers ?? {})) {
+    const lk = k.toLowerCase();
+    if (DROP.has(lk) || lk.startsWith("x-forwarded") || lk.startsWith("x-vercel") || lk === "x-real-ip") continue;
+    headers[k] = v;
   }
+  if (!req.headers.accept) headers.Accept = "application/json";
+
+  // TEMP DEBUG: no secrets, lengths/names only. Remove after diagnosing the post-login 401.
+  const tag = (v) => (v ? `yes:${String(v).length}` : "no");
+  console.log(
+    `[proxy] ${req.method} /${path} auth=${tag(req.headers.authorization)} cookie=${tag(req.headers.cookie)}`
+  );
 
   let body;
   if (req.method !== "GET" && req.method !== "HEAD") {
@@ -100,6 +122,9 @@ export default async function handler(req, res) {
 
   res.status(upstream.status);
   res.setHeader("content-type", upstream.contentType ?? "application/json");
+  console.log(
+    `[proxy] <- ${upstream.status} /${path} setCookies=${(upstream.setCookies ?? []).map((c) => c.split(";")[0].split("=")[0]).join(",") || "none"}`
+  );
   if (upstream.setCookies?.length) {
     // Relay session cookies; strip Domain (portal-domain cookie would be
     // rejected) and reset Path to / (portal paths like /StudentPortalAPI
