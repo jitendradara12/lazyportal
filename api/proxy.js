@@ -34,6 +34,7 @@ function fetchUpstream(target, { method, headers, body }) {
           resolve({
             status: res.statusCode ?? 502,
             contentType: res.headers["content-type"],
+            setCookies: res.headers["set-cookie"],
             text: Buffer.concat(chunks).toString("utf8"),
           })
         );
@@ -71,14 +72,17 @@ export default async function handler(req, res) {
     Origin: PORTAL_ORIGIN,
     Referer: PORTAL_REFERER,
   };
-  for (const h of ["authorization", "localname", "content-type"]) {
+  for (const h of ["authorization", "localname", "content-type", "cookie"]) {
     if (req.headers[h]) headers[h] = req.headers[h];
   }
 
   let body;
   if (req.method !== "GET" && req.method !== "HEAD") {
     const raw = await readRawBody(req);
-    if (raw) body = raw;
+    if (raw) {
+      body = raw;
+      headers["content-length"] = Buffer.byteLength(body); // exact length, not chunked (dev parity)
+    }
   }
 
   let upstream;
@@ -96,5 +100,13 @@ export default async function handler(req, res) {
 
   res.status(upstream.status);
   res.setHeader("content-type", upstream.contentType ?? "application/json");
+  if (upstream.setCookies?.length) {
+    // Relay session cookies; strip Domain so the browser stores them
+    // host-only for this app (a portal-domain cookie would be rejected).
+    res.setHeader(
+      "set-cookie",
+      upstream.setCookies.map((c) => c.replace(/;\s*[Dd]omain=[^;]*/g, ""))
+    );
+  }
   res.send(upstream.text);
 }
