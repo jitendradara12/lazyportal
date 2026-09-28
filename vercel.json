@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm --workspace @juet/web run build",
   "outputDirectory": "packages/web/dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [{ "source": "/api/:path*", "destination": "/api/proxy?path=:path*" }]
 }

@@ -1,7 +1,8 @@
-// Vercel serverless proxy: /api/* -> portal (same upstream as vite.config.js dev proxy).
-// Why a function and not a rewrite: the portal 403s non-portal Origin/Referer,
-// so we must spoof them server-side. Same-origin from the browser => no CORS preflight.
-// Zero deps, free-tier safe. Upstream base duplicated from packages/web/vite.config.js.
+// Vercel serverless proxy: vercel.json rewrites /api/:path* here.
+// Why a function and not a direct rewrite: the portal 403s non-portal
+// Origin/Referer, so we must spoof them server-side. Same-origin from the
+// browser => no CORS preflight. Zero deps, free-tier safe.
+// Upstream base mirrors packages/web/vite.config.js dev proxy.
 
 const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
@@ -11,7 +12,6 @@ export const config = { api: { bodyParser: false } };
 
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
-    if (req.body !== undefined && typeof req.body !== "object") return resolve(req.body);
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
@@ -25,11 +25,10 @@ export default async function handler(req, res) {
     return;
   }
 
-  const segs = req.query?.path;
-  const path = Array.isArray(segs) ? segs.join("/") : (segs ?? "");
-  const qIndex = (req.url ?? "").indexOf("?");
-  const query = qIndex >= 0 ? (req.url ?? "").slice(qIndex) : "";
-  const target = `${UPSTREAM}/${path}${query}`;
+  const { path: _drop, ...rest } = req.query ?? {};
+  const path = Array.isArray(_drop) ? _drop.join("/") : (_drop ?? "");
+  const qs = new URLSearchParams(rest).toString();
+  const target = `${UPSTREAM}/${path}${qs ? `?${qs}` : ""}`;
 
   const headers = {
     Accept: req.headers.accept ?? "application/json",
@@ -56,7 +55,6 @@ export default async function handler(req, res) {
 
   const text = await upstream.text();
   res.status(upstream.status);
-  const ct = upstream.headers.get("content-type");
-  res.setHeader("content-type", ct ?? "application/json");
+  res.setHeader("content-type", upstream.headers.get("content-type") ?? "application/json");
   res.send(text);
 }
