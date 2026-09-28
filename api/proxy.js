@@ -48,8 +48,13 @@ export default async function handler(req, res) {
   let upstream;
   try {
     upstream = await fetch(target, { method: req.method, headers, body });
-  } catch {
-    res.status(502).json({ status: { responseStatus: "Failure" }, message: "Upstream unreachable" });
+  } catch (err) {
+    console.error("proxy upstream fetch failed:", err);
+    res.status(502).json({
+      status: { responseStatus: "Failure" },
+      message: "Upstream unreachable",
+      detail: String(err?.message ?? err).slice(0, 200),
+    });
     return;
   }
 
