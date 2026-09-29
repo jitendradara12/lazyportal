@@ -41,7 +41,8 @@ export async function login(
   client,
   { username, password, captchaText, captcha, usertype = "S" }
 ) {
-  const userField = usertype === "P" && !username.startsWith("P") ? `P${username}` : username;
+  const normalized = String(username ?? "").trim().toUpperCase();
+  const userField = usertype === "P" && !normalized.startsWith("P") ? `P${normalized}` : normalized;
 
   const pre = await client.post(PRETOKEN, {
     username: userField,

@@ -74,6 +74,31 @@ describe("auth", () => {
     assert.equal(seen, "P123");
   });
 
+  it("uppercases enrollment numbers before pretoken", async () => {
+    let seen;
+    const fakeClient = {
+      async post(endpoint, payload) {
+        if (endpoint === "/token/pretoken-check") {
+          seen = payload.username;
+          return { response: { random: "R1", otppwd: "PWD" } };
+        }
+        return {
+          response: {
+            regdata: { token: "T", institutelist: [{ value: "i1", label: "L" }] },
+          },
+        };
+      },
+    };
+    const session = await login(fakeClient, {
+      username: "241b118",
+      password: "p",
+      captchaText: "c",
+      captcha: { hidden: "h", image: "i" },
+    });
+    assert.equal(seen, "241B118");
+    assert.equal(session.username, "241B118");
+  });
+
   it("refreshSession posts username+tokendate and sniffs rotated tokens", async () => {
     let seen;
     let skip;
