@@ -72,7 +72,7 @@ export function createClient({
         // The retry gets no second refresh: another 401 here is final.
         if (retry) return handle(retry, sent, { ...opts, skipRefresh: true });
       }
-      await onUnauthorized?.();
+      if (!opts.silent) await onUnauthorized?.();
       throw new SessionExpiredError();
     }
     const text = await res.text();

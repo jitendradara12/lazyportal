@@ -22,7 +22,7 @@ export async function refreshSession(client, session) {
   const body = await client.postRaw(
     "/token/refreshTokenRequest",
     { username: session.username, tokendate: session.tokendate ?? new Date().toString() },
-    { skipRefresh: true }
+    { skipRefresh: true, silent: true }
   );
   const res = body.response ?? {};
   if (res.msg !== "Success") return { ok: false };

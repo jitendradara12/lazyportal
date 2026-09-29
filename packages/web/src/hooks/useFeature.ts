@@ -23,28 +23,46 @@ function toMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function getCached<T>(key?: string): T | null {
-  if (!key) return null;
+interface CacheEntry<T> {
+  data: T;
+  updatedAt: number;
+}
+
+function getCached<T>(key?: string): { data: T | null; updatedAt: number | null } {
+  if (!key) return { data: null, updatedAt: null };
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return { data: null, updatedAt: null };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "updatedAt" in parsed && "data" in parsed) {
+      return { data: parsed.data as T, updatedAt: parsed.updatedAt as number };
+    }
+    return { data: parsed as T, updatedAt: null };
   } catch {
-    return null;
+    return { data: null, updatedAt: null };
   }
 }
 
-function setCached<T>(key: string | undefined, data: T): void {
-  if (!key || data == null) return;
+function setCached<T>(key: string | undefined, data: T): number {
+  const now = Date.now();
+  if (!key || data == null) return now;
   try {
-    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(data));
+    const entry: CacheEntry<T> = { data, updatedAt: now };
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    if (key.startsWith("att.")) {
+      localStorage.setItem("juet.portal.last_sync", String(now));
+    }
   } catch {}
+  return now;
 }
 
 /** Centralized per-section fetch status: data + error + loading + retry with SWR caching. */
 export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, cacheKey }: UseFeatureOptions<T>) {
-  const [data, setData] = useState<T | null>(() => getCached<T>(cacheKey));
+  const initialCache = getCached<T>(cacheKey);
+  const [data, setData] = useState<T | null>(() => initialCache.data);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(() => initialCache.updatedAt);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(() => enabled && getCached<T>(cacheKey) === null);
+  const [loading, setLoading] = useState(() => enabled && initialCache.data === null);
   const [retryKey, setRetryKey] = useState(0);
   const runRef = useRef(run);
   runRef.current = run;
@@ -68,7 +86,8 @@ export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, 
       (d) => {
         if (!live) return;
         setData(d);
-        setCached(cacheKey, d);
+        const time = setCached(cacheKey, d);
+        setUpdatedAt(time);
         setLoading(false);
       },
       (e) => {
@@ -78,7 +97,10 @@ export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, 
           unauthorizedRef.current?.();
           return;
         }
-        setError(toMessage(e));
+        // Ponytail / SWR: Keep showing cached data in class rather than flashing red errors
+        if (initialCache.data === null) {
+          setError(toMessage(e));
+        }
         setLoading(false);
       },
     );
@@ -87,5 +109,5 @@ export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, retryKey, cacheKey, ...deps]);
 
-  return { data, error, loading, retry };
+  return { data, error, loading, retry, updatedAt };
 }

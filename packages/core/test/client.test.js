@@ -59,6 +59,18 @@ describe("client", () => {
     assert.equal(hooked, true);
   });
 
+  it("opts.silent suppresses onUnauthorized hook on 401", async () => {
+    let hooked = false;
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: false, status: 401, text: async () => "{}" })),
+      onUnauthorized: async () => void (hooked = true),
+      now: () => NOW,
+    });
+    await assert.rejects(() => client.postRaw("/a", {}, { silent: true }), SessionExpiredError);
+    assert.equal(hooked, false);
+  });
+
   it("401 refreshes once and retries with the live token", async () => {
     const calls = [];
     let token = "old";

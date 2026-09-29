@@ -245,6 +245,7 @@ function SubjectDetail({
   const detail = useFeature<Record<string, Record<string, unknown>>>({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
+    cacheKey: `att.subject:${session.username}:${registrationid ?? "cur"}:${row.subjectid ?? row.individualsubjectcode ?? row.subjectcode}`,
   });
 
   if (detail.loading) return <p className="muted">Loading class breakdown…</p>;
@@ -268,9 +269,56 @@ function subjectName(code?: string): { name: string; badge: string } {
   return { name: titleCase(code), badge: "" };
 }
 
+export type AttColorClass = "att-red" | "att-yellow" | "att-normal" | "att-green" | "";
+
+export interface BunkMargin {
+  type: "bunk" | "attend" | "none";
+  count: number;
+  text: string;
+}
+
+function computeBunkMargin(present: number, total: number): BunkMargin {
+  if (total <= 0) return { type: "none", count: 0, text: "" };
+  const currentRatio = present / total;
+  if (currentRatio < 0.75) {
+    // Need: (present + x) / (total + x) >= 0.75 => x >= 3*total - 4*present
+    const needed = Math.max(1, Math.ceil(3 * total - 4 * present));
+    return {
+      type: "attend",
+      count: needed,
+      text: `Need ${needed} ${needed === 1 ? "class" : "classes"}`,
+    };
+  }
+  // Can bunk: present / (total + y) >= 0.75 => y <= (4*present - 3*total) / 3
+  const canBunk = Math.max(0, Math.floor((4 * present - 3 * total) / 3));
+  if (canBunk > 0) {
+    return {
+      type: "bunk",
+      count: canBunk,
+      text: `Can bunk ${canBunk}`,
+    };
+  }
+  return {
+    type: "bunk",
+    count: 0,
+    text: "Can't bunk",
+  };
+}
+
+function getColorClass(val: number | null): AttColorClass {
+  if (val === null) return "";
+  if (val < 70) return "att-red";
+  if (val < 80) return "att-yellow";
+  if (val < 90) return "att-normal";
+  return "att-green";
+}
+
 function combinedAttendance(r: AttRow & Record<string, unknown>): {
   pct: string;
+  pctNum: number | null;
   isShort: boolean;
+  colorClass: AttColorClass;
+  margin: BunkMargin;
 } {
   const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);
   const Lpres = Number(r.Ltotalpresent ?? r.LTotalpresent ?? r.ltotalpresent ?? 0);
@@ -284,7 +332,13 @@ function combinedAttendance(r: AttRow & Record<string, unknown>): {
 
   if (totalClasses > 0) {
     const val = (totalPresent / totalClasses) * 100;
-    return { pct: `${val.toFixed(1)}%`, isShort: val < 75 };
+    return {
+      pct: `${val.toFixed(1)}%`,
+      pctNum: val,
+      isShort: val < 75,
+      colorClass: getColorClass(val),
+      margin: computeBunkMargin(totalPresent, totalClasses),
+    };
   }
 
   // Calculate from sum of percentages across active components
@@ -295,15 +349,33 @@ function combinedAttendance(r: AttRow & Record<string, unknown>): {
   if (pcts.length > 0) {
     const sum = pcts.reduce((a, b) => a + b, 0);
     const avg = sum / pcts.length;
-    return { pct: `${avg.toFixed(1)}%`, isShort: avg < 75 };
+    return {
+      pct: `${avg.toFixed(1)}%`,
+      pctNum: avg,
+      isShort: avg < 75,
+      colorClass: getColorClass(avg),
+      margin: { type: "none", count: 0, text: "" },
+    };
   }
 
   const direct = pct(String(r.totalpercentage ?? r.overallpercentage ?? r.percentage ?? ""));
   if (direct !== null) {
-    return { pct: `${direct.toFixed(1)}%`, isShort: direct < 75 };
+    return {
+      pct: `${direct.toFixed(1)}%`,
+      pctNum: direct,
+      isShort: direct < 75,
+      colorClass: getColorClass(direct),
+      margin: { type: "none", count: 0, text: "" },
+    };
   }
 
-  return { pct: "—", isShort: false };
+  return {
+    pct: "—",
+    pctNum: null,
+    isShort: false,
+    colorClass: "",
+    margin: { type: "none", count: 0, text: "" },
+  };
 }
 
 export function AttendanceSection({ session, onLogout }: SectionProps) {
@@ -343,7 +415,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
       title="Attendance"
       badge={badgeText}
       badgeShort={shortsCount > 0}
-      defaultOpen={false}
+      defaultOpen={true}
       action={
         semesters.length > 1 ? (
           <select
@@ -379,16 +451,29 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
                 return (
                   <Fragment key={i}>
                     <tr
-                      className={`clickable-row ${isOpen ? "active-row" : ""} ${attInfo.isShort ? "short" : ""}`}
+                      className={`clickable-row ${isOpen ? "active-row" : ""}`}
                       onClick={() => setOpen(isOpen ? null : i)}
                       title="Tap to see class-by-class attendance"
                     >
                       <td>
-                        <span className="row-chevron">{isOpen ? "▾" : "▸"}</span>
-                        {badge && <span className="badge">{badge}</span>}
-                        {name}
+                        <div className="sub-row">
+                          <span className="row-chevron" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
+                          <div className="sub-content">
+                            <div className="sub-header-line">
+                              {badge && <span className="badge">{badge}</span>}
+                              <span className="sub-name">{name}</span>
+                            </div>
+                            {attInfo.margin.text && (
+                              <span className={`bunk-note ${attInfo.margin.type}`}>
+                                {attInfo.margin.text}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td className="num-col">{attInfo.pct}</td>
+                      <td className={`num-col ${attInfo.colorClass}`}>
+                        {attInfo.pct}
+                      </td>
                     </tr>
                     {isOpen && (
                       <tr className="detail-expanded-row">

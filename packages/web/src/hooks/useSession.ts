@@ -54,17 +54,7 @@ export function useSession() {
     };
 
     const interval = setInterval(heartbeat, 3 * 60 * 1000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") heartbeat();
-    };
-    const onFocus = () => heartbeat();
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onFocus);
-    };
+    return () => clearInterval(interval);
   }, [session, save]);
 
   return { session, isExpired, save, logout };

@@ -151,6 +151,19 @@ function ReconnectModal({
   );
 }
 
+function formatLastSync(ts: number | null): string {
+  if (!ts) return "";
+  const diffSec = Math.floor((Date.now() - ts) / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  const d = new Date(ts);
+  const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (diffHours < 24) return timeStr;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${timeStr}`;
+}
+
 export function DashboardPage({
   session,
   isExpired,
@@ -165,6 +178,32 @@ export function DashboardPage({
   onSelectInstitute: (instituteid: string) => void;
 }) {
   const [showRenewModal, setShowRenewModal] = useState(false);
+  const [lastSync, setLastSync] = useState<number | null>(() => {
+    try {
+      const raw = localStorage.getItem("juet.portal.last_sync");
+      return raw ? Number(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const update = () => {
+      try {
+        const raw = localStorage.getItem("juet.portal.last_sync");
+        if (raw) setLastSync(Number(raw));
+      } catch {}
+    };
+    window.addEventListener("storage", update);
+    window.addEventListener("juet:sync", update);
+    const interval = setInterval(update, 30000);
+    return () => {
+      window.removeEventListener("storage", update);
+      window.removeEventListener("juet:sync", update);
+      clearInterval(interval);
+    };
+  }, []);
+
   const institutes = (session.institutelist as InstituteOption[] | undefined) ?? [];
   const visible = SECTIONS.filter((s) => s.enabled !== false);
   const displayName = titleCase(session.name ?? session.enrollmentno ?? "Student");
@@ -174,18 +213,23 @@ export function DashboardPage({
       {/* Session Expired Sticky Notice */}
       {isExpired && (
         <aside className="expiry-banner" role="alert">
-          <span>⚠️ <strong>Session timed out</strong> — you are viewing cached data.</span>
+          <span>⚠️ <strong>Session timed out</strong> — showing cached attendance.</span>
           <button onClick={() => setShowRenewModal(true)} className="renew-btn">
-            Reconnect now
+            Reconnect
           </button>
         </aside>
       )}
 
-      <header>
-        <div>
-          <h1>Hi, {displayName}</h1>
+      <header className="dash-header">
+        <div className="header-meta">
+          <h1 className="user-greeting">Hi, {displayName}</h1>
+          {lastSync && (
+            <span className="last-sync-text">
+              Updated {formatLastSync(lastSync)}
+            </span>
+          )}
           {institutes.length > 1 && (
-            <label className="semrow" style={{ marginTop: "6px" }}>
+            <label className="semrow" style={{ marginTop: "4px" }}>
               Institute{" "}
               <select
                 value={typeof session.instituteid === "string" ? session.instituteid : ""}
