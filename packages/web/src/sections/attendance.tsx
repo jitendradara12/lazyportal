@@ -302,7 +302,7 @@ function computeBunkMargin(present: number, total: number): BunkMargin {
   return {
     type: "bunk",
     count: 0,
-    text: "Can't bunk",
+    text: "Don't bunk",
   };
 }
 

@@ -100,9 +100,11 @@ export function UnknownData({ data }: { data: unknown }) {
 
 /** Error line with retry, shared by every section. */
 export function SectionError({ label, error, retry }: { label: string; error: string; retry: () => void }) {
+  const isDown = /down \(not us\)|network|500|failed to fetch|unable to reach/i.test(error);
   return (
     <p role="alert" className="error">
-      {label} failed: {error} <button onClick={retry}>Retry</button>
+      {isDown ? "JUET's portal is down (not us)." : `${label} failed: ${error}`}{" "}
+      <button onClick={retry}>Retry</button>
     </p>
   );
 }

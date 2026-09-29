@@ -33,6 +33,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const loading = useRef(false);
   const userRef = useRef<HTMLInputElement>(null);
   const passRef = useRef<HTMLInputElement>(null);
@@ -40,13 +41,21 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const load = async () => {
     if (loading.current) return;
     loading.current = true;
+    setAutoSolveFailed(false);
     try {
       const c = await auth.fetchCaptcha(client);
       setCaptcha(c);
       try {
         const solved = await auth.solveCaptcha(c);
-        if (solved) setCaptchaText(solved);
-      } catch {}
+        if (solved) {
+          setCaptchaText(solved);
+          setAutoSolveFailed(false);
+        } else {
+          setAutoSolveFailed(true);
+        }
+      } catch {
+        setAutoSolveFailed(true);
+      }
     } finally {
       loading.current = false;
     }
@@ -96,9 +105,9 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           }
         }}
       >
-        <h1>JUET Portal — Sign in</h1>
-        {expired && <p role="alert" className="error">Session expired, please log in again.</p>}
-        <p className="muted">Login once, stay logged in. Captcha is required only on first login.</p>
+        <h1>Sign in</h1>
+        {expired && <p role="alert" className="error">Portal logged you out.</p>}
+        <p className="muted">Login once, stay logged in.</p>
         <label>
           I am a
           <select value={usertype} onChange={(e) => setUsertype(e.target.value as "S" | "P")}>
@@ -164,11 +173,19 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           </div>
         )}
         <label>
-          Captcha text
-          <input required autoComplete="off" inputMode="text" autoCapitalize="off" value={captchaText} onChange={(e) => setCaptchaText(e.target.value)} />
+          {autoSolveFailed ? "Solve your captcha, it's too tough for me" : "Captcha text"}
+          <input
+            required
+            autoComplete="off"
+            inputMode="text"
+            autoCapitalize="off"
+            value={captchaText}
+            onChange={(e) => setCaptchaText(e.target.value)}
+            placeholder={autoSolveFailed ? "solve it, too tough for me" : ""}
+          />
         </label>
         <button type="submit" disabled={!ready}>
-          {busy ? "Signing in…" : "Login once, stay logged in"}
+          {busy ? "Signing in…" : "Enter portal"}
         </button>
         {error && <p role="alert" className="error">{error}</p>}
       </form>

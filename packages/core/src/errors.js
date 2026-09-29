@@ -11,7 +11,7 @@ export class PortalError extends Error {
 }
 
 export class SessionExpiredError extends PortalError {
-  constructor(message = "Session expired. Please log in again.") {
+  constructor(message = "Portal logged you out.") {
     super(message, { code: "SESSION_EXPIRED", status: 401 });
     this.name = "SessionExpiredError";
   }

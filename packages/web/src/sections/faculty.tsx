@@ -45,7 +45,7 @@ export function FacultySection({ session }: SectionProps) {
   return (
     <CollapsibleCard
       id="faculty"
-      title="faculty"
+      title="Faculty"
       badge={badgeText}
       defaultOpen={false}
       isOpen={card.isOpen}

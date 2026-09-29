@@ -36,7 +36,7 @@ export function createClient({
       throw new PortalError(
         typeof navigator !== "undefined" && navigator.onLine === false
           ? "You are offline."
-          : "Unable to reach portal server. Please check your connection.",
+          : "JUET's portal is down (not us).",
         { code: "NETWORK_ERROR" }
       );
     }

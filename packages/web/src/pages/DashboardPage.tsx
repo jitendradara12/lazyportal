@@ -32,19 +32,28 @@ function ReconnectModal({
   const [rememberPw, setRememberPw] = useState(Boolean(savedPw));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const captchaInputRef = useRef<HTMLInputElement>(null);
 
   const loadCaptcha = async () => {
+    setAutoSolveFailed(false);
     try {
       const c = await auth.fetchCaptcha(client);
       setCaptcha(c);
       try {
         const solved = await auth.solveCaptcha(c);
-        if (solved) setCaptchaText(solved);
-      } catch {}
+        if (solved) {
+          setCaptchaText(solved);
+          setAutoSolveFailed(false);
+        } else {
+          setAutoSolveFailed(true);
+        }
+      } catch {
+        setAutoSolveFailed(true);
+      }
       setTimeout(() => captchaInputRef.current?.focus(), 50);
     } catch {
-      setError("Unable to load captcha. Check network.");
+      setError("JUET's portal is down (not us).");
     }
   };
 
@@ -94,7 +103,7 @@ function ReconnectModal({
           <button className="close-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <p className="muted" style={{ marginBottom: "12px" }}>
-          Upstream token timed out. Solve captcha to reconnect without losing your place.
+          Portal logged you out. Solve captcha to reconnect.
         </p>
         <form onSubmit={handleSubmit}>
           <label className="field-label">
@@ -130,14 +139,14 @@ function ReconnectModal({
             <p className="muted">Loading captcha…</p>
           )}
           <label className="field-label">
-            Captcha Code
+            {autoSolveFailed ? "Solve your captcha, it's too tough for me" : "Captcha Code"}
             <input
               ref={captchaInputRef}
               required
               autoComplete="off"
               value={captchaText}
               onChange={(e) => setCaptchaText(e.target.value)}
-              placeholder="Enter text from image"
+              placeholder={autoSolveFailed ? "solve it, too tough for me" : "Enter text from image"}
             />
           </label>
           {error && <p className="error" role="alert">{error}</p>}
@@ -223,7 +232,7 @@ export function DashboardPage({
       {/* Session Expired Sticky Notice */}
       {isExpired && (
         <aside className="expiry-banner" role="alert">
-          <span>⚠️ <strong>Session timed out</strong> — showing cached attendance.</span>
+          <span>⚠️ <strong>Portal logged you out</strong> — showing cached attendance.</span>
           <button onClick={() => setShowRenewModal(true)} className="renew-btn">
             Reconnect
           </button>

@@ -45,7 +45,7 @@ export function SubjectsSection({ session }: SectionProps) {
   return (
     <CollapsibleCard
       id="subjects"
-      title="Registered subject"
+      title="Registered subjects"
       badge={badgeText}
       defaultOpen={false}
       isOpen={card.isOpen}
