@@ -36,6 +36,18 @@ export function useSession() {
     return () => onClientUnauthorized(() => {});
   }, [handleUnauthorized]);
 
+  useEffect(() => {
+    const onRenewed = (e: Event) => {
+      const detail = (e as CustomEvent<Session>).detail;
+      if (detail) {
+        setSession(detail);
+        setIsExpired(false);
+      }
+    };
+    window.addEventListener("juet:renewed", onRenewed);
+    return () => window.removeEventListener("juet:renewed", onRenewed);
+  }, []);
+
   // Keep-alive heartbeat: ping token refresh every 3 mins while app is open
   useEffect(() => {
     if (!session?.username) return;

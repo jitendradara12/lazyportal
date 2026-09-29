@@ -6,6 +6,7 @@ import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
   SectionError,
+  useCardState,
   isShort,
   titleCase,
   formatSemester,
@@ -379,6 +380,7 @@ function combinedAttendance(r: AttRow & Record<string, unknown>): {
 }
 
 export function AttendanceSection({ session, onLogout }: SectionProps) {
+  const card = useCardState("attendance", true);
   const att = useFeature<AttData>({
     run: () => features.getAttendance(client, session),
     deps: [session],
@@ -416,6 +418,8 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
       badge={badgeText}
       badgeShort={shortsCount > 0}
       defaultOpen={true}
+      isOpen={card.isOpen}
+      onToggle={card.toggle}
       action={
         semesters.length > 1 ? (
           <select

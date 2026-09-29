@@ -2,6 +2,8 @@
 // Hides the two-step dance (pretoken-check -> generatewebtoken).
 // UI learns one method: login(). Tests cross the same seam.
 
+export { solveCaptcha } from "./captcha.js";
+
 const PRETOKEN = "/token/pretoken-check";
 const GENTOKEN = "/token/generatewebtoken";
 const CAPTCHA = "/token/getcaptcha";

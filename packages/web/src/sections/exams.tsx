@@ -6,6 +6,7 @@ import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
   SectionError,
+  useCardState,
   examTime,
   countdown,
   titleCase,
@@ -31,16 +32,18 @@ function examEventLabel(e: ExamEvent): string {
 }
 
 export function ExamsSection({ session }: SectionProps) {
+  const card = useCardState("exams", false);
   const examSems = useFeature<Semester[]>({
     run: () => features.getExamSemesters(client, session),
     deps: [session],
+    enabled: card.hasExpanded,
     cacheKey: `exams.sems:${session.username}`,
   });
   const [examSemId, setExamSemId, examSem] = useSemester("exams", examSems.data);
   const examEvents = useFeature<ExamEvent[]>({
     run: () => features.getExamEvents(client, session, { registrationid: examSemId }),
     deps: [session, examSemId],
-    enabled: examSemId !== null,
+    enabled: card.hasExpanded && examSemId !== null,
     cacheKey: examSemId ? `exams.events:${session.username}:${examSemId}` : undefined,
   });
   const [examEventId, setExamEventId] = useState<string | null>(null);
@@ -63,7 +66,7 @@ export function ExamsSection({ session }: SectionProps) {
     run: () =>
       features.getExamSchedule(client, session, { registrationid: examSemId, exameventid: examEventId }),
     deps: [session, examSemId, examEventId],
-    enabled: examSemId !== null && examEventId !== null,
+    enabled: card.hasExpanded && examSemId !== null && examEventId !== null,
     cacheKey: examSemId && examEventId ? `exams.rows:${session.username}:${examSemId}:${examEventId}` : undefined,
   });
 
@@ -82,6 +85,8 @@ export function ExamsSection({ session }: SectionProps) {
       title="Exam schedules"
       badge={badgeText}
       defaultOpen={false}
+      isOpen={card.isOpen}
+      onToggle={card.toggle}
       action={
         <div style={{ display: "flex", gap: "6px" }}>
           {examSems.data && examSems.data.length > 1 && (

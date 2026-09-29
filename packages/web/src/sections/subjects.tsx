@@ -5,6 +5,7 @@ import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
   SectionError,
+  useCardState,
   titleCase,
   formatSemester,
 } from "../components/DataViews";
@@ -18,16 +19,18 @@ interface SubjectRow {
 }
 
 export function SubjectsSection({ session }: SectionProps) {
+  const card = useCardState("subjects", false);
   const lov = useFeature<Semester[]>({
     run: () => features.getChoiceSemesters(client),
     deps: [session],
+    enabled: card.hasExpanded,
     cacheKey: `subjects.lov:${session.username}`,
   });
   const [semId, setSemId, sem] = useSemester("subjects", lov.data);
   const detail = useFeature<SubjectRow[]>({
     run: () => features.getChoiceSubjects(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: sem !== null,
+    enabled: card.hasExpanded && sem !== null,
     cacheKey: semId ? `subjects.detail:${session.username}:${semId}` : undefined,
   });
 
@@ -45,6 +48,8 @@ export function SubjectsSection({ session }: SectionProps) {
       title="Registered subject"
       badge={badgeText}
       defaultOpen={false}
+      isOpen={card.isOpen}
+      onToggle={card.toggle}
       action={
         semesters.length > 1 ? (
           <select

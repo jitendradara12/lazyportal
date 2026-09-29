@@ -1,4 +1,5 @@
 /** Shared bits for dashboard sections. */
+import { useState } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
 
 /** Humanize a backend key for table headers: camelCase/snake_case -> words. */
@@ -206,6 +207,25 @@ function getSectionIcon(id?: string) {
   }
 }
 
+/** Hook managing collapsible card open/toggle state and expansion tracking for lazy fetching. */
+export function useCardState(id?: string, defaultOpen = false) {
+  const [open, setOpen] = usePersistentState(id ? `card.${id}` : "card.temp", defaultOpen ? "1" : "0");
+  const isOpen = open !== "0";
+  const [expanded, setExpanded] = useState(isOpen);
+
+  const toggle = () => {
+    const next = isOpen ? "0" : "1";
+    if (next === "1") setExpanded(true);
+    setOpen(next);
+  };
+
+  return {
+    isOpen,
+    toggle,
+    hasExpanded: expanded || isOpen,
+  };
+}
+
 /** Collapsible card section with persisted open/closed state in Material 3 Expressive style. */
 export function CollapsibleCard({
   id,
@@ -214,6 +234,8 @@ export function CollapsibleCard({
   badge,
   badgeShort,
   defaultOpen = false,
+  isOpen: controlledIsOpen,
+  onToggle: controlledOnToggle,
   action,
   children,
 }: {
@@ -223,11 +245,14 @@ export function CollapsibleCard({
   badge?: string;
   badgeShort?: boolean;
   defaultOpen?: boolean;
+  isOpen?: boolean;
+  onToggle?: () => void;
   action?: import("react").ReactNode;
   children: import("react").ReactNode;
 }) {
   const [open, setOpen] = usePersistentState(id ? `card.${id}` : "card.temp", defaultOpen ? "1" : "0");
-  const isOpen = open !== "0";
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : open !== "0";
+  const toggle = controlledOnToggle ?? (() => setOpen(isOpen ? "0" : "1"));
 
   return (
     <section className={`card m3-card ${isOpen ? "open" : "collapsed"}`} id={id}>
@@ -235,7 +260,7 @@ export function CollapsibleCard({
         <button
           type="button"
           className="m3-list-item"
-          onClick={() => setOpen(isOpen ? "0" : "1")}
+          onClick={toggle}
           aria-expanded={isOpen}
           aria-controls={id ? `${id}-body` : undefined}
         >

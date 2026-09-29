@@ -5,6 +5,7 @@ import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
   SectionError,
+  useCardState,
   titleCase,
   formatSemester,
 } from "../components/DataViews";
@@ -18,16 +19,18 @@ interface FacultyRow {
 }
 
 export function FacultySection({ session }: SectionProps) {
+  const card = useCardState("faculty", false);
   const lov = useFeature<Semester[]>({
     run: () => features.getFacultyRegistrations(client, session),
     deps: [session],
+    enabled: card.hasExpanded,
     cacheKey: `faculty.lov:${session.username}`,
   });
   const [semId, setSemId, sem] = useSemester("faculty", lov.data);
   const detail = useFeature<{ rows: FacultyRow[]; totalcreditpoints?: unknown }>({
     run: () => features.getFaculties(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: sem !== null,
+    enabled: card.hasExpanded && sem !== null,
     cacheKey: semId ? `faculty.detail:${session.username}:${semId}` : undefined,
   });
 
@@ -45,6 +48,8 @@ export function FacultySection({ session }: SectionProps) {
       title="faculty"
       badge={badgeText}
       defaultOpen={false}
+      isOpen={card.isOpen}
+      onToggle={card.toggle}
       action={
         semesters.length > 1 ? (
           <select

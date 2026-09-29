@@ -5,6 +5,7 @@ import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
   SectionError,
+  useCardState,
   titleCase,
   formatSemester,
   num,
@@ -29,16 +30,18 @@ interface MarksLatest extends MarksDetail {
 }
 
 export function MarksSection({ session }: SectionProps) {
+  const card = useCardState("marks", false);
   const lov = useFeature<MarksLatest>({
     run: () => features.getMarksLatest(client, session),
     deps: [session],
+    enabled: card.hasExpanded,
     cacheKey: `marks.latest:${session.username}`,
   });
   const [semId, setSemId, sem] = useSemester("marks", lov.data?.semesters);
   const detail = useFeature<MarksDetail>({
     run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: sem !== null && semId !== String(lov.data?.semesters?.[0]?.registrationid),
+    enabled: card.hasExpanded && sem !== null && semId !== String(lov.data?.semesters?.[0]?.registrationid),
     cacheKey: semId ? `marks.detail:${session.username}:${semId}` : undefined,
   });
 
@@ -57,6 +60,8 @@ export function MarksSection({ session }: SectionProps) {
       title="Marks"
       badge={badgeText}
       defaultOpen={false}
+      isOpen={card.isOpen}
+      onToggle={card.toggle}
       action={
         semesters.length > 1 ? (
           <select
