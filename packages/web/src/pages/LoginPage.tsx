@@ -21,7 +21,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   });
   const [hasSavedProfile, setHasSavedProfile] = useState(() => Boolean(savedPw));
   const [password, setPassword] = useState(() => savedPw);
-  const [rememberPw, setRememberPw] = useState(() => Boolean(savedPw));
+  const [rememberPw, setRememberPw] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [captchaText, setCaptchaText] = useState("");
   const [usertype, setUsertype] = useState<"S" | "P">(() => {

@@ -29,7 +29,7 @@ function ReconnectModal({
     }
   });
   const [password, setPassword] = useState(() => savedPw);
-  const [rememberPw, setRememberPw] = useState(Boolean(savedPw));
+  const [rememberPw, setRememberPw] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoSolveFailed, setAutoSolveFailed] = useState(false);
