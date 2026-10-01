@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm --workspace @juet/core test"
+    "test": "npm --workspace @juet/core test && npm --workspace @juet/web test"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1"
