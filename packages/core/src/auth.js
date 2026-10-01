@@ -12,7 +12,7 @@ const CAPTCHA = "/token/getcaptcha";
 export async function fetchCaptcha(client) {
   const body = await client.getPublic(CAPTCHA);
   const c = body.response.captcha;
-  return { hidden: c.hidden, image: c.image, imageDataUrl: `data:image/jpeg;base64,${c.image}` };
+  return { hidden: c.hidden, image: c.image, imageDataUrl: `data:image/png;base64,${c.image}` };
 }
 
 /**
@@ -38,6 +38,9 @@ export async function refreshSession(client, session) {
 /**
  * Full login. First manual login solves the image captcha;
  * afterwards the returned session is persisted by session store.
+ * Login never triggers the global 401 refresh: it IS the refresh
+ * (silent re-login calls it from inside onRefresh, so a 401 here
+ * must surface as CaptchaError/SessionExpiredError, not recurse).
  */
 export async function login(
   client,
@@ -45,22 +48,31 @@ export async function login(
 ) {
   const normalized = String(username ?? "").trim().toUpperCase();
   const userField = usertype === "P" && !normalized.startsWith("P") ? `P${normalized}` : normalized;
+  const noRefresh = { skipRefresh: true, silent: true };
 
-  const pre = await client.post(PRETOKEN, {
-    username: userField,
-    usertype,
-    captcha: { captcha: captchaText, hidden: captcha.hidden, image: captcha.image },
-  });
+  const pre = await client.post(
+    PRETOKEN,
+    {
+      username: userField,
+      usertype,
+      captcha: { captcha: captchaText, hidden: captcha.hidden, image: captcha.image },
+    },
+    noRefresh
+  );
   const random = pre.response.random;
   const otppwd = pre.response.otppwd;
 
-  const gen = await client.post(GENTOKEN, {
-    otppwd,
-    username: userField,
-    passwordotpvalue: password,
-    Modulename: "STUDENTMODULE",
-    random,
-  });
+  const gen = await client.post(
+    GENTOKEN,
+    {
+      otppwd,
+      username: userField,
+      passwordotpvalue: password,
+      Modulename: "STUDENTMODULE",
+      random,
+    },
+    noRefresh
+  );
   const r = gen.response.regdata;
   const institute = r.institutelist?.[0];
   return {

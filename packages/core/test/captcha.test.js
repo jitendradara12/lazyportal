@@ -15,9 +15,8 @@ describe("captcha", () => {
     );
   });
 
-  it("solves 5 characters with canvas mock", async () => {
+  it("returns empty string on blank image (no confident match)", async () => {
     const mockImage = { width: 310, height: 60 };
-    const mockData = new Uint8ClampedArray(310 * 60 * 4);
 
     // Mock CanvasRenderingContext2D
     const mockContext = {
@@ -32,6 +31,52 @@ describe("captcha", () => {
       fillText() {},
       getImageData(x, y, w, h) {
         return { data: new Uint8ClampedArray(w * h * 4) };
+      },
+    };
+
+    const mockCanvas = {
+      width: 310,
+      height: 60,
+      getContext() {
+        return mockContext;
+      },
+    };
+
+    const res = await solveCaptcha(
+      { image: "test", hidden: "h" },
+      {
+        createCanvas: () => mockCanvas,
+        createImage: async () => mockImage,
+      }
+    );
+
+    assert.equal(res, "");
+  });
+
+  it("solves 5 characters with canvas mock", async () => {
+    const mockImage = { width: 310, height: 60 };
+
+    // Uniform dark + opaque: image dark everywhere, templates fully
+    // filled -> high Dice, so solver returns a 5-char guess.
+    const mockContext = {
+      font: "",
+      fillStyle: "",
+      textBaseline: "",
+      measureText(text) {
+        return { width: text.length * 22 };
+      },
+      clearRect() {},
+      drawImage() {},
+      fillText() {},
+      getImageData(x, y, w, h) {
+        const data = new Uint8ClampedArray(w * h * 4);
+        for (let i = 0; i < w * h; i++) {
+          data[i * 4] = 0;
+          data[i * 4 + 1] = 0;
+          data[i * 4 + 2] = 0;
+          data[i * 4 + 3] = 255;
+        }
+        return { data };
       },
     };
 

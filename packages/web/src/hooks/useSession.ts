@@ -21,6 +21,9 @@ export function useSession() {
 
   const logout = useCallback(() => {
     store.clear();
+    try {
+      localStorage.removeItem("juet.portal.saved_pw");
+    } catch {}
     setSession(null);
     setIsExpired(false);
   }, []);
@@ -52,11 +55,24 @@ export function useSession() {
   useEffect(() => {
     if (!session?.username) return;
     const heartbeat = async () => {
+      // Read live store (not stale closure): silent re-login may have
+      // rotated the token since this interval was created.
+      let cur: Session | null = null;
       try {
-        const r = await auth.refreshSession(client, session);
+        cur = store.load() as Session | null;
+      } catch {}
+      const active = cur ?? session;
+      if (!active?.username) return;
+      try {
+        const r = await auth.refreshSession(client, active);
         if (r.ok) {
-          if (r.token && r.token !== session.token) {
-            save({ ...session, token: r.token });
+          if (r.token && r.token !== active.token) {
+            // ponytail: re-read, drop stale heartbeat win if silent re-login rotated meanwhile
+            let latest: Session | null = active;
+            try {
+              latest = (store.load() as Session | null) ?? active;
+            } catch {}
+            if (latest?.token === active.token) save({ ...latest, token: r.token });
           }
           setIsExpired(false);
         }

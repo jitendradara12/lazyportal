@@ -38,7 +38,7 @@ describe("auth", () => {
       },
     };
     const cap = await fetchCaptcha(fakeClient);
-    assert.equal(cap.imageDataUrl, "data:image/jpeg;base64,img");
+    assert.equal(cap.imageDataUrl, "data:image/png;base64,img");
     const session = await login(fakeClient, {
       username: "221B001",
       password: "secret",
@@ -124,5 +124,33 @@ describe("auth", () => {
     };
     const { refreshSession } = await import("../src/auth.js");
     assert.deepEqual(await refreshSession(fakeClient, {}), { ok: false });
+  });
+
+  it("login skips global 401 refresh (is the refresh itself)", async () => {
+    const seenOpts = [];
+    const fakeClient = {
+      async post(endpoint, payload, opts) {
+        seenOpts.push([endpoint, opts]);
+        if (endpoint === "/token/pretoken-check") {
+          return { response: { random: "R1", otppwd: "PWD" } };
+        }
+        return {
+          response: {
+            regdata: { token: "T", institutelist: [{ value: "i1", label: "L" }] },
+          },
+        };
+      },
+    };
+    await login(fakeClient, {
+      username: "221B001",
+      password: "p",
+      captchaText: "c",
+      captcha: { hidden: "h", image: "i" },
+    });
+    assert.equal(seenOpts.length, 2);
+    for (const [, opts] of seenOpts) {
+      assert.equal(opts?.skipRefresh, true);
+      assert.equal(opts?.silent, true);
+    }
   });
 });

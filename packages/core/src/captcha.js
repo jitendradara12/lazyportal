@@ -125,7 +125,7 @@ export async function solveCaptcha(captcha, { createCanvas, createImage } = {}) 
   let curX = startX;
 
   for (let pos = 0; pos < 5; pos++) {
-    let bestChar = "a";
+    let bestChar = "";
     let bestScore = -999;
     let bestW = 22;
     let bestShiftX = 0;
@@ -162,6 +162,9 @@ export async function solveCaptcha(captcha, { createCanvas, createImage } = {}) 
         }
       }
     }
+    // No confident match (blank / resized / heavy noise): signal failure
+    // so callers fall back to manual entry instead of submitting garbage.
+    if (!bestChar || bestScore < 0.2) return "";
     solved += bestChar;
     curX += bestShiftX + bestW;
   }

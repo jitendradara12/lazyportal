@@ -55,7 +55,17 @@ export function createClient({
   async function refreshedRetry(sent) {
     if (!onRefresh) return null;
     if (!refreshing) {
-      refreshing = onRefresh().finally(() => {
+      // Guard: a hung captcha/solve must not hold every 401 forever.
+      let timer = null;
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), 30000);
+        if (timer?.unref) timer.unref();
+      });
+      const attempt = Promise.resolve()
+        .then(() => onRefresh())
+        .catch(() => false);
+      refreshing = Promise.race([attempt, timeout]).finally(() => {
+        if (timer) clearTimeout(timer);
         refreshing = null;
       });
     }
@@ -117,12 +127,14 @@ export function createClient({
       return handle(res, sent, opts);
     },
     /** Public GET: no Auth/LocalName/Content-Type, so no CORS preflight.
-     * Use for unauthenticated endpoints (captcha, logo, marquee). */
-    async getPublic(endpoint) {
+     * Use for unauthenticated endpoints (captcha, logo, marquee).
+     * Silent by default: a 401 here is not a session expiry (e.g. captcha
+     * fetch failing inside silent re-login must not fire global logout). */
+    async getPublic(endpoint, opts = {}) {
       const sent = { endpoint, init: { headers: { Accept: "application/json" } } };
       const res = await safeFetch(`${baseUrl}${endpoint}`, sent.init);
       // Public endpoints never refresh: a 401 here means logged out.
-      return handle(res, sent, { skipRefresh: true });
+      return handle(res, sent, { skipRefresh: true, silent: true, ...opts });
     },
   };
 }

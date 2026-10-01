@@ -93,12 +93,6 @@ export default async function handler(req, res) {
   }
   if (!req.headers.accept) headers.Accept = "application/json";
 
-  // TEMP DEBUG: no secrets, lengths/names only. Remove after diagnosing the post-login 401.
-  const tag = (v) => (v ? `yes:${String(v).length}` : "no");
-  console.log(
-    `[proxy] ${req.method} /${path} auth=${tag(req.headers.authorization)} cookie=${tag(req.headers.cookie)}`
-  );
-
   let body;
   if (req.method !== "GET" && req.method !== "HEAD") {
     const raw = await readRawBody(req);
@@ -123,9 +117,6 @@ export default async function handler(req, res) {
 
   res.status(upstream.status);
   res.setHeader("content-type", upstream.contentType ?? "application/json");
-  console.log(
-    `[proxy] <- ${upstream.status} /${path} setCookies=${(upstream.setCookies ?? []).map((c) => c.split(";")[0].split("=")[0]).join(",") || "none"}`
-  );
   if (upstream.setCookies?.length) {
     // Relay session cookies; strip Domain (portal-domain cookie would be
     // rejected) and reset Path to / (portal paths like /StudentPortalAPI

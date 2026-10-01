@@ -222,4 +222,16 @@ describe("client", () => {
     });
     await assert.rejects(() => client.post("/data", {}), SessionExpiredError);
   });
+
+  it("getPublic 401 is silent (no global logout hook)", async () => {
+    let hooked = false;
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: false, status: 401, text: async () => "{}" })),
+      onUnauthorized: async () => void (hooked = true),
+      now: () => NOW,
+    });
+    await assert.rejects(() => client.getPublic("/token/getcaptcha"), SessionExpiredError);
+    assert.equal(hooked, false);
+  });
 });

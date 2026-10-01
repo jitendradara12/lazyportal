@@ -33,7 +33,9 @@ export const client = createClient({
       // Upstream token refresh request failed
     }
 
-    // 2. Silent re-login if saved password exists (retry once on bad captcha)
+    // 2. Silent re-login if saved password exists (retry once on bad captcha).
+    // Only CaptchaError gets a second attempt: wrong password / network
+    // must fall through to the reconnect modal immediately, not hammer.
     let savedPw = "";
     try {
       savedPw = localStorage.getItem("juet.portal.saved_pw") ?? "";
@@ -44,6 +46,7 @@ export const client = createClient({
         try {
           const cap = await auth.fetchCaptcha(client);
           const captchaText = await auth.solveCaptcha(cap);
+          if (!captchaText) continue;
           const savedUsertype = (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") || (s.membertype === "P" ? "P" : "S");
           const newSession = (await auth.login(client, {
             username: String(s.username ?? s.enrollmentno),
@@ -56,8 +59,16 @@ export const client = createClient({
           store.save(newSession);
           window.dispatchEvent(new CustomEvent("juet:renewed", { detail: newSession }));
           return true;
-        } catch {
-          // Retry once on failure/bad captcha, then fall through
+        } catch (e) {
+          const code = (e as { code?: string })?.code;
+          if (code === "CAPTCHA_INVALID") continue;
+          // ponytail: drop known-bad pw so sequential 401s don't hammer; transient (network/session) keeps it
+          if (code !== "NETWORK_ERROR" && code !== "SESSION_EXPIRED") {
+            try {
+              localStorage.removeItem("juet.portal.saved_pw");
+            } catch {}
+          }
+          return false;
         }
       }
     }

@@ -19,6 +19,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
           <button
             onClick={() => {
               store.clear();
+              try {
+                localStorage.removeItem("juet.portal.saved_pw");
+              } catch {}
               location.reload();
             }}
           >

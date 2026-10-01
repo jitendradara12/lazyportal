@@ -34,8 +34,11 @@ function ReconnectModal({
   const [error, setError] = useState<string | null>(null);
   const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const captchaInputRef = useRef<HTMLInputElement>(null);
+  const loading = useRef(false);
 
   const loadCaptcha = async () => {
+    if (loading.current) return;
+    loading.current = true;
     setAutoSolveFailed(false);
     try {
       const c = await auth.fetchCaptcha(client);
@@ -54,6 +57,8 @@ function ReconnectModal({
       setTimeout(() => captchaInputRef.current?.focus(), 50);
     } catch {
       setError("JUET's portal is down (not us).");
+    } finally {
+      loading.current = false;
     }
   };
 

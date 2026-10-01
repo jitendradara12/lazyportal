@@ -1,4 +1,5 @@
 # Lazyportal
+
 The official portal (`studentportal.juet.ac.in/studentportal/`) forgets you on every visit. It wipes `localStorage` when the login page loads, and its token refresh never saves the new token. So you solve a captcha and type your password daily for no reason.
 
 This repo logs in once through the same API, keeps the token in its own storage keys, and gives you a readable dashboard. Captcha is still required for the first login. There is no way around that, and this tool does not try.
@@ -15,7 +16,6 @@ Local dev proxies `/api` to the portal, since the portal only accepts its own or
 
 ## Notes
 
-- Passwords are never stored. Only the token and profile fields.
-- Be gentle with the server. Do not share credentials in issues.
+- Password is saved in your device locally only if you tick Remember me.
 - MIT. Nothing to do with JUET or JIL.
 - I slopped it for me and myself only; expect nothing.
