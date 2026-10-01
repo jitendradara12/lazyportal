@@ -42,6 +42,38 @@ test("preflight from a foreign origin allows nothing", () => {
   assert.equal(headers["Access-Control-Allow-Methods"], undefined);
 });
 
+test("the proxy handler answers preflights with the allow headers", async () => {
+  // Exercises api/proxy.js itself, not just the helper: this is the response
+  // the WebView sees before every POST.
+  const { default: handler } = await import("../api/proxy.js");
+  const headers = {};
+  const res = {
+    statusCode: null,
+    setHeader: (k, v) => (headers[k] = v),
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    end() {
+      this.ended = true;
+    },
+  };
+
+  await handler(
+    {
+      method: "OPTIONS",
+      headers: { origin: WEBVIEW_ORIGIN, "access-control-request-headers": "authorization, content-type, localname" },
+    },
+    res
+  );
+
+  assert.equal(res.statusCode, 204);
+  assert.equal(res.ended, true);
+  assert.equal(headers["Access-Control-Allow-Origin"], WEBVIEW_ORIGIN);
+  assert.equal(headers["Access-Control-Allow-Headers"], "authorization, content-type, localname");
+  assert.equal(headers.Vary, "Origin");
+});
+
 test("the allowed origin is the one the native shell actually uses", () => {
   // capacitor.config.json → server.hostname + server.androidScheme is the
   // WebView's origin; if it drifts, native requests start failing CORS.
