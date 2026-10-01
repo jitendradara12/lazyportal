@@ -35,6 +35,20 @@ To turn a section off, set `enabled: false` in `sections/index.ts`
 To drop it, delete its line + file. To add one, add a file plus one
 registry line and use `useSemester` for the semester pick. Nothing else changes.
 
+## Proxy (`api/`)
+
+| Module | What you call | What it hides |
+|---|---|---|
+| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, timeout/502 mapping |
+| `cors.js` | `corsHeaders`, `preflightHeaders` | The only origin allowed to call the proxy cross-origin: the Capacitor WebView (`https://localhost`). Browser builds are same-origin and need none of it |
+
+## Native shell (`android/`)
+
+Capacitor wraps the same `packages/web/dist` bundle; `packages/web/src/lib/apiBase.ts`
+is the single place that knows the shell must call the hosted proxy by absolute
+URL instead of `/api`. Everything else — core, sections, hooks — is untouched by
+the native build. See `docs/ANDROID.md`.
+
 ## Adding a feature
 
 Check `main.*.js` for the `dataService.post("/xxx",…)` call and whether the call site encrypts. Add one function in `features.js` with a mocked-client test, then call it from a page. UI never imports `crypto`.
