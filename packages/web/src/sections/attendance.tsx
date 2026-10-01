@@ -14,7 +14,7 @@ import {
 } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
-interface AttRow {
+export interface AttRow {
   subjectcode?: string;
   subjectid?: string | number;
   individualsubjectcode?: string;
@@ -26,7 +26,7 @@ interface AttRow {
   Ppercentage?: string;
 }
 
-interface AttData {
+export interface AttData {
   header: { stynumber?: string } | null;
   semesters: Semester[];
   registrationcode?: string | null;
@@ -213,7 +213,7 @@ function CombinedClassLog({
   );
 }
 
-function SubjectDetail({
+export function SubjectDetail({
   row,
   registrationid,
   registrationcode,
@@ -247,7 +247,7 @@ function SubjectDetail({
   );
 }
 
-function subjectName(code?: string): { name: string; badge: string } {
+export function subjectName(code?: string): { name: string; badge: string } {
   if (!code) return { name: "", badge: "" };
   const m = code.match(/^(.+?)\(([^)]+)\)$/);
   if (m) return { name: titleCase(m[1].trim()), badge: m[2] };
@@ -298,7 +298,7 @@ function getColorClass(val: number | null): AttColorClass {
   return "att-green";
 }
 
-function combinedAttendance(r: AttRow & Record<string, unknown>): {
+export function combinedAttendance(r: AttRow & Record<string, unknown>): {
   pct: string;
   pctNum: number | null;
   isShort: boolean;
@@ -389,6 +389,20 @@ function combinedAttendance(r: AttRow & Record<string, unknown>): {
     colorClass: "",
     margin: { type: "none", count: 0, text: "" },
   };
+}
+
+export function useAttendanceSummary(session: SectionProps["session"]) {
+  const att = useFeature<AttData>({
+    run: () => features.getAttendance(client, session),
+    deps: [session],
+    cacheKey: `att.initial:${session.username}`,
+  });
+  const rows = att.data?.rows ?? [];
+  const shortsCount = rows.filter((r) => combinedAttendance(r).isShort).length;
+  const badgeText = rows.length > 0
+    ? (shortsCount > 0 ? `${shortsCount} short` : "All clear")
+    : (att.loading ? "Loading…" : "Subject breakdown");
+  return { shortsCount, badgeText, loading: att.loading };
 }
 
 export function AttendanceSection({ session, onLogout }: SectionProps) {

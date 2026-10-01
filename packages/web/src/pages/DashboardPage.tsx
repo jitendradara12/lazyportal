@@ -3,171 +3,14 @@ import { auth } from "@juet/core";
 import { client } from "../lib/portal";
 import { titleCase } from "../components/DataViews";
 import { SECTIONS } from "../sections";
-import type { Session, Captcha } from "../types";
+import { AttendancePage } from "./AttendancePage";
+import { useAttendanceSummary } from "../sections/attendance";
+import { ReconnectModal } from "../components/ReconnectModal";
+import type { Session } from "../types";
 
 interface InstituteOption {
   value?: string;
   label?: string;
-}
-
-function ReconnectModal({
-  session,
-  onRenewed,
-  onClose,
-}: {
-  session: Session;
-  onRenewed: (s: Session) => void;
-  onClose: () => void;
-}) {
-  const [captcha, setCaptcha] = useState<Captcha | null>(null);
-  const [captchaText, setCaptchaText] = useState("");
-  const [savedPw, setSavedPw] = useState(() => {
-    try {
-      return localStorage.getItem("juet.portal.saved_pw") ?? "";
-    } catch {
-      return "";
-    }
-  });
-  const [password, setPassword] = useState(() => savedPw);
-  const [rememberPw, setRememberPw] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [autoSolveFailed, setAutoSolveFailed] = useState(false);
-  const captchaInputRef = useRef<HTMLInputElement>(null);
-  const loading = useRef(false);
-
-  const loadCaptcha = async () => {
-    if (loading.current) return;
-    loading.current = true;
-    setAutoSolveFailed(false);
-    try {
-      const c = await auth.fetchCaptcha(client);
-      setCaptcha(c);
-      try {
-        const solved = await auth.solveCaptcha(c);
-        if (solved) {
-          setCaptchaText(solved);
-          setAutoSolveFailed(false);
-        } else {
-          setAutoSolveFailed(true);
-        }
-      } catch {
-        setAutoSolveFailed(true);
-      }
-      setTimeout(() => captchaInputRef.current?.focus(), 50);
-    } catch {
-      setError("JUET's portal is down (not us).");
-    } finally {
-      loading.current = false;
-    }
-  };
-
-  useEffect(() => {
-    loadCaptcha();
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!captcha || !password) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const savedUsertype = (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") || (session.membertype === "P" ? "P" : "S");
-      const s = (await auth.login(client, {
-        username: String(session.username ?? session.enrollmentno),
-        password,
-        captchaText: captchaText.trim(),
-        captcha,
-        usertype: savedUsertype,
-      })) as unknown as Session;
-
-      if (rememberPw) {
-        try {
-          localStorage.setItem("juet.portal.saved_pw", password);
-        } catch {}
-      } else {
-        try {
-          localStorage.removeItem("juet.portal.saved_pw");
-        } catch {}
-      }
-
-      onRenewed(s);
-      onClose();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-      loadCaptcha();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Renew Session</h3>
-          <button className="close-btn" onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        <p className="muted" style={{ marginBottom: "12px" }}>
-          Portal logged you out. Solve captcha to reconnect.
-        </p>
-        <form onSubmit={handleSubmit}>
-          <label className="field-label">
-            Enrollment No
-            <input disabled value={String(session.username ?? session.enrollmentno ?? "")} />
-          </label>
-          <label className="field-label">
-            Password
-            <input
-              required
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Portal password"
-            />
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={rememberPw}
-              onChange={(e) => setRememberPw(e.target.checked)}
-            />
-            <span>Remember password on this device (reconnect with 1 tap)</span>
-          </label>
-          {captcha ? (
-            <div className="captcharow" style={{ margin: "10px 0" }}>
-              <img src={captcha.imageDataUrl} alt="Captcha" className="captcha" />
-              <button type="button" onClick={loadCaptcha} disabled={busy} className="secondary-btn">
-                ↻ Refresh
-              </button>
-            </div>
-          ) : (
-            <p className="muted">Loading captcha…</p>
-          )}
-          <label className="field-label">
-            {autoSolveFailed ? "Solve your captcha, it's too tough for me" : "Captcha Code"}
-            <input
-              ref={captchaInputRef}
-              required
-              autoComplete="off"
-              value={captchaText}
-              onChange={(e) => setCaptchaText(e.target.value)}
-              placeholder={autoSolveFailed ? "solve it, too tough for me" : "Enter text from image"}
-            />
-          </label>
-          {error && <p className="error" role="alert">{error}</p>}
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} className="secondary-btn">
-              Stay Offline
-            </button>
-            <button type="submit" disabled={busy || !captcha} className="primary-btn">
-              {busy ? "Reconnecting…" : "Reconnect"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
 }
 
 function formatLastSync(ts: number | null): string {
@@ -197,12 +40,14 @@ export function DashboardPage({
   onSelectInstitute: (instituteid: string) => void;
 }) {
   const [showRenewModal, setShowRenewModal] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (isExpired) {
       setShowRenewModal(true);
     }
   }, [isExpired]);
+
   const [lastSync, setLastSync] = useState<number | null>(() => {
     try {
       const raw = localStorage.getItem("juet.portal.last_sync");
@@ -218,6 +63,7 @@ export function DashboardPage({
         const raw = localStorage.getItem("juet.portal.last_sync");
         if (raw) setLastSync(Number(raw));
       } catch {}
+      setIsRefreshing(false);
     };
     window.addEventListener("storage", update);
     window.addEventListener("juet:sync", update);
@@ -229,62 +75,163 @@ export function DashboardPage({
     };
   }, []);
 
+  const handleRefresh = () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    window.dispatchEvent(new CustomEvent("juet:refresh-all"));
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 1500);
+  };
+
   const institutes = (session.institutelist as InstituteOption[] | undefined) ?? [];
   const visible = SECTIONS.filter((s) => s.enabled !== false);
+  const otherSections = visible.filter((s) => s.id !== "attendance");
   const displayName = titleCase(session.name ?? session.enrollmentno ?? "Student");
+
+  const [view, setView] = useState<"dashboard" | "attendance">(() => {
+    return typeof window !== "undefined" && window.location.hash === "#attendance"
+      ? "attendance"
+      : "dashboard";
+  });
+
+  useEffect(() => {
+    const handleHash = () => {
+      setView(window.location.hash === "#attendance" ? "attendance" : "dashboard");
+    };
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
+
+  const openAttendance = () => {
+    window.location.hash = "#attendance";
+    setView("attendance");
+  };
+
+  const closeAttendance = () => {
+    if (window.location.hash === "#attendance") {
+      history.back();
+    } else {
+      setView("dashboard");
+    }
+  };
+
+  const attSummary = useAttendanceSummary(session);
+
+  if (view === "attendance") {
+    return (
+      <AttendancePage
+        session={session}
+        isExpired={isExpired}
+        onBack={closeAttendance}
+        onLogout={onLogout}
+        onSessionRenewed={onSessionRenewed}
+      />
+    );
+  }
 
   return (
     <main className="dash">
       {/* Session Expired Sticky Notice */}
       {isExpired && (
         <aside className="expiry-banner" role="alert">
-          <span>⚠️ <strong>Portal logged you out</strong> — showing cached attendance.</span>
+          <div className="expiry-banner-content">
+            <span className="expiry-icon" aria-hidden="true">⚠️</span>
+            <span><strong>Portal logged you out</strong> — showing cached data.</span>
+          </div>
           <button onClick={() => setShowRenewModal(true)} className="renew-btn">
             Reconnect
           </button>
         </aside>
       )}
 
-      <header className="dash-header">
-        <div className="header-meta">
-          <h1 className="user-greeting">Hi, {displayName}</h1>
-          {lastSync && (
-            <span className="last-sync-text">
-              Updated {formatLastSync(lastSync)}
-            </span>
-          )}
+      {/* Material 3 Compact Top Status Bar */}
+      <header className="dash-top-bar">
+        <div className="dash-user-meta">
+          <span className="dash-user-name">{displayName}</span>
+          <span className="dash-meta-sep" aria-hidden="true">·</span>
+          <span className="dash-sync-time">
+            {lastSync ? `Updated ${formatLastSync(lastSync)}` : "Live"}
+          </span>
           {institutes.length > 1 && (
-            <label className="semrow" style={{ marginTop: "4px" }}>
-              Institute{" "}
-              <select
-                value={String(session.instituteid ?? "")}
-                onChange={(e) => onSelectInstitute(e.target.value)}
-                className="sem-picker"
-              >
-                {institutes.map((o) => (
-                  <option key={String(o.value)} value={String(o.value)}>
-                    {String(o.label ?? o.value)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <select
+              value={String(session.instituteid ?? "")}
+              onChange={(e) => onSelectInstitute(e.target.value)}
+              className="dash-institute-select"
+              aria-label="Select Institute"
+            >
+              {institutes.map((o) => (
+                <option key={String(o.value)} value={String(o.value)}>
+                  {String(o.label ?? o.value)}
+                </option>
+              ))}
+            </select>
           )}
         </div>
-        <div className="header-actions">
+
+        <div className="dash-top-actions">
           {isExpired && (
-            <button onClick={() => setShowRenewModal(true)} className="renew-header-btn">
-              ⚡ Reconnect
+            <button
+              onClick={() => setShowRenewModal(true)}
+              className="m3-reconnect-pill"
+              title="Session expired — tap to reconnect"
+            >
+              <span className="reconnect-dot" />
+              <span>Reconnect</span>
             </button>
           )}
-          <button onClick={onLogout} className="logout-btn">
-            Logout
+
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className={`dash-refresh-btn ${isRefreshing ? "is-spinning" : ""}`}
+            aria-label="Refresh portal data"
+            title="Refresh portal data"
+            disabled={isRefreshing}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
           </button>
         </div>
       </header>
 
       {/* Material 3 Expressive Expandable Stacked Sections */}
       <div className="m3-stacked-sections" role="list">
-        {visible.map(({ id, Component }) => (
+        {/* Attendance Navigation Item (Opens Full Page) */}
+        <div className="m3-card m3-nav-card">
+          <div className="m3-card-header">
+            <button
+              type="button"
+              className="m3-list-item m3-nav-item-btn"
+              onClick={openAttendance}
+              aria-label="Open Attendance page"
+            >
+              <div className="m3-leading-icon-circle">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                  <path d="m9 14 2 2 4-4" />
+                </svg>
+              </div>
+              <div className="m3-item-content">
+                <span className="m3-item-headline">Attendance</span>
+                <span className={`m3-item-supporting ${attSummary.shortsCount > 0 ? "short" : ""}`}>
+                  {attSummary.badgeText}
+                </span>
+              </div>
+              <div className="m3-trailing-chevron" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Other Sections (Expandable in-place) */}
+        {otherSections.map(({ id, Component }) => (
           <Component
             key={`${id}:${String(session.instituteid ?? "")}`}
             session={session}
@@ -293,21 +240,37 @@ export function DashboardPage({
         ))}
       </div>
 
-      <footer className="app-footer">
-        <span className="footer-label">free and open source, always</span>
-        <a
-          href="https://github.com/jitendradara12/lazyportal/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="footer-gh"
-          aria-label="View source on GitHub"
-        >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
-          </svg>
-          <span>GitHub</span>
-          <span className="footer-arrow">↗</span>
-        </a>
+      {/* Material 3 Connected Button Group Footer */}
+      <footer className="dash-footer">
+        <span className="dash-footer-tagline">free and open source, always</span>
+        <div className="m3-connected-button-group" role="group" aria-label="Quick links">
+          <a
+            href="https://github.com/jitendradara12/lazyportal/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="m3-connected-btn"
+            aria-label="View source on GitHub"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            <span>GitHub</span>
+            {/* <span className="arrow-icon">↗</span> */}
+          </a>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="m3-connected-btn logout-action"
+            aria-label="Logout"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            <span>Logout</span>
+          </button>
+        </div>
       </footer>
 
       {showRenewModal && onSessionRenewed && (

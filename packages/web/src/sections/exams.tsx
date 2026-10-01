@@ -73,7 +73,7 @@ export function ExamsSection({ session }: SectionProps) {
   const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
 
   const rows = examRows.data ?? [];
-  const badgeText = rows.length > 0 ? `${rows.length} exams scheduled` : "no schedules";
+  const badgeText = rows.length > 0 ? `${rows.length} scheduled` : (card.hasExpanded ? "No schedules" : "Seating & dates");
 
   return (
     <CollapsibleCard

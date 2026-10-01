@@ -52,8 +52,7 @@ export function MarksSection({ session }: SectionProps) {
   const semLabel = formatSemester(code);
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;
-  const retry = lov.error ? lov.retry : detail.retry;
-  const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects` : undefined;
+  const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects` : (card.hasExpanded ? "No marks" : "Evaluation & test marks");
 
   return (
     <CollapsibleCard

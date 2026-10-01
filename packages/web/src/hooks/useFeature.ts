@@ -79,6 +79,16 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
     setRetryKey((k) => k + 1);
   }, []);
 
+  // Re-fetch live data when an app-wide refresh is requested
+  useEffect(() => {
+    const handleRefresh = () => {
+      setError(null);
+      setRetryKey((k) => k + 1);
+    };
+    window.addEventListener("juet:refresh-all", handleRefresh);
+    return () => window.removeEventListener("juet:refresh-all", handleRefresh);
+  }, []);
+
   useEffect(() => {
     if (!enabled) {
       setLoading(false);
