@@ -1,12 +1,19 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
+import { Capacitor } from "@capacitor/core";
 import { auth, createClient, session } from "@juet/core";
+import { resolveApiBase } from "./apiBase";
 import type { Session } from "../types";
 
-// Same-origin proxy in dev (vite.config proxy /api -> portal). Direct cross-origin
-// calls are blocked by the portal's CORS allowlist, so never point this at the
-// portal host from browser code. Override with VITE_API_BASE for prod proxy.
-export const BASE_URL =
-  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE ?? "/api";
+const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+
+// Same-origin proxy in dev (vite.config proxy /api -> portal) and in the browser
+// deployment; absolute URL to the hosted proxy inside the Capacitor shell, which
+// has no same-origin `/api`. See lib/apiBase.js.
+export const BASE_URL = resolveApiBase({
+  nativePlatform: Capacitor.isNativePlatform(),
+  envBase: env.VITE_API_BASE,
+  envNativeBase: env.VITE_NATIVE_API_BASE,
+});
 
 export const store = session.createStore(session.browserLocalAdapter());
 

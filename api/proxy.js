@@ -5,6 +5,7 @@
 // Upstream base mirrors packages/web/vite.config.js dev proxy.
 
 import https from "node:https";
+import { corsHeaders, preflightHeaders } from "./cors.js";
 
 const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
@@ -58,10 +59,19 @@ function readRawBody(req) {
 }
 
 export default async function handler(req, res) {
+  const origin = req.headers?.origin;
   if (req.method === "OPTIONS") {
-    res.status(204).end();
+    // CORS preflight (native WebView only — see api/cors.js).
+    res.status(204);
+    for (const [k, v] of Object.entries(
+      preflightHeaders(origin, req.headers["access-control-request-headers"])
+    )) {
+      res.setHeader(k, v);
+    }
+    res.end();
     return;
   }
+  for (const [k, v] of Object.entries(corsHeaders(origin))) res.setHeader(k, v);
 
   const { path: _drop, ...rest } = req.query ?? {};
   const path = Array.isArray(_drop) ? _drop.join("/") : (_drop ?? "");
