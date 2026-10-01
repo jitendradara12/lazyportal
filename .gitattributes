@@ -1,0 +1,9 @@
+# Gradle wrapper: the shell script must keep LF, the batch file CRLF, or
+# `./gradlew` breaks depending on the contributor's platform.
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+*.sh text eol=lf
+
+# Binary assets (launcher icons, splash screens, wrapper jar).
+*.png binary
+*.jar binary

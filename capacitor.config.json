@@ -1,0 +1,10 @@
+{
+  "appId": "com.lazyportal.juet",
+  "appName": "JUET Portal",
+  "webDir": "packages/web/dist",
+  "backgroundColor": "#FCF8FD",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https"
+  }
+}

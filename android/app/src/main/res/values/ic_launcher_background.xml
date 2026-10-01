@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand navy from packages/web/public/icon.svg (@capacitor/assets default
+         is white; the adaptive icon needs the real colour behind the glyph). -->
+    <color name="ic_launcher_background">#1a237e</color>
+</resources>
