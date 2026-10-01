@@ -2,7 +2,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { CollapsibleCard, SectionError, titleCase, formatSemester } from "../components/DataViews";
+import { CollapsibleCard, SectionError, useCardState, titleCase, formatSemester } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
 interface GradeRow {
@@ -20,9 +20,11 @@ interface GradeInfo {
 }
 
 export function GradesSection({ session }: SectionProps) {
+  const card = useCardState("grades", false);
   const lov = useFeature<{ info: GradeInfo | null; semesters: Semester[]; registrationcode?: string | null; rows: GradeRow[] }>({
     run: () => features.getGradesLatest(client, session),
     deps: [session],
+    enabled: card.hasExpanded,
     cacheKey: `grades.lov:${session.username}`,
   });
   const [semId, setSemId, sem] = useSemester("grades", lov.data?.semesters);
@@ -35,13 +37,13 @@ export function GradesSection({ session }: SectionProps) {
         programid: lov.data?.info?.programid,
       }),
     deps: [session, semId],
-    enabled: sem !== null && !isDefault,
+    enabled: card.hasExpanded && sem !== null && !isDefault,
     cacheKey: semId ? `grades.detail:${session.username}:${semId}` : undefined,
   });
 
-  const rows = detail.data ?? lov.data?.rows ?? [];
+  const rows = isDefault ? (lov.data?.rows ?? []) : (detail.data ?? []);
   const semesters = lov.data?.semesters ?? [];
-  const code = detail.data ? sem?.registrationcode : lov.data?.registrationcode;
+  const code = sem?.registrationcode ?? (isDefault ? lov.data?.registrationcode : undefined);
   const semLabel = formatSemester(code);
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;
@@ -55,6 +57,8 @@ export function GradesSection({ session }: SectionProps) {
       subtitle={semLabel ? `· ${semLabel}` : undefined}
       badge={badgeText}
       defaultOpen={false}
+      isOpen={card.isOpen}
+      onToggle={card.toggle}
       action={
         semesters.length > 1 ? (
           <select

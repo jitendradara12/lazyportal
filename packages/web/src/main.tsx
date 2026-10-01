@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { Analytics } from "@vercel/analytics/react";
 import { useSession } from "./hooks/useSession";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -29,5 +30,6 @@ if (!el) throw new Error("#root element missing");
 createRoot(el).render(
   <ErrorBoundary>
     <App />
+    <Analytics />
   </ErrorBoundary>
 );

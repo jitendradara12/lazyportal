@@ -44,12 +44,13 @@ export const client = createClient({
         try {
           const cap = await auth.fetchCaptcha(client);
           const captchaText = await auth.solveCaptcha(cap);
+          const savedUsertype = (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") || (s.membertype === "P" ? "P" : "S");
           const newSession = (await auth.login(client, {
             username: String(s.username ?? s.enrollmentno),
             password: savedPw,
             captchaText,
             captcha: cap,
-            usertype: s.membertype === "P" ? "P" : "S",
+            usertype: savedUsertype,
           })) as unknown as Session;
 
           store.save(newSession);

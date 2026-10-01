@@ -41,7 +41,7 @@ function fetchUpstream(target, { method, headers, body }) {
       }
     );
     req.on("error", reject);
-    req.setTimeout(20000, () => req.destroy(new Error("upstream timeout")));
+    req.setTimeout(9000, () => req.destroy(new Error("upstream timeout")));
     if (body) req.write(body);
     req.end();
   });

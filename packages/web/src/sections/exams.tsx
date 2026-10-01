@@ -49,16 +49,14 @@ export function ExamsSection({ session }: SectionProps) {
   const [examEventId, setExamEventId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (examSemId === null) {
+    if (examSemId === null || !examEvents.data?.length) {
       if (examEventId !== null) setExamEventId(null);
       return;
     }
-    const first = examEvents.data?.[0]?.exameventid;
-    if (first != null && (examEventId === null || !examEvents.data.some((e) => String(e.exameventid) === examEventId))) {
-      setExamEventId(String(first));
-    }
-    if (examEvents.data && examEvents.data.length === 0 && examEventId !== null) {
-      setExamEventId(null);
+    const hasCurrent = examEvents.data.some((e) => String(e.exameventid) === examEventId);
+    if (!hasCurrent) {
+      const first = examEvents.data[0]?.exameventid;
+      setExamEventId(first != null ? String(first) : null);
     }
   }, [examSemId, examEvents.data, examEventId]);
 
@@ -73,10 +71,8 @@ export function ExamsSection({ session }: SectionProps) {
   const loading = examEvents.loading || examRows.loading;
   const error = examSems.error ?? examEvents.error ?? examRows.error;
   const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
-  const notPublished = !!error && /204/.test(error);
 
   const rows = examRows.data ?? [];
-  const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
   const badgeText = rows.length > 0 ? `${rows.length} exams scheduled` : "no schedules";
 
   return (
@@ -88,41 +84,43 @@ export function ExamsSection({ session }: SectionProps) {
       isOpen={card.isOpen}
       onToggle={card.toggle}
       action={
-        <div style={{ display: "flex", gap: "6px" }}>
-          {examSems.data && examSems.data.length > 1 && (
-            <select
-              value={examSemId ?? ""}
-              onChange={(e) => {
-                setExamSemId(e.target.value);
-                setExamEventId(null);
-              }}
-              disabled={loading}
-              className="sem-picker"
-            >
-              {examSems.data.map((s) => (
-                <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                  {formatSemester(s.registrationcode ?? s.registrationdesc)}
-                </option>
-              ))}
-            </select>
-          )}
-          {examEvents.data && examEvents.data.length > 1 && (
-            <select
-              value={examEventId ?? ""}
-              onChange={(e) => setExamEventId(e.target.value)}
-              disabled={loading}
-              className="sem-picker"
-            >
-              {examEvents.data.map((e) => (
-                <option key={String(e.exameventid)} value={String(e.exameventid)}>
-                  {examEventLabel(e)}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+        examSems.data && examSems.data.length > 1 ? (
+          <select
+            value={examSemId ?? ""}
+            onChange={(e) => {
+              setExamSemId(e.target.value);
+              setExamEventId(null);
+            }}
+            disabled={loading}
+            className="sem-picker"
+          >
+            {examSems.data.map((s) => (
+              <option key={String(s.registrationid)} value={String(s.registrationid)}>
+                {formatSemester(s.registrationcode ?? s.registrationdesc)}
+              </option>
+            ))}
+          </select>
+        ) : undefined
       }
     >
+      {examEvents.data && examEvents.data.length > 1 && (
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "4px 0 12px" }}>
+          <span className="muted" style={{ fontSize: "14px", fontWeight: 500 }}>Event:</span>
+          <select
+            value={examEventId ?? ""}
+            onChange={(e) => setExamEventId(e.target.value)}
+            disabled={loading}
+            className="sem-picker"
+            style={{ maxWidth: "200px" }}
+          >
+            {examEvents.data.map((e) => (
+              <option key={String(e.exameventid)} value={String(e.exameventid)}>
+                {examEventLabel(e)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {loading && <p className="muted">Loading…</p>}
       {rows.length > 0 && (
         <div className="table-scroll">
@@ -160,8 +158,7 @@ export function ExamsSection({ session }: SectionProps) {
       {rows.length === 0 && !error && !loading && (
         <p className="muted">No exam schedule published for this semester yet.</p>
       )}
-      {notPublished && <p className="muted">No exam schedule published for this semester yet.</p>}
-      {error && !notPublished && <SectionError label="Exams" error={error} retry={retry} />}
+      {error && <SectionError label="Exams" error={error} retry={retry} />}
     </CollapsibleCard>
   );
 }

@@ -29,6 +29,8 @@ export function toPortalError(body, status) {
   const errors = body?.status?.errors ?? [];
   const msg = errors[0] ?? `Request failed (HTTP ${status})`;
   if (/captcha/i.test(msg)) return new CaptchaError(msg);
-  if (status === 401) return new SessionExpiredError(msg);
+  if (status === 401 || /session.*expired|invalid.*token|token.*expired|login again/i.test(msg)) {
+    return new SessionExpiredError(msg);
+  }
   return new PortalError(msg, { status, errors });
 }

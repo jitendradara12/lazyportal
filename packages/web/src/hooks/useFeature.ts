@@ -6,8 +6,6 @@ interface UseFeatureOptions<T> {
   deps?: unknown[];
   /** When false, the fetch is skipped (for chained selects). */
   enabled?: boolean;
-  /** Called on 401/SESSION_EXPIRED instead of surfacing an error. */
-  onUnauthorized?: () => void;
   /** Optional key to enable stale-while-revalidate local caching. */
   cacheKey?: string;
 }
@@ -51,13 +49,14 @@ function setCached<T>(key: string | undefined, data: T): number {
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
     if (key.startsWith("att.")) {
       localStorage.setItem("juet.portal.last_sync", String(now));
+      window.dispatchEvent(new CustomEvent("juet:sync"));
     }
   } catch {}
   return now;
 }
 
 /** Centralized per-section fetch status: data + error + loading + retry with SWR caching. */
-export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, cacheKey }: UseFeatureOptions<T>) {
+export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseFeatureOptions<T>) {
   const initialCache = getCached<T>(cacheKey);
   const [data, setData] = useState<T | null>(() => initialCache.data);
   const [updatedAt, setUpdatedAt] = useState<number | null>(() => initialCache.updatedAt);
@@ -66,8 +65,14 @@ export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, 
   const [retryKey, setRetryKey] = useState(0);
   const runRef = useRef(run);
   runRef.current = run;
-  const unauthorizedRef = useRef(onUnauthorized);
-  unauthorizedRef.current = onUnauthorized;
+
+  // Sync state immediately when cacheKey changes
+  useEffect(() => {
+    const c = getCached<T>(cacheKey);
+    setData(c.data);
+    setUpdatedAt(c.updatedAt);
+    if (!c.data && enabled) setLoading(true);
+  }, [cacheKey, enabled]);
 
   const retry = useCallback(() => {
     setError(null);
@@ -94,13 +99,9 @@ export function useFeature<T>({ run, deps = [], enabled = true, onUnauthorized, 
         if (!live) return;
         if (isUnauthorized(e)) {
           setLoading(false);
-          unauthorizedRef.current?.();
           return;
         }
-        // Ponytail / SWR: Keep showing cached data in class rather than flashing red errors
-        if (initialCache.data === null) {
-          setError(toMessage(e));
-        }
+        setError(toMessage(e));
         setLoading(false);
       },
     );

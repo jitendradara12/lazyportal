@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
@@ -7,10 +7,10 @@ import {
   CollapsibleCard,
   SectionError,
   useCardState,
-  isShort,
   titleCase,
   formatSemester,
   pct,
+  parseIndianDateTime,
 } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
@@ -36,6 +36,7 @@ interface AttData {
 interface ClassRecord {
   datetime: string;
   isAttended: boolean;
+  type?: string;
 }
 
 function cleanDateTime(dt?: string): string {
@@ -48,7 +49,7 @@ function cleanDateTime(dt?: string): string {
     .trim();
 }
 
-function parseClassLogs(raw: unknown): {
+function parseClassLogs(raw: unknown, type?: string): {
   total: number;
   attended: number;
   absent: number;
@@ -96,32 +97,13 @@ function parseClassLogs(raw: unknown): {
     classes.push({
       datetime: cleanDateTime(String(item.datetime ?? item.date ?? "")),
       isAttended,
+      type,
     });
   }
 
   const absent = total - attended;
   const percentage = total > 0 ? ((attended / total) * 100).toFixed(1) : null;
   return { total, attended, absent, pct: percentage, classes };
-}
-
-function parseClassTime(dt: string): number {
-  const m = dt.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-  if (m) {
-    const [, d, mo, y] = m;
-    const timeMatch = dt.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
-    let h = 0;
-    let min = 0;
-    if (timeMatch) {
-      h = parseInt(timeMatch[1], 10);
-      min = parseInt(timeMatch[2], 10);
-      const ampm = timeMatch[3]?.toUpperCase();
-      if (ampm === "PM" && h < 12) h += 12;
-      if (ampm === "AM" && h === 12) h = 0;
-    }
-    return new Date(parseInt(y, 10), parseInt(mo, 10) - 1, parseInt(d, 10), h, min).getTime();
-  }
-  const t = Date.parse(dt);
-  return Number.isNaN(t) ? 0 : t;
 }
 
 function CombinedClassLog({
@@ -132,7 +114,7 @@ function CombinedClassLog({
   const [filter, setFilter] = useState<"all" | "absent" | "present">("all");
 
   const parsedEntries = Object.entries(data)
-    .map(([type, raw]) => ({ type, stats: parseClassLogs(raw) }))
+    .map(([type, raw]) => ({ type, stats: parseClassLogs(raw, type) }))
     .filter((item): item is { type: string; stats: NonNullable<ReturnType<typeof parseClassLogs>> } => item.stats !== null);
 
   if (parsedEntries.length === 0) {
@@ -151,7 +133,7 @@ function CombinedClassLog({
     }
   }
 
-  allClasses.sort((a, b) => parseClassTime(b.datetime) - parseClassTime(a.datetime));
+  allClasses.sort((a, b) => (parseIndianDateTime(b.datetime) ?? 0) - (parseIndianDateTime(a.datetime) ?? 0));
 
   const absent = total - attended;
   const percentage = total > 0 ? ((attended / total) * 100).toFixed(1) : null;
@@ -206,6 +188,7 @@ function CombinedClassLog({
               <thead>
                 <tr>
                   <th>Date & Time</th>
+                  <th>Type</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -213,6 +196,7 @@ function CombinedClassLog({
                 {filtered.map((c, i) => (
                   <tr key={i} className={c.isAttended ? "row-present" : "row-absent"}>
                     <td>{c.datetime}</td>
+                    <td>{c.type || "—"}</td>
                     <td>
                       <span className={`log-badge ${c.isAttended ? "present" : "absent"}`}>
                         {c.isAttended ? "Present" : "Absent"}
@@ -342,30 +326,58 @@ function combinedAttendance(r: AttRow & Record<string, unknown>): {
     };
   }
 
-  // Calculate from sum of percentages across active components
-  const pcts = [pct(r.Lpercentage), pct(r.Tpercentage), pct(r.Ppercentage)].filter(
-    (v): v is number => v !== null
-  );
-
-  if (pcts.length > 0) {
-    const sum = pcts.reduce((a, b) => a + b, 0);
-    const avg = sum / pcts.length;
-    return {
-      pct: `${avg.toFixed(1)}%`,
-      pctNum: avg,
-      isShort: avg < 75,
-      colorClass: getColorClass(avg),
-      margin: { type: "none", count: 0, text: "" },
-    };
-  }
-
-  const direct = pct(String(r.totalpercentage ?? r.overallpercentage ?? r.percentage ?? ""));
+  // Check direct overall/total percentage if portal returns it
+  const direct = pct(r.totalpercentage ?? r.overallpercentage ?? r.percentage);
   if (direct !== null) {
     return {
       pct: `${direct.toFixed(1)}%`,
       pctNum: direct,
       isShort: direct < 75,
       colorClass: getColorClass(direct),
+      margin: { type: "none", count: 0, text: "" },
+    };
+  }
+
+  // Extract component percentages: L, T, P
+  const l = pct(r.Lpercentage);
+  const t = pct(r.Tpercentage);
+  const p = pct(r.Ppercentage);
+
+  const active: { type: string; val: number }[] = [];
+
+  // Lecture: active if L component ID exists or if neither T nor P exists
+  if (l !== null && (r.Lsubjectcomponentid || (!r.Tsubjectcomponentid && !r.Psubjectcomponentid))) {
+    active.push({ type: "L", val: l });
+  } else if (l !== null && !r.Lsubjectcomponentid && !r.Tsubjectcomponentid && !r.Psubjectcomponentid) {
+    active.push({ type: "L", val: l });
+  }
+
+  // Tutorial: active if T component ID exists
+  if (t !== null && (r.Tsubjectcomponentid || (!r.Lsubjectcomponentid && !r.Psubjectcomponentid))) {
+    active.push({ type: "T", val: t });
+  }
+
+  // Practical: active if P component ID exists (practicals typically have separate course code)
+  if (p !== null && (r.Psubjectcomponentid || (!r.Lsubjectcomponentid && !r.Tsubjectcomponentid))) {
+    active.push({ type: "P", val: p });
+  }
+
+  // Fallback if no component IDs were present
+  if (active.length === 0) {
+    if (l !== null) active.push({ type: "L", val: l });
+    if (t !== null) active.push({ type: "T", val: t });
+    if (p !== null) active.push({ type: "P", val: p });
+  }
+
+  if (active.length > 0) {
+    const sum = active.reduce((a, b) => a + b.val, 0);
+    const avg = sum / active.length;
+
+    return {
+      pct: `${avg.toFixed(1)}%`,
+      pctNum: avg,
+      isShort: avg < 75 || active.some((a) => a.val < 75),
+      colorClass: getColorClass(avg),
       margin: { type: "none", count: 0, text: "" },
     };
   }
@@ -386,12 +398,13 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
     deps: [session],
     cacheKey: `att.initial:${session.username}`,
   });
-  const [semId, setSemId, sem] = useSemester("attendance", att.data?.semesters);
-  const isDefault = semId === String(att.data?.semesters?.[0]?.registrationid);
+  const initial = att.data;
+  const [semId, setSemId, sem] = useSemester("attendance", initial?.semesters);
+  const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
   const detail = useFeature<{ rows: AttRow[] }>({
     run: () =>
       features.getAttendanceDetail(client, session, {
-        stynumber: att.data?.header?.stynumber,
+        stynumber: initial?.header?.stynumber,
         registrationid: sem?.registrationid,
         registrationcode: sem?.registrationcode,
       }),
@@ -400,10 +413,14 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
     cacheKey: semId ? `att.detail:${session.username}:${semId}` : undefined,
   });
 
-  const initial = att.data;
-  const rows = detail.data?.rows ?? initial?.rows ?? [];
+  const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
   const semesters = initial?.semesters ?? [];
   const [open, setOpen] = useState<number | null>(null);
+
+  useEffect(() => {
+    setOpen(null);
+  }, [semId]);
+
   const loading = att.loading || detail.loading;
   const error = att.error ?? detail.error;
   const retry = att.error ? att.retry : detail.retry;
@@ -430,7 +447,7 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
           >
             {semesters.map((s) => (
               <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                {formatSemester(s.registrationcode)}
+                {formatSemester(s.registrationcode ?? s.registrationdesc)}
               </option>
             ))}
           </select>
@@ -457,6 +474,15 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
                     <tr
                       className={`clickable-row ${isOpen ? "active-row" : ""}`}
                       onClick={() => setOpen(isOpen ? null : i)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setOpen(isOpen ? null : i);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-expanded={isOpen}
                       title="Tap to see class-by-class attendance"
                     >
                       <td>

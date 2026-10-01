@@ -55,49 +55,6 @@ export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
   );
 }
 
-export function personalScalars(general: Record<string, unknown> | null): [string, string][] {
-  if (!general || typeof general !== "object") return [];
-  return Object.entries(general)
-    .filter(([k, v]) => {
-      if (/photo/i.test(k)) return false;
-      if (v === null || v === undefined) return false;
-      if (typeof v === "object") return false;
-      return true;
-    })
-    .map(([k, v]) => [k, String(v)]);
-}
-
-/** Render an unmapped response: arrays as tables, objects as key/value lists (nested included). */
-export function UnknownData({ data }: { data: unknown }) {
-  if (Array.isArray(data)) return <AutoTable rows={data as Record<string, unknown>[]} />;
-  if (data !== null && typeof data !== "object") return <p className="muted">{String(data)}</p>;
-  if (data && typeof data === "object") {
-    const entries = personalScalars(data as Record<string, unknown>);
-    const nested = Object.entries(data as Record<string, unknown>).filter(
-      ([k, v]) => v !== null && typeof v === "object" && !/photo/i.test(k)
-    );
-    if (entries.length === 0 && nested.length === 0) return null;
-    return (
-      <>
-        {entries.length > 0 && (
-          <dl>
-            {entries.map(([k, v]) => (
-              <div key={k}><dt>{prettyKey(k)}</dt><dd>{v}</dd></div>
-            ))}
-          </dl>
-        )}
-        {nested.map(([k, v]) => (
-          <div key={k}>
-            <h3>{prettyKey(k)}</h3>
-            <UnknownData data={v} />
-          </div>
-        ))}
-      </>
-    );
-  }
-  return null;
-}
-
 /** Error line with retry, shared by every section. */
 export function SectionError({ label, error, retry }: { label: string; error: string; retry: () => void }) {
   const isDown = /down \(not us\)|network|500|failed to fetch|unable to reach/i.test(error);
@@ -115,11 +72,31 @@ export function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Parse an exam/class datetime string in Indian portal formats (DD-MM-YYYY or DD/MM/YYYY with optional time). */
+export function parseIndianDateTime(dt?: string): number | null {
+  if (!dt) return null;
+  const m = dt.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (m) {
+    const [, d, mo, y] = m;
+    const timeMatch = dt.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    let h = 0;
+    let min = 0;
+    if (timeMatch) {
+      h = parseInt(timeMatch[1], 10);
+      min = parseInt(timeMatch[2], 10);
+      const ampm = timeMatch[3]?.toUpperCase();
+      if (ampm === "PM" && h < 12) h += 12;
+      if (ampm === "AM" && h === 12) h = 0;
+    }
+    return new Date(parseInt(y, 10), parseInt(mo, 10) - 1, parseInt(d, 10), h, min).getTime();
+  }
+  const t = Date.parse(dt);
+  return Number.isNaN(t) ? null : t;
+}
+
 /** Parse an exam datetime; null when missing/unparseable. */
 export function examTime(v?: string): number | null {
-  if (!v) return null;
-  const t = Date.parse(v);
-  return Number.isNaN(t) ? null : t;
+  return parseIndianDateTime(v);
 }
 
 export function countdown(ms: number): string {
@@ -131,34 +108,12 @@ export function countdown(ms: number): string {
   return "today";
 }
 
-export function pct(v: string | undefined): number | null {
+export function pct(v: string | number | undefined | null): number | null {
   if (v == null) return null;
-  const n = Number(String(v).replace("%", ""));
+  const s = String(v).replace("%", "").trim();
+  if (s === "") return null;
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
-}
-
-/** Below 75% in any component counts as short. */
-export function isShort(r: { Lpercentage?: string; Tpercentage?: string; Ppercentage?: string }): boolean {
-  return [pct(r.Lpercentage), pct(r.Tpercentage), pct(r.Ppercentage)].some((n) => n !== null && n < 75);
-}
-
-/** Keep only columns matching any pattern (case-insensitive key spelling varies live). */
-export function selectColumns(rows: Record<string, unknown>[], keep: RegExp[]): Record<string, unknown>[] {
-  return rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => keep.some((re) => re.test(k)))));
-}
-
-export interface PayslipRow {
-  currencycode?: string;
-  dueamount?: string | number;
-}
-
-export function payslipTotals(rows: PayslipRow[]): { currency: string; total: number }[] {
-  const sums = new Map<string, number>();
-  for (const r of rows) {
-    const cur = r.currencycode ?? "";
-    sums.set(cur, (sums.get(cur) ?? 0) + num(r.dueamount));
-  }
-  return [...sums.entries()].map(([currency, total]) => ({ currency, total }));
 }
 
 function getSectionIcon(id?: string) {
@@ -259,35 +214,45 @@ export function CollapsibleCard({
   return (
     <section className={`card m3-card ${isOpen ? "open" : "collapsed"}`} id={id}>
       <div className="card-header m3-card-header">
-        <button
-          type="button"
-          className="m3-list-item"
-          onClick={toggle}
-          aria-expanded={isOpen}
-          aria-controls={id ? `${id}-body` : undefined}
-        >
-          <div className="m3-leading-icon-circle">
-            {getSectionIcon(id)}
-          </div>
-          <div className="m3-item-content">
-            <span className="m3-item-headline">{title}</span>
-            {(badge || subtitle) && (
-              <span className={`m3-item-supporting ${badgeShort ? "short" : ""}`}>
-                {badge ?? subtitle}
-              </span>
-            )}
-          </div>
+        <div className="m3-list-item">
+          <button
+            type="button"
+            className="m3-item-main-btn"
+            onClick={toggle}
+            aria-expanded={isOpen}
+            aria-controls={id ? `${id}-body` : undefined}
+          >
+            <div className="m3-leading-icon-circle">
+              {getSectionIcon(id)}
+            </div>
+            <div className="m3-item-content">
+              <span className="m3-item-headline">{title}</span>
+              {(badge || subtitle) && (
+                <span className={`m3-item-supporting ${badgeShort ? "short" : ""}`}>
+                  {badge ?? subtitle}
+                </span>
+              )}
+            </div>
+          </button>
           {action && (
-            <div className="m3-card-action" onClick={(e) => e.stopPropagation()}>
+            <div className="m3-card-action">
               {action}
             </div>
           )}
-          <div className={`m3-trailing-chevron ${isOpen ? "open" : ""}`} aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-          </div>
-        </button>
+          <button
+            type="button"
+            className="m3-trailing-chevron-btn"
+            onClick={toggle}
+            aria-expanded={isOpen}
+            aria-label={isOpen ? `Collapse ${title}` : `Expand ${title}`}
+          >
+            <div className={`m3-trailing-chevron ${isOpen ? "open" : ""}`} aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+          </button>
+        </div>
       </div>
       {isOpen && (
         <div className="card-body m3-card-body" id={id ? `${id}-body` : undefined}>

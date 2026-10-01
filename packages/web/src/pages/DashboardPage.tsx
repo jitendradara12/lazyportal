@@ -67,12 +67,13 @@ function ReconnectModal({
     setBusy(true);
     setError(null);
     try {
+      const savedUsertype = (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") || (session.membertype === "P" ? "P" : "S");
       const s = (await auth.login(client, {
         username: String(session.username ?? session.enrollmentno),
         password,
         captchaText: captchaText.trim(),
         captcha,
-        usertype: session.membertype === "P" ? "P" : "S",
+        usertype: savedUsertype,
       })) as unknown as Session;
 
       if (rememberPw) {
@@ -251,7 +252,7 @@ export function DashboardPage({
             <label className="semrow" style={{ marginTop: "4px" }}>
               Institute{" "}
               <select
-                value={typeof session.instituteid === "string" ? session.instituteid : ""}
+                value={String(session.instituteid ?? "")}
                 onChange={(e) => onSelectInstitute(e.target.value)}
                 className="sem-picker"
               >
@@ -280,7 +281,7 @@ export function DashboardPage({
       <div className="m3-stacked-sections" role="list">
         {visible.map(({ id, Component }) => (
           <Component
-            key={`${id}:${typeof session.instituteid === "string" ? session.instituteid : ""}`}
+            key={`${id}:${String(session.instituteid ?? "")}`}
             session={session}
             onLogout={onLogout}
           />

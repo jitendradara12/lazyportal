@@ -200,4 +200,26 @@ describe("client", () => {
     assert.ok(err instanceof PortalError);
     assert.equal(err.code, "NETWORK_ERROR");
   });
+
+  it("handles 204 No Content as success with null response", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: true, status: 204, text: async () => "" })),
+      now: () => NOW,
+    });
+    const res = await client.post("/exam-schedule", {});
+    assert.equal(res.status.responseStatus, "Success");
+    assert.equal(res.response, null);
+  });
+
+  it("maps 200 Failure with session expired message to SessionExpiredError", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () =>
+        ok({ status: { responseStatus: "Failure", errors: ["Session expired! Please login again."] } })
+      ),
+      now: () => NOW,
+    });
+    await assert.rejects(() => client.post("/data", {}), SessionExpiredError);
+  });
 });

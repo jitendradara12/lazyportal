@@ -38,16 +38,17 @@ export function MarksSection({ session }: SectionProps) {
     cacheKey: `marks.latest:${session.username}`,
   });
   const [semId, setSemId, sem] = useSemester("marks", lov.data?.semesters);
+  const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
   const detail = useFeature<MarksDetail>({
     run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: card.hasExpanded && sem !== null && semId !== String(lov.data?.semesters?.[0]?.registrationid),
+    enabled: card.hasExpanded && sem !== null && !isDefault,
     cacheKey: semId ? `marks.detail:${session.username}:${semId}` : undefined,
   });
 
-  const rawRows = detail.data?.rows ?? lov.data?.rows ?? [];
+  const rawRows = isDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);
   const semesters = lov.data?.semesters ?? [];
-  const code = detail.data ? sem?.registrationcode : lov.data?.registrationcode;
+  const code = sem?.registrationcode ?? (isDefault ? lov.data?.registrationcode : undefined);
   const semLabel = formatSemester(code);
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;
@@ -97,9 +98,9 @@ export function MarksSection({ session }: SectionProps) {
                     {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
                     {titleCase(r.subjectdesc ?? "")}
                   </td>
-                  <td className="num-col">{String(num(r.fullmarks) || "—")}</td>
+                  <td className="num-col">{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</td>
                   <td className="num-col">
-                    <strong>{String(num(r.obtainedmarks) || "0")}</strong>
+                    <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
                   </td>
                 </tr>
               ))}

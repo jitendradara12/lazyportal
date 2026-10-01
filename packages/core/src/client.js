@@ -75,6 +75,9 @@ export function createClient({
       if (!opts.silent) await onUnauthorized?.();
       throw new SessionExpiredError();
     }
+    if (res.status === 204) {
+      return { status: { responseStatus: "Success" }, response: null };
+    }
     const text = await res.text();
     if (!text) {
       // Official backend returns 200+empty when LocalName missing/decrypt fails.
