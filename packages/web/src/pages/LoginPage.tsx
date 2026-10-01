@@ -139,7 +139,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           <div className="auth-header">
             <div className="auth-header-text">
               <h1 className="auth-title">Sign in</h1>
-              <p className="auth-subtitle">Login once, stay logged in.</p>
+              <p className="auth-subtitle">with your studentportal credentials</p>
             </div>
             <div className="auth-icon-badge" aria-hidden="true">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -175,7 +175,6 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
 
           {/* Role Selector: Segmented Pill Toggle */}
           <div className="auth-field-group">
-            <span className="auth-field-label">I am a</span>
             <div className="segmented-pill-toggle" role="radiogroup" aria-label="User role">
               <button
                 type="button"
@@ -229,7 +228,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
-              placeholder="e.g. 21BCSE104"
+              placeholder="e.g. 241b6969"
               className="auth-input"
             />
           </div>
@@ -248,7 +247,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                placeholder="••••••••••••"
+                placeholder="password"
                 className="auth-input has-action"
               />
               <button
@@ -288,7 +287,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
                 <path d="M20 6L9 17l-5-5"/>
               </svg>
             </span>
-            <span className="auth-checkbox-text">Remember password on this device</span>
+            <span className="auth-checkbox-text">Remember me (only saved locally)</span>
           </label>
 
           {/* Captcha Section */}
@@ -340,11 +339,12 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
                 className={`auth-input ${isAutoSolved ? "has-status" : ""}`}
               />
               {isAutoSolved && (
-                <span className="auth-input-inline-status" aria-label="Auto-solved">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M20 6L9 17l-5-5"/>
+                <span className="auth-input-inline-status" aria-label="Auto-solved guess">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="19" y1="12" x2="5" y2="12"/>
+                    <polyline points="11 18 5 12 11 6"/>
                   </svg>
-                  <span>Auto-solved</span>
+                  <span>tried my best</span>
                 </span>
               )}
             </div>

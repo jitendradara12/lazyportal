@@ -620,7 +620,6 @@ button, input, select, textarea {
 .auth-card {
   width: 100%;
   background: var(--surfaceContainerLow);
-  border: 1px solid var(--outlineVariant);
   border-radius: var(--r-xl);
   padding: 28px 22px;
   box-shadow: 0 4px 20px rgba(74, 68, 89, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
@@ -903,7 +902,7 @@ button, input, select, textarea {
 }
 
 .auth-input.has-status {
-  padding-right: 110px;
+  padding-right: 116px;
 }
 
 .auth-input-inline-status {
@@ -911,12 +910,18 @@ button, input, select, textarea {
   right: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--success);
+  opacity: 0.85;
   pointer-events: none;
   user-select: none;
+  transition: opacity 0.15s ease;
+}
+
+.auth-input:focus + .auth-input-inline-status {
+  opacity: 0.4;
 }
 
 .auth-captcha-media-row {
