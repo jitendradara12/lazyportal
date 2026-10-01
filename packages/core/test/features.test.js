@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getFeeSummary, getPayslipDues, getFeeEvents, getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getPersonalInfo, getPendingServiceRequests, getMedicalInfo, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getApprovedRequests, getClosedRequests, getPaidRequests, getWithdrawnRequests, getCancelledRequests, getFacultyRegistrations, getSubjectAttendanceAll, getChoiceSemesters, getChoiceSubjects } from "../src/features.js";
+import { getFeeSummary, getPayslipDues, getFeeEvents, getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getPersonalInfo, getPendingServiceRequests, getMedicalInfo, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getApprovedRequests, getClosedRequests, getPaidRequests, getWithdrawnRequests, getCancelledRequests, getFacultyRegistrations, getSubjectAttendanceAll, getChoiceSemesters, getChoiceSubjects, getChoiceSubjectsLatest } from "../src/features.js";
 
 describe("features", () => {
   it("getFeeSummary posts raw instituteid and returns rows", async () => {
@@ -439,6 +439,21 @@ describe("features", () => {
       { instituteid: "i1", clientid: "c1", registrationid: "r1" },
     ]);
     assert.equal(rows.length, 1);
+  });
+
+  it("getChoiceSubjectsLatest uses first semester and returns rows", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (endpoint.endsWith("getsemestercodelist")) {
+          return { response: { registrationcodelist: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
+        }
+        assert.equal(payload.registrationid, "r1");
+        return { response: { subjectpreferencegrid: [{ subjectcode: "S1" }] } };
+      },
+    };
+    const out = await getChoiceSubjectsLatest(fake, { instituteid: "i1", clientid: "c1" });
+    assert.equal(out.rows.length, 1);
+    assert.equal(out.registrationcode, "REG-1");
   });
 
   it("getSubjectAttendanceAll previous branch hits mirrored endpoint", async () => {

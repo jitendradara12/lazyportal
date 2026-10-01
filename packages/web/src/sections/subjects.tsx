@@ -1,7 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
-import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
   SectionError,
@@ -18,27 +17,23 @@ interface SubjectRow {
   [key: string]: unknown;
 }
 
+interface SubjectsLatest {
+  semesters: Semester[];
+  registrationcode?: string | null;
+  rows: SubjectRow[];
+}
+
 export function SubjectsSection({ session }: SectionProps) {
   const card = useCardState("subjects", false);
-  const lov = useFeature<Semester[]>({
-    run: () => features.getChoiceSemesters(client),
+  const latest = useFeature<SubjectsLatest>({
+    run: () => features.getChoiceSubjectsLatest(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `subjects.lov:${session.username}`,
-  });
-  const [semId, setSemId, sem] = useSemester("subjects", lov.data);
-  const detail = useFeature<SubjectRow[]>({
-    run: () => features.getChoiceSubjects(client, session, { registrationid: sem?.registrationid }),
-    deps: [session, semId],
-    enabled: card.hasExpanded && sem !== null,
-    cacheKey: semId ? `subjects.detail:${session.username}:${semId}` : undefined,
+    cacheKey: `subjects.latest:${session.username}`,
   });
 
-  const rows = detail.data ?? [];
-  const semesters = lov.data ?? [];
-  const semLabel = formatSemester(sem?.registrationcode ?? sem?.registrationdesc);
-  const loading = lov.loading || detail.loading;
-  const error = lov.error ?? detail.error;
+  const rows = latest.data?.rows ?? [];
+  const semLabel = formatSemester(latest.data?.registrationcode);
   const badgeText = rows.length > 0 ? `${rows.length} subjects` : (semLabel ? semLabel.toLowerCase() : "Course registrations");
 
   return (
@@ -49,24 +44,8 @@ export function SubjectsSection({ session }: SectionProps) {
       defaultOpen={false}
       isOpen={card.isOpen}
       onToggle={card.toggle}
-      action={
-        semesters.length > 1 ? (
-          <select
-            value={semId ?? ""}
-            onChange={(e) => setSemId(e.target.value)}
-            disabled={loading}
-            className="sem-picker"
-          >
-            {semesters.map((s) => (
-              <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                {formatSemester(s.registrationcode ?? s.registrationdesc)}
-              </option>
-            ))}
-          </select>
-        ) : undefined
-      }
     >
-      {loading && <p className="muted">Loading…</p>}
+      {latest.loading && <p className="muted">Loading…</p>}
       {rows.length > 0 && (
         <div className="table-scroll">
           <table>
@@ -91,10 +70,10 @@ export function SubjectsSection({ session }: SectionProps) {
           </table>
         </div>
       )}
-      {lov.data && rows.length === 0 && !error && !loading && (
+      {latest.data && rows.length === 0 && !latest.error && !latest.loading && (
         <p className="muted">No registered subjects found for {semLabel || "this semester"}.</p>
       )}
-      {error && <SectionError label="Subjects" error={error} retry={retry} />}
+      {latest.error && <SectionError label="Subjects" error={latest.error} retry={latest.retry} />}
     </CollapsibleCard>
   );
 }

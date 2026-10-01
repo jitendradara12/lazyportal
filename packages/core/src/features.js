@@ -224,6 +224,15 @@ export async function getChoiceSubjects(client, session, { registrationid }) {
   return Array.isArray(rows) ? rows : [];
 }
 
+/** Registered subjects in one call: LOV -> latest registration -> rows. */
+export async function getChoiceSubjectsLatest(client, session) {
+  const semesters = await getChoiceSemesters(client);
+  const sem = semesters[0];
+  if (!sem) return { semesters, registrationcode: null, rows: [] };
+  const rows = await getChoiceSubjects(client, session, { registrationid: sem.registrationid });
+  return { semesters, registrationcode: sem.registrationcode, rows };
+}
+
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */
 export async function getMarksSemesters(client, session) {
   const body = await client.post("/studentcommonsontroller/getsemestercode-exammarks", {

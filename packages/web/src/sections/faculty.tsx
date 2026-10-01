@@ -39,6 +39,7 @@ export function FacultySection({ session }: SectionProps) {
   const semLabel = formatSemester(sem?.registrationcode ?? sem?.registrationdesc);
   const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;
+  const retry = lov.error ? lov.retry : detail.retry;
   const badgeText = rows.length > 0 ? `${rows.length} faculty` : (semLabel ? semLabel.toLowerCase() : "Teachers & credits");
 
   return (

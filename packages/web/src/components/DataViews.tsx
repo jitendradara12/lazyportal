@@ -1,5 +1,5 @@
 /** Shared bits for dashboard sections. */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
 
 /** Humanize a backend key for table headers: camelCase/snake_case -> words. */
@@ -216,6 +216,11 @@ export function CollapsibleCard({
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : open !== "0";
   const toggle = controlledOnToggle ?? (() => setOpen(isOpen ? "0" : "1"));
 
+  const [renderedOnce, setRenderedOnce] = useState(isOpen);
+  useEffect(() => {
+    if (isOpen) setRenderedOnce(true);
+  }, [isOpen]);
+
   return (
     <section className={`card m3-card ${isOpen ? "open" : "collapsed"}`} id={id}>
       <div className="card-header m3-card-header">
@@ -244,16 +249,22 @@ export function CollapsibleCard({
           </div>
         </button>
       </div>
-      {isOpen && (
-        <div className="card-body m3-card-body" id={id ? `${id}-body` : undefined}>
-          {action && (
-            <div className="m3-expanded-action-bar">
-              {action}
-            </div>
-          )}
-          {children}
+      <div
+        className={`m3-accordion-wrapper ${isOpen ? "expanded" : "collapsed"}`}
+        id={id ? `${id}-body` : undefined}
+        aria-hidden={!isOpen}
+      >
+        <div className="m3-accordion-inner">
+          <div className="card-body m3-card-body">
+            {action && (
+              <div className="m3-expanded-action-bar">
+                {action}
+              </div>
+            )}
+            {(isOpen || renderedOnce) && children}
+          </div>
         </div>
-      )}
+      </div>
     </section>
   );
 }

@@ -298,13 +298,22 @@ function getColorClass(val: number | null): AttColorClass {
   return "att-green";
 }
 
-export function combinedAttendance(r: AttRow & Record<string, unknown>): {
+export interface CombinedAttResult {
   pct: string;
   pctNum: number | null;
   isShort: boolean;
   colorClass: AttColorClass;
   margin: BunkMargin;
-} {
+  totalClasses: number;
+  totalPresent: number;
+  components: {
+    L?: { total: number; present: number; pct?: string | number | null };
+    T?: { total: number; present: number; pct?: string | number | null };
+    P?: { total: number; present: number; pct?: string | number | null };
+  };
+}
+
+export function combinedAttendance(r: AttRow & Record<string, unknown>): CombinedAttResult {
   const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);
   const Lpres = Number(r.Ltotalpresent ?? r.LTotalpresent ?? r.ltotalpresent ?? 0);
   const Ttotal = Number(r.Ttotalclass ?? r.TTotalclass ?? r.ttotalclass ?? 0);
@@ -315,6 +324,17 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): {
   const totalClasses = Ltotal + Ttotal + Ptotal;
   const totalPresent = Lpres + Tpres + Ppres;
 
+  const components: CombinedAttResult["components"] = {};
+  if (Ltotal > 0 || r.Lpercentage != null) {
+    components.L = { total: Ltotal, present: Lpres, pct: r.Lpercentage };
+  }
+  if (Ttotal > 0 || r.Tpercentage != null) {
+    components.T = { total: Ttotal, present: Tpres, pct: r.Tpercentage };
+  }
+  if (Ptotal > 0 || r.Ppercentage != null) {
+    components.P = { total: Ptotal, present: Ppres, pct: r.Ppercentage };
+  }
+
   if (totalClasses > 0) {
     const val = (totalPresent / totalClasses) * 100;
     return {
@@ -323,6 +343,9 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): {
       isShort: val < 75,
       colorClass: getColorClass(val),
       margin: computeBunkMargin(totalPresent, totalClasses),
+      totalClasses,
+      totalPresent,
+      components,
     };
   }
 
@@ -335,6 +358,9 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): {
       isShort: direct < 75,
       colorClass: getColorClass(direct),
       margin: { type: "none", count: 0, text: "" },
+      totalClasses: 0,
+      totalPresent: 0,
+      components,
     };
   }
 
@@ -379,6 +405,9 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): {
       isShort: avg < 75 || active.some((a) => a.val < 75),
       colorClass: getColorClass(avg),
       margin: { type: "none", count: 0, text: "" },
+      totalClasses: 0,
+      totalPresent: 0,
+      components,
     };
   }
 
@@ -388,6 +417,9 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): {
     isShort: false,
     colorClass: "",
     margin: { type: "none", count: 0, text: "" },
+    totalClasses: 0,
+    totalPresent: 0,
+    components,
   };
 }
 

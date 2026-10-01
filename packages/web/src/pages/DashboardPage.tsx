@@ -103,17 +103,33 @@ export function DashboardPage({
     return () => window.removeEventListener("hashchange", handleHash);
   }, []);
 
+  const navigateWithTransition = (action: () => void) => {
+    const run = () => {
+      action();
+      window.scrollTo({ top: 0, behavior: "instant" });
+    };
+    if (typeof document !== "undefined" && "startViewTransition" in document) {
+      (document as unknown as { startViewTransition: (cb: () => void) => void }).startViewTransition(run);
+    } else {
+      run();
+    }
+  };
+
   const openAttendance = () => {
-    window.location.hash = "#attendance";
-    setView("attendance");
+    navigateWithTransition(() => {
+      window.location.hash = "#attendance";
+      setView("attendance");
+    });
   };
 
   const closeAttendance = () => {
-    if (window.location.hash === "#attendance") {
-      history.back();
-    } else {
-      setView("dashboard");
-    }
+    navigateWithTransition(() => {
+      if (window.location.hash === "#attendance") {
+        history.back();
+      } else {
+        setView("dashboard");
+      }
+    });
   };
 
   const attSummary = useAttendanceSummary(session);
@@ -131,7 +147,7 @@ export function DashboardPage({
   }
 
   return (
-    <main className="dash">
+    <main className="dash dash-view-enter">
       {/* Session Expired Sticky Notice */}
       {isExpired && (
         <aside className="expiry-banner" role="alert">

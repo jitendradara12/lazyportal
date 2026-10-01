@@ -105,13 +105,29 @@ export function ReconnectModal({
     }
   };
 
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClose = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(onClose, 200);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleClose]);
+
   const hasSavedPassword = Boolean(savedPw);
   const ready = captcha !== null && !busy && Boolean(password) && Boolean(captchaText.trim());
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+    <div className={`modal-backdrop ${isClosing ? "closing" : ""}`} onClick={handleClose} role="presentation">
       <div
-        className="modal-card auth-card renew-modal-card"
+        className={`auth-card renew-modal-card ${isClosing ? "closing" : ""}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -132,7 +148,7 @@ export function ReconnectModal({
           <button
             type="button"
             className="auth-close-btn"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close"
             title="Close"
           >
@@ -269,7 +285,7 @@ export function ReconnectModal({
 
           {/* Modal Actions */}
           <div className="renew-modal-actions">
-            <button type="button" onClick={onClose} className="renew-cancel-btn" disabled={busy}>
+            <button type="button" onClick={handleClose} className="renew-cancel-btn" disabled={busy}>
               Stay Offline
             </button>
             <button type="submit" disabled={!ready} className="renew-submit-btn">
