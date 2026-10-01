@@ -4,23 +4,28 @@ import { useSession } from "./hooks/useSession";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { InstallBanner } from "./components/InstallBanner";
 import "./styles.css";
 
 function App() {
   const { session, isExpired, save, logout } = useSession();
-  if (!session) return <LoginPage onDone={save} />;
   return (
-    <DashboardPage
-      session={session}
-      isExpired={isExpired}
-      onLogout={logout}
-      onSessionRenewed={save}
-      onSelectInstitute={(instituteid) => {
-        const match = ((session.institutelist as { value?: string; label?: string }[] | undefined) ?? [])
-          .find((o) => String(o.value) === instituteid);
-        save({ ...session, instituteid, institutename: match?.label ?? session.institutename });
-      }}
-    />
+    <>
+      {!session ? <LoginPage onDone={save} /> : (
+        <DashboardPage
+          session={session}
+          isExpired={isExpired}
+          onLogout={logout}
+          onSessionRenewed={save}
+          onSelectInstitute={(instituteid) => {
+            const match = ((session.institutelist as { value?: string; label?: string }[] | undefined) ?? [])
+              .find((o) => String(o.value) === instituteid);
+            save({ ...session, instituteid, institutename: match?.label ?? session.institutename });
+          }}
+        />
+      )}
+      <InstallBanner />
+    </>
   );
 }
 

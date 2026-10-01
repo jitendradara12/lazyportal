@@ -29,6 +29,13 @@ npm run android:apk  # ...and compile app-debug.apk
 Icons, splash, API routing and release signing: [docs/ANDROID.md](docs/ANDROID.md).
 CI compiles the APK on every push (`.github/workflows/android.yml`).
 
+## Install on mobile
+
+The login and dashboard offer a dismissible Home Screen install card: a native
+install button on supported Android browsers, or Share → Add to Home Screen
+guidance in iOS Safari. The APK fallback opens GitHub Releases (Android builds
+will be published separately). See [installation behavior and verification](docs/INSTALL.md).
+
 ## Notes
 
 - Password is saved in your device locally only if you tick Remember me.
