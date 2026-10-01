@@ -7,9 +7,20 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm --workspace @juet/core test && npm --workspace @juet/web test"
+    "test": "npm --workspace @juet/core test && npm --workspace @juet/web test && node --test test/*.test.js",
+    "build": "npm --workspace @juet/web run build",
+    "cap:assets": "node scripts/generate-app-assets.mjs",
+    "cap:sync": "npm run build && cap sync android",
+    "cap:open": "cap open android",
+    "android:apk": "npm run cap:sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@vercel/analytics": "^2.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "sharp": "^0.34.4"
   }
 }

@@ -11,6 +11,7 @@
     "generate-icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.2",
     "@juet/core": "*",
     "@vercel/analytics": "^2.0.1",
     "react": "^18.3.1",
