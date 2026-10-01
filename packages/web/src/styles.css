@@ -2760,3 +2760,199 @@ a:focus-visible {
   transform: scale(0.97);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Floating install card (below sheets, never a modal or focus trap)    */
+/* ------------------------------------------------------------------ */
+
+.install-banner-space {
+  height: calc(var(--install-banner-height) + max(16px, env(safe-area-inset-bottom)) + 16px);
+}
+
+.install-banner {
+  position: fixed;
+  z-index: 50;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  max-width: 440px;
+  max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 64px);
+  margin: 0 auto;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--surfaceContainerLow);
+  color: var(--onSurface);
+  border: 1px solid var(--outlineVariant);
+  border-radius: var(--r-lg);
+  box-shadow: 0 8px 32px rgba(74, 68, 89, 0.14), var(--shadow);
+  animation: installBannerEnter 0.24s var(--motion-standard) backwards;
+}
+
+.install-banner[hidden],
+.install-banner-space[hidden],
+.install-banner-guide[hidden] {
+  display: none;
+}
+
+.install-banner-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.install-banner-icon {
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+}
+
+.install-banner-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.install-banner h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.install-banner p {
+  margin: 0;
+  color: var(--onSurfaceVariant);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.install-banner-copy svg {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+}
+
+.install-banner-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -8px -8px 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--onSurfaceVariant);
+  cursor: pointer;
+}
+
+.install-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 12px;
+}
+
+.install-banner-primary,
+.install-banner-apk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.install-banner-primary {
+  padding: 10px 18px;
+  border: none;
+  background: var(--primary);
+  color: var(--onPrimary);
+  cursor: pointer;
+  transition: transform 0.15s var(--motion-spring);
+}
+
+.install-banner-primary:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.install-banner-primary:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.install-banner-apk {
+  flex-direction: column;
+  padding: 8px 4px;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.install-banner-android-only {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.install-banner-guide {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--outlineVariant);
+}
+
+.install-banner-guide ol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.install-banner-guide li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.install-banner-step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--primaryContainer);
+  color: var(--onPrimaryContainer);
+}
+
+.install-banner-guide > p:first-child:not(:only-child) {
+  margin-bottom: 12px;
+}
+
+.install-banner p.install-banner-error {
+  margin-top: 12px;
+  color: var(--error);
+}
+
+@media (hover: hover) {
+  .install-banner-dismiss:hover {
+    background: var(--surfaceContainerHigh);
+  }
+  .install-banner-apk:hover {
+    color: var(--onPrimaryContainer);
+  }
+}
+
+@keyframes installBannerEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}

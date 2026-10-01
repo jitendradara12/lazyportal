@@ -21,6 +21,9 @@ Wiring only. No crypto, no endpoint strings, no storage wiping.
 
 ```
 lib/portal.ts       # client + store singletons
+lib/installPrompt.js # browser install-event lifecycle + 14-day dismissal policy
+hooks/useInstallPrompt.ts # React subscription to the shared install controller
+components/InstallBanner.tsx # floating card + inline browser-specific guidance
 hooks/useSession.ts # restore session on boot, logout
 hooks/useFeature.ts # fetch + error + retry + 401 handling for sections
 hooks/useSemester.ts # persisted semester pick (defaults to first row)

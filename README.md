@@ -14,6 +14,13 @@ npm --workspace @juet/web run dev
 
 Local dev proxies `/api` to the portal, since the portal only accepts its own origin. Open `http://localhost:5173`, log in, reload. You stay logged in until the token expires or the server returns 401.
 
+## Install on mobile
+
+The login and dashboard offer a dismissible Home Screen install card: a native
+install button on supported Android browsers, or Share → Add to Home Screen
+guidance in iOS Safari. The APK fallback opens GitHub Releases (Android builds
+will be published separately). See [installation behavior and verification](docs/INSTALL.md).
+
 ## Notes
 
 - Password is saved in your device locally only if you tick Remember me.
