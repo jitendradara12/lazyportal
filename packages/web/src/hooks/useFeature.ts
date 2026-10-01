@@ -85,7 +85,10 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
       return;
     }
     let live = true;
-    setLoading(true);
+    const cached = getCached<T>(cacheKey);
+    if (!cached.data && !data) {
+      setLoading(true);
+    }
     setError(null);
     runRef.current().then(
       (d) => {

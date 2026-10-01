@@ -11,6 +11,7 @@ const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
 const PORTAL_REFERER = "https://studentportal.juet.ac.in/studentportal/";
 
 export const config = { api: { bodyParser: false } };
+export const maxDuration = 60;
 
 /** Upstream fetch via node:https: the portal omits its intermediate cert, so
  * strict Node verification fails ("unable to verify the first certificate").
@@ -41,7 +42,7 @@ function fetchUpstream(target, { method, headers, body }) {
       }
     );
     req.on("error", reject);
-    req.setTimeout(9000, () => req.destroy(new Error("upstream timeout")));
+    req.setTimeout(45000, () => req.destroy(new Error("upstream timeout")));
     if (body) req.write(body);
     req.end();
   });

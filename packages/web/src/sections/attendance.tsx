@@ -233,8 +233,8 @@ function SubjectDetail({
     cacheKey: `att.subject:${session.username}:${registrationid ?? "cur"}:${row.subjectid ?? row.individualsubjectcode ?? row.subjectcode}`,
   });
 
-  if (detail.loading) return <p className="muted">Loading class breakdown…</p>;
-  if (detail.error) return <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />;
+  if (detail.loading && !detail.data) return <p className="muted">Loading class breakdown…</p>;
+  if (detail.error && !detail.data) return <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />;
 
   if (!detail.data || Object.keys(detail.data).length === 0) {
     return <p className="muted">No class records available.</p>;

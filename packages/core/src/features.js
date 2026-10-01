@@ -179,19 +179,30 @@ export async function fetchSubjectAttendance(client, session, which, { subjectid
 /** L/T/P detail for one attendance row in parallel. Skips types with no components. */
 export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current") {
   const out = {};
+  let lastErr = null;
+  let successCount = 0;
   await Promise.all(
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
       if (!csv) return;
-      out[t] = await fetchSubjectAttendance(client, session, which, {
-        subjectid: row.subjectid,
-        registrationid,
-        components: csv,
-        subjectcode: row.individualsubjectcode ?? row.subjectcode,
-        registrationcode,
-      });
+      try {
+        out[t] = await fetchSubjectAttendance(client, session, which, {
+          subjectid: row.subjectid,
+          registrationid,
+          components: csv,
+          subjectcode: row.individualsubjectcode ?? row.subjectcode,
+          registrationcode,
+        });
+        successCount++;
+      } catch (e) {
+        lastErr = e;
+        out[t] = null;
+      }
     })
   );
+  if (successCount === 0 && lastErr) {
+    throw lastErr;
+  }
   return out;
 }
 
