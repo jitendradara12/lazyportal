@@ -1,0 +1,78 @@
+name: Android
+
+# The web job is the repository's main line of defence (unit tests + production
+# build). The apk job is the acceptance test for the native shell: it syncs the
+# bundle into android/ and compiles the debug APK on a clean machine.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  web:
+    name: Web tests & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm test
+
+      - run: npm run build
+
+      # `cap sync` is what packages dist/ into android/app/src/main/assets/public.
+      # It also validates capacitor.config.json against the CLI schema.
+      - name: Sync native project
+        run: npx cap sync android
+
+      - name: Verify the bundle landed in the native project
+        run: test -f android/app/src/main/assets/public/index.html
+
+  apk:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      # compileSdk 36 (android/variables.gradle); AGP fetches the rest.
+      - name: Install SDK platform
+        run: sdkmanager --install "platforms;android-36"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - run: npm ci --no-audit --no-fund
+
+      # Builds the web bundle and copies it (plus capacitor.config.json) into android/.
+      - run: npm run cap:sync
+
+      - name: Compile debug APK and run unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

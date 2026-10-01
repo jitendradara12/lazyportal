@@ -8,11 +8,26 @@ This repo logs in once through the same API, keeps the token in its own storage 
 
 ```sh
 npm install
-npm --workspace @juet/core test
-npm --workspace @juet/web run dev
+npm test                          # core + web + proxy tests
+npm --workspace @juet/web run dev # then open http://localhost:5173
 ```
 
 Local dev proxies `/api` to the portal, since the portal only accepts its own origin.
+
+## Android app
+
+The same web build also ships as a native Android app (`com.lazyportal.juet`)
+via Capacitor. The shell bundles `packages/web/dist` and talks to the hosted
+proxy, because a WebView served from `https://localhost` has no same-origin
+`/api`. Needs Node, JDK 21 and the Android SDK:
+
+```sh
+npm run cap:sync     # build web bundle + copy into android/
+npm run android:apk  # ...and compile app-debug.apk
+```
+
+Icons, splash, API routing and release signing: [docs/ANDROID.md](docs/ANDROID.md).
+CI compiles the APK on every push (`.github/workflows/android.yml`).
 
 ## Notes
 
