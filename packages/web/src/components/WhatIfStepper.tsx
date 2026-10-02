@@ -1,44 +1,34 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-interface WhatIfStepperProps {
-  mode: "attend" | "miss";
+interface StepperCardProps {
+  label: string;
   count: number;
-  onModeChange: (mode: "attend" | "miss") => void;
-  onCountChange: (count: number) => void;
-  projectedPct: string;
-  projectedColorClass: string;
-  projectedRatio: { present: number; total: number };
-  margin: { type: "bunk" | "attend" | "none"; count: number; text: string };
+  onChange: (count: number) => void;
+  variant: "attend" | "miss";
   max?: number;
-  defaultOpen?: boolean;
+  isOpen: boolean;
 }
 
-export function WhatIfStepper({
-  mode,
+function StepperCard({
+  label,
   count,
-  onModeChange,
-  onCountChange,
-  projectedPct,
-  projectedColorClass,
-  projectedRatio,
-  margin,
+  onChange,
+  variant,
   max = 99,
-  defaultOpen = false,
-}: WhatIfStepperProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  isOpen,
+}: StepperCardProps) {
   const valueRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(count);
   const countRef = useRef(count);
   countRef.current = count;
-  const onCountChangeRef = useRef(onCountChange);
-  onCountChangeRef.current = onCountChange;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   const holdTimersRef = useRef<{
     timeoutId?: ReturnType<typeof setTimeout>;
     intervalId?: ReturnType<typeof setInterval>;
   }>({});
 
-  // Clean stop for hold-to-repeat timers
   const stopHold = useCallback(() => {
     if (holdTimersRef.current.timeoutId) {
       clearTimeout(holdTimersRef.current.timeoutId);
@@ -52,7 +42,6 @@ export function WhatIfStepper({
     window.removeEventListener("pointercancel", stopHold);
   }, []);
 
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       stopHold();
@@ -68,10 +57,10 @@ export function WhatIfStepper({
       if (!calm) {
         valueRef.current.animate(
           [
-            { transform: `translateY(${dir * -12}px)`, opacity: 0 },
+            { transform: `translateY(${dir * -8}px)`, opacity: 0 },
             { transform: "none", opacity: 1 },
           ],
-          { duration: 180, easing: "cubic-bezier(.2,0,0,1)" }
+          { duration: 160, easing: "cubic-bezier(.2,0,0,1)" }
         );
       }
     }
@@ -82,13 +71,13 @@ export function WhatIfStepper({
     const cur = countRef.current;
     const next = Math.min(max, Math.max(0, cur + delta));
     if (next === cur) return false;
-    onCountChangeRef.current(next);
+    onChangeRef.current(next);
     return true;
   }, [max]);
 
   const handlePointerDown = (delta: number) => (e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.currentTarget.disabled) return;
-    if (e.button !== 0) return; // Only primary mouse click or touch
+    if (e.button !== 0) return;
 
     stopHold();
     const ok = step(delta);
@@ -106,30 +95,104 @@ export function WhatIfStepper({
   };
 
   const handleClick = (delta: number) => (e: React.MouseEvent<HTMLButtonElement>) => {
-    // Keyboard activation (Enter/Space on focused button sends detail === 0)
     if (e.detail === 0) {
       step(delta);
     }
   };
 
-  const attendBtnRef = useRef<HTMLButtonElement>(null);
-  const missBtnRef = useRef<HTMLButtonElement>(null);
+  return (
+    <div className="att-stepper-card" data-variant={variant}>
+      <span className="att-stepper-card-label">{label}</span>
+      <div className="att-stepper-card-controls">
+        <button
+          type="button"
+          className="att-stepper-card-btn"
+          aria-label={`Decrease ${label}`}
+          disabled={count <= 0}
+          tabIndex={isOpen ? 0 : -1}
+          onPointerDown={handlePointerDown(-1)}
+          onPointerUp={stopHold}
+          onPointerLeave={stopHold}
+          onPointerCancel={stopHold}
+          onClick={handleClick(-1)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
 
-  const handleGroupKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      const nextMode = mode === "attend" ? "miss" : "attend";
-      onModeChange(nextMode);
-      if (nextMode === "attend") {
-        attendBtnRef.current?.focus();
-      } else {
-        missBtnRef.current?.focus();
-      }
-    }
-  };
+        <div
+          ref={valueRef}
+          className="att-stepper-card-val"
+          role="status"
+          aria-live="polite"
+        >
+          {count}
+        </div>
+
+        <button
+          type="button"
+          className="att-stepper-card-btn"
+          aria-label={`Increase ${label}`}
+          disabled={count >= max}
+          tabIndex={isOpen ? 0 : -1}
+          onPointerDown={handlePointerDown(1)}
+          onPointerUp={stopHold}
+          onPointerLeave={stopHold}
+          onPointerCancel={stopHold}
+          onClick={handleClick(1)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14M12 5v14" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface WhatIfStepperProps {
+  attendCount: number;
+  missCount: number;
+  onAttendChange: (count: number) => void;
+  onMissChange: (count: number) => void;
+  onReset: () => void;
+  projectedPct: string;
+  projectedColorClass: string;
+  projectedRatio: { present: number; total: number };
+  margin: { type: "bunk" | "attend" | "none"; count: number; text: string };
+  max?: number;
+  defaultOpen?: boolean;
+}
+
+export function WhatIfStepper({
+  attendCount,
+  missCount,
+  onAttendChange,
+  onMissChange,
+  onReset,
+  projectedPct,
+  projectedColorClass,
+  projectedRatio,
+  margin,
+  max = 99,
+  defaultOpen = false,
+}: WhatIfStepperProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  const isSimulated = attendCount > 0 || missCount > 0;
+
+  let previewText = "";
+  if (attendCount > 0 && missCount > 0) {
+    previewText = `+${attendCount} att, ${missCount} leave`;
+  } else if (attendCount > 0) {
+    previewText = `+${attendCount} attend`;
+  } else if (missCount > 0) {
+    previewText = `${missCount} leave`;
+  }
 
   return (
-    <section className={`att-sim-box ${isOpen ? "is-open" : "is-collapsed"}`} data-mode={mode}>
+    <section className={`att-sim-box ${isOpen ? "is-open" : "is-collapsed"}`}>
       <div className="att-sim-header">
         <button
           type="button"
@@ -155,9 +218,9 @@ export function WhatIfStepper({
               <path d="M16 10h.01M12 10h.01M8 10h.01M12 14h.01M8 14h.01M12 18h.01M8 18h.01" />
             </svg>
             <span className="att-sim-title">What-if calculator</span>
-            {!isOpen && count > 0 && (
-              <span className={`att-sim-preview-badge ${mode === "miss" ? "miss" : "attend"}`}>
-                {mode === "attend" ? `+${count} attend` : `+${count} miss`} → {projectedPct}
+            {!isOpen && isSimulated && (
+              <span className={`att-sim-preview-badge ${missCount > 0 && attendCount === 0 ? "miss" : ""}`}>
+                {previewText} → {projectedPct}
               </span>
             )}
           </span>
@@ -168,11 +231,11 @@ export function WhatIfStepper({
           </span>
         </button>
 
-        {count > 0 && (
+        {isSimulated && (
           <button
             type="button"
             className="att-sim-reset-btn"
-            onClick={() => onCountChange(0)}
+            onClick={onReset}
             aria-label="Reset what-if simulation"
           >
             Reset
@@ -187,82 +250,26 @@ export function WhatIfStepper({
         aria-label="What-if simulation controls"
       >
         <div className="att-sim-body-inner">
-          <div
-            className="att-sim-mode"
-            role="radiogroup"
-            aria-label="Scenario"
-            onKeyDown={handleGroupKeyDown}
-          >
-            <button
-              ref={attendBtnRef}
-              type="button"
-              className="att-sim-mode-btn"
-              role="radio"
-              aria-checked={mode === "attend"}
-              tabIndex={mode === "attend" && isOpen ? 0 : -1}
-              onClick={() => onModeChange("attend")}
-            >
-              Attend next
-            </button>
-            <button
-              ref={missBtnRef}
-              type="button"
-              className="att-sim-mode-btn"
-              role="radio"
-              aria-checked={mode === "miss"}
-              tabIndex={mode === "miss" && isOpen ? 0 : -1}
-              onClick={() => onModeChange("miss")}
-            >
-              Miss next
-            </button>
+          <div className="att-sim-grid">
+            <StepperCard
+              label="Attend next"
+              count={attendCount}
+              onChange={onAttendChange}
+              variant="attend"
+              max={max}
+              isOpen={isOpen}
+            />
+            <StepperCard
+              label="Leave next"
+              count={missCount}
+              onChange={onMissChange}
+              variant="miss"
+              max={max}
+              isOpen={isOpen}
+            />
           </div>
 
-          <div className="att-sim-pill">
-            <button
-              type="button"
-              className="att-sim-step"
-              aria-label="Decrease"
-              disabled={count <= 0}
-              tabIndex={isOpen ? 0 : -1}
-              onPointerDown={handlePointerDown(-1)}
-              onPointerUp={stopHold}
-              onPointerLeave={stopHold}
-              onPointerCancel={stopHold}
-              onClick={handleClick(-1)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12h14" />
-              </svg>
-            </button>
-
-            <div
-              ref={valueRef}
-              className="att-sim-value"
-              role="status"
-              aria-live="polite"
-            >
-              {count}
-            </div>
-
-            <button
-              type="button"
-              className="att-sim-step"
-              aria-label="Increase"
-              disabled={count >= max}
-              tabIndex={isOpen ? 0 : -1}
-              onPointerDown={handlePointerDown(1)}
-              onPointerUp={stopHold}
-              onPointerLeave={stopHold}
-              onPointerCancel={stopHold}
-              onClick={handleClick(1)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12h14M12 5v14" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Projected % and bunk count right under .att-sim-pill */}
+          {/* Projected % and bunk count right under the steppers */}
           <div className="att-sim-outcome">
             <div className="att-sim-outcome-score">
               <span className="att-sim-outcome-label">Projected:</span>

@@ -32,8 +32,8 @@ export function SubjectDetailSheet({
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [target, setTarget] = useState<70 | 80 | 90>(70);
-  const [simMode, setSimMode] = useState<"attend" | "miss">("attend");
-  const [simCount, setSimCount] = useState(0);
+  const [attendCount, setAttendCount] = useState(0);
+  const [missCount, setMissCount] = useState(0);
 
   const { name } = subjectName(row.subjectcode);
   const base = { registrationid, registrationcode };
@@ -47,12 +47,9 @@ export function SubjectDetailSheet({
 
   const attInfo = combinedAttendance(row, detail.data, target / 100);
 
-  // Simulation calculations
-  const simPresent = simMode === "attend" ? simCount : 0;
-  const simAbsent = simMode === "miss" ? simCount : 0;
-  const totalSimPresent = attInfo.totalPresent + simPresent;
-  const totalSimClasses = attInfo.totalClasses + simPresent + simAbsent;
-  const isSimulated = simCount > 0;
+  // Simulation calculations (supports attending X and leaving Y simultaneously)
+  const totalSimPresent = attInfo.totalPresent + attendCount;
+  const totalSimClasses = attInfo.totalClasses + attendCount + missCount;
 
   const simPctNum = totalSimClasses > 0 ? (totalSimPresent / totalSimClasses) * 100 : null;
   const simPct = simPctNum != null ? `${simPctNum.toFixed(1)}%` : attInfo.pct;
@@ -149,10 +146,14 @@ export function SubjectDetailSheet({
           {/* Interactive What-If Simulator (M3 Expressive) */}
           {attInfo.hasHeldClasses && (
             <WhatIfStepper
-              mode={simMode}
-              count={simCount}
-              onModeChange={setSimMode}
-              onCountChange={setSimCount}
+              attendCount={attendCount}
+              missCount={missCount}
+              onAttendChange={setAttendCount}
+              onMissChange={setMissCount}
+              onReset={() => {
+                setAttendCount(0);
+                setMissCount(0);
+              }}
               projectedPct={simPct}
               projectedColorClass={simColorClass}
               projectedRatio={{ present: totalSimPresent, total: totalSimClasses }}

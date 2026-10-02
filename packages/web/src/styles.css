@@ -136,11 +136,11 @@ button, input, select, textarea { font-family: inherit; }
 
 /* Small controls keep their visual size but get a 48px hit area */
 .dash-refresh-btn, .auth-close-btn, .chip-btn, .m3-connected-btn, .att-reset-filter-btn,
-.att-sim-reset-btn, .renew-btn, .m3-reconnect-pill, .saved-profile-clear,
+.att-sim-reset-btn, .att-stepper-card-btn, .renew-btn, .m3-reconnect-pill, .saved-profile-clear,
 .segmented-pill, .auth-input-inline-btn { position: relative; }
 
 .dash-refresh-btn::after, .auth-close-btn::after, .chip-btn::after, .m3-connected-btn::after,
-.att-reset-filter-btn::after, .att-sim-reset-btn::after, .renew-btn::after,
+.att-reset-filter-btn::after, .att-sim-reset-btn::after, .att-stepper-card-btn::after, .renew-btn::after,
 .m3-reconnect-pill::after, .saved-profile-clear::after, .segmented-pill::after,
 .auth-input-inline-btn::after { content: ""; position: absolute; inset: -8px -2px; }
 
@@ -1293,6 +1293,97 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 
 .att-sim-body:not(.is-open) .att-sim-body-inner {
   visibility: hidden;
+}
+
+.att-sim-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.att-stepper-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surfaceContainer);
+  border-radius: var(--r-lg);
+  user-select: none;
+}
+
+.att-stepper-card[data-variant="attend"] {
+  --step-accent: var(--primary);
+  --step-on-accent: var(--onPrimary);
+}
+
+.att-stepper-card[data-variant="miss"] {
+  --step-accent: var(--tertiary);
+  --step-on-accent: var(--onTertiary);
+}
+
+.att-stepper-card-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--onSurfaceVariant);
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.att-stepper-card[data-variant="miss"] .att-stepper-card-label {
+  color: var(--tertiary);
+  opacity: 1;
+}
+
+.att-stepper-card-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.att-stepper-card-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 20px;
+  background: var(--step-accent);
+  color: var(--step-on-accent);
+  cursor: pointer;
+  transition: border-radius 0.25s var(--motion-spring), transform 0.2s var(--motion-spring), opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.att-stepper-card-btn:active:not(:disabled) {
+  border-radius: 12px;
+  transform: scale(0.92);
+}
+
+.att-stepper-card-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.att-stepper-card-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.att-stepper-card-val {
+  min-width: 2ch;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--onSurface);
 }
 
 .att-sim-mode { display: flex; gap: 2px; }
