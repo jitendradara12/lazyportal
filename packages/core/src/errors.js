@@ -18,7 +18,7 @@ export class SessionExpiredError extends PortalError {
 }
 
 export class CaptchaError extends PortalError {
-  constructor(message = "Invalid captcha submitted..") {
+  constructor(message = "Invalid captcha submitted.") {
     super(message, { code: "CAPTCHA_INVALID" });
     this.name = "CaptchaError";
   }
@@ -31,6 +31,9 @@ export function toPortalError(body, status) {
   if (/captcha/i.test(msg)) return new CaptchaError(msg);
   if (status === 401 || /session.*expired|invalid.*token|token.*expired|login again/i.test(msg)) {
     return new SessionExpiredError(msg);
+  }
+  if (status === 429 || (typeof status === "number" && status >= 500)) {
+    return new PortalError("JUET's portal is down (not us).", { code: "NETWORK_ERROR", status, errors });
   }
   return new PortalError(msg, { status, errors });
 }

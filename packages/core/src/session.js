@@ -122,6 +122,9 @@ export function createStore(adapter = memoryAdapter()) {
       try {
         return JSON.parse(raw);
       } catch {
+        try {
+          adapter.remove(SESSION_KEY);
+        } catch {}
         return null;
       }
     },

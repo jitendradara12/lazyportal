@@ -13,8 +13,11 @@ export function prettyKey(k: string): string {
 }
 
 /** Title-case a string: "COMPUTER NETWORKS" -> "Computer Networks" */
-export function titleCase(s: string): string {
-  return s
+export function titleCase(s: unknown): string {
+  if (s == null) return "";
+  const str = String(s);
+  if (!str) return "";
+  return str
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .replace(/\b(And|Or|Of|The|In|For|To|A|An)\b/g, (w) => w.toLowerCase())
@@ -57,7 +60,7 @@ export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
 
 /** Error line with retry, shared by every section. */
 export function SectionError({ label, error, retry }: { label: string; error: string; retry: () => void }) {
-  const isDown = /down \(not us\)|network|500|failed to fetch|unable to reach/i.test(error);
+  const isDown = /down \(not us\)|network error|failed to fetch|unable to reach|\b50[0-9]\b|\b429\b|you are offline/i.test(error);
   return (
     <p role="alert" className="error">
       {isDown ? "JUET's portal is down (not us)." : `${label} failed: ${error}`}{" "}

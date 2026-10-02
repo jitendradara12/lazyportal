@@ -92,6 +92,7 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
   useEffect(() => {
     if (!enabled) {
       setLoading(false);
+      setError(null);
       return;
     }
     let live = true;
@@ -111,6 +112,7 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
       (e) => {
         if (!live) return;
         if (isUnauthorized(e)) {
+          if (!data) setError(toMessage(e));
           setLoading(false);
           return;
         }

@@ -68,9 +68,13 @@ export function ExamsSection({ session }: SectionProps) {
     cacheKey: examSemId && examEventId ? `exams.rows:${session.username}:${examSemId}:${examEventId}` : undefined,
   });
 
-  const loading = examEvents.loading || examRows.loading;
+  const loading = examSems.loading || examEvents.loading || examRows.loading;
   const error = examSems.error ?? examEvents.error ?? examRows.error;
-  const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
+  const retry = () => {
+    examSems.retry();
+    examEvents.retry();
+    examRows.retry();
+  };
 
   const rows = examRows.data ?? [];
   const badgeText = rows.length > 0 ? `${rows.length} scheduled` : (card.hasExpanded ? "No schedules" : "Seating & dates");

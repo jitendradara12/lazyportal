@@ -6,7 +6,7 @@ import type { Session } from "../types";
 // calls are blocked by the portal's CORS allowlist, so never point this at the
 // portal host from browser code. Override with VITE_API_BASE for prod proxy.
 export const BASE_URL =
-  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE ?? "/api";
+  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE || "/api";
 
 export const store = session.createStore(session.browserLocalAdapter());
 
@@ -60,10 +60,8 @@ export const client = createClient({
           window.dispatchEvent(new CustomEvent("juet:renewed", { detail: newSession }));
           return true;
         } catch (e) {
-          const code = (e as { code?: string })?.code;
-          if (code === "CAPTCHA_INVALID") continue;
-          // ponytail: drop known-bad pw so sequential 401s don't hammer; transient (network/session) keeps it
-          if (code !== "NETWORK_ERROR" && code !== "SESSION_EXPIRED") {
+          if ((e as { code?: string })?.code === "CAPTCHA_INVALID") continue;
+          if ((e as { code?: string })?.code !== "NETWORK_ERROR" && (e as { code?: string })?.code !== "SESSION_EXPIRED") {
             try {
               localStorage.removeItem("juet.portal.saved_pw");
             } catch {}

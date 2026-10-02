@@ -4,8 +4,6 @@ import { client, onClientUnauthorized, store } from "../lib/portal";
 import type { Session } from "../types";
 
 function restore(): Session | null {
-  // Ponytail: never proactively discard token based on local clock.
-  // The server decides validity via 401, which triggers transparent refresh before logout.
   return store.load();
 }
 
@@ -23,6 +21,10 @@ export function useSession() {
     store.clear();
     try {
       localStorage.removeItem("juet.portal.saved_pw");
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith("juet.cache.") || k.startsWith("juet.portal.sem.") || k.startsWith("juet.portal.card.") || k === "juet.portal.last_sync" || k === "juet.portal.expired")) localStorage.removeItem(k);
+      }
     } catch {}
     setSession(null);
     setIsExpired(false);
@@ -67,7 +69,6 @@ export function useSession() {
         const r = await auth.refreshSession(client, active);
         if (r.ok) {
           if (r.token && r.token !== active.token) {
-            // ponytail: re-read, drop stale heartbeat win if silent re-login rotated meanwhile
             let latest: Session | null = active;
             try {
               latest = (store.load() as Session | null) ?? active;
