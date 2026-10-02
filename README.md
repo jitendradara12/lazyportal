@@ -2,7 +2,7 @@
 
 The official portal (`studentportal.juet.ac.in/studentportal/`) forgets you on every visit. It wipes `localStorage` when the login page loads, and its token refresh never saves the new token. So you solve a captcha and type your password daily for no reason.
 
-This repo logs in once through the same API, keeps the token in its own storage keys, and gives you a readable dashboard. Captcha is still required for the first login. There is no way around that, and this tool does not try.
+This repo logs in once through the same API, keeps the token in its own storage keys, and gives you a readable dashboard. Captcha is still required for the login lazyportal tries to solve it for you.
 
 ## Run it
 
@@ -12,7 +12,7 @@ npm --workspace @juet/core test
 npm --workspace @juet/web run dev
 ```
 
-Local dev proxies `/api` to the portal, since the portal only accepts its own origin. Open `http://localhost:5173`, log in, reload. You stay logged in until the token expires or the server returns 401.
+Local dev proxies `/api` to the portal, since the portal only accepts its own origin.
 
 ## Notes
 
