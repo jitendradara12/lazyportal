@@ -38,3 +38,17 @@ createRoot(el).render(
     <Analytics />
   </ErrorBoundary>
 );
+
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  const isNative =
+    typeof (globalThis as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
+      ?.isNativePlatform === "function"
+      ? (globalThis as unknown as { Capacitor: { isNativePlatform: () => boolean } }).Capacitor.isNativePlatform()
+      : false;
+  if (!isNative) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+  }
+}
+

@@ -48,8 +48,7 @@ test("capacitor.config.json identifies the app and the bundle", () => {
   // Point at the workspace that produces it, not at the output: `npm test` must
   // pass on a clean checkout, before any build.
   assert.ok(exists("packages/web/package.json") && exists("packages/web/vite.config.js"));
-  assert.equal(config.server?.androidScheme, "https");
-  assert.equal(config.server?.hostname, "localhost");
+  assert.equal(config.server?.url, "https://lazyportal-tan.vercel.app");
 });
 
 test("native project matches the Capacitor config", () => {

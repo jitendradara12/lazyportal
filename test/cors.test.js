@@ -75,10 +75,11 @@ test("the proxy handler answers preflights with the allow headers", async () => 
 });
 
 test("the allowed origin is the one the native shell actually uses", () => {
-  // capacitor.config.json → server.hostname + server.androidScheme is the
-  // WebView's origin; if it drifts, native requests start failing CORS.
+  // capacitor.config.json → server.url is the WebView's origin;
+  // if it drifts, native requests start failing CORS.
   const config = JSON.parse(fs.readFileSync(path.join(root, "capacitor.config.json"), "utf-8"));
-  const scheme = config.server?.androidScheme ?? "https";
-  const hostname = config.server?.hostname ?? "localhost";
-  assert.equal(WEBVIEW_ORIGIN, `${scheme}://${hostname}`);
+  const expectedOrigin = config.server?.url
+    ? new URL(config.server.url).origin
+    : `${config.server?.androidScheme ?? "https"}://${config.server?.hostname ?? "localhost"}`;
+  assert.equal(WEBVIEW_ORIGIN, expectedOrigin);
 });

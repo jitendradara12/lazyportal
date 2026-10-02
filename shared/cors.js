@@ -12,7 +12,7 @@
 // this is browser hygiene, not an access-control boundary.)
 
 /** WebView origin of the shipped shell. Keep in sync with capacitor.config.json. */
-export const WEBVIEW_ORIGIN = "https://localhost";
+export const WEBVIEW_ORIGIN = "https://lazyportal-tan.vercel.app";
 
 /**
  * Headers to add to any proxy response.

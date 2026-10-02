@@ -145,6 +145,13 @@ describe("install platform and standalone policy", () => {
     assert.equal(f.snapshot().mode, null);
   });
 
+  it("suppresses inside Capacitor native platform", (t) => {
+    const f = fixture(t, { ua: ANDROID, start: false });
+    f.win.Capacitor = { isNativePlatform: () => true };
+    f.controller.start(f.win);
+    assert.equal(f.snapshot().mode, null);
+  });
+
   for (const legacyMedia of [false, true]) {
     it(`reacts to standalone changes with ${legacyMedia ? "legacy Safari" : "modern"} media listeners`, (t) => {
       const f = fixture(t, { legacyMedia });

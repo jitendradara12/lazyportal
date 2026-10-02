@@ -47,9 +47,10 @@ files (bundle, `capacitor.config.json`, `capacitor.settings.gradle`,
 ## API routing
 
 The portal 403s any `Origin`/`Referer` that is not its own, so browsers must go
-through a proxy on the same origin as the page. The native shell has no such
-origin: it is served from `https://localhost` (Capacitor's default hostname +
-`androidScheme`), so it calls the hosted proxy by absolute URL.
+through a proxy on the same origin as the page. The native shell loads the
+production deployment (`https://lazyportal-tan.vercel.app`) via `server.url` in
+`capacitor.config.json`. This provides instant daily updates without requiring
+users to reinstall the APK.
 
 | Build | `BASE_URL` | Resolved by |
 |---|---|---|
@@ -57,19 +58,14 @@ origin: it is served from `https://localhost` (Capacitor's default hostname +
 | Capacitor app | `https://lazyportal-tan.vercel.app/api` | `packages/web/src/lib/apiBase.js` |
 | Fork / preview | `VITE_API_BASE` (web), `VITE_NATIVE_API_BASE` (app) | same file |
 
-Because the WebView origin (`https://localhost`) is cross-origin to the proxy,
-`shared/cors.js` allows exactly that origin on both preflight and responses. (The
-browser still needs the proxy either way, so the shell reuses it instead of
-calling the portal directly — e.g. via CapacitorHttp — keeping one fetch path
-for web and native.) Two
-things must stay in sync or the app breaks with a CORS error instead of a
-portal error:
+`shared/cors.js` allows `WEBVIEW_ORIGIN` (`https://lazyportal-tan.vercel.app`). Two
+things must stay in sync:
 
-1. `WEBVIEW_ORIGIN` in `shared/cors.js` ↔ `server.hostname` + `server.androidScheme`
+1. `WEBVIEW_ORIGIN` in `shared/cors.js` ↔ `server.url`
    in `capacitor.config.json` (a test asserts this).
 2. `PROD_API_BASE` in `packages/web/src/lib/apiBase.js` ↔ the deployed proxy
-   URL. **Changing the deployment URL means updating this constant and
-   redeploying the web app** — an installed app keeps calling the old URL.
+   URL. Changing the deployment URL means updating this constant and
+   redeploying.
 
 ## Icons and splash
 
@@ -105,12 +101,20 @@ cd android
 ./gradlew assembleRelease          # or: ./gradlew bundleRelease for an AAB
 ```
 
-`app/build.gradle` ships the Capacitor default: `minifyEnabled false`, unsigned
-release. Sign with your own keystore via `signingConfigs`, or `npx cap build
-android` (which takes the keystore options from `capacitor.config.json` →
-`android.buildOptions`). Never distribute `app-debug.apk` (debuggable by
-definition) — install a debug build on a device with
-`adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+`app/build.gradle` automatically derives `versionCode` from git commit count
+(or `GITHUB_RUN_NUMBER` in CI) so updates over existing installs succeed. It signs
+release builds whenever `android/app/release.keystore` exists (or when configured
+via `KEYSTORE_FILE` / `KEYSTORE_PASSWORD` environment variables).
+
+To generate a permanent release keystore:
+```sh
+keytool -genkeypair -v -keystore android/app/release.keystore -alias lazyportal -keyalg RSA -keysize 2048 -validity 10000 -storepass lazyportal -keypass lazyportal -dname "CN=JUET Portal, O=Lazyportal, C=IN"
+```
+In GitHub Actions, store the base64-encoded keystore in `KEYSTORE_BASE64` secret.
+CI automatically builds and signs `app-release.apk` alongside `app-debug.apk`.
+Never distribute debug builds to users; release builds prevent Play Protect debug
+blocks and permit seamless updates without "App not installed" errors.
+
 
 ## Before merging a native change (device QA)
 
@@ -144,16 +148,14 @@ VITE_NATIVE_API_BASE=/api npm run cap:sync
 
 `VITE_NATIVE_API_BASE=/api` makes the WebView call its own origin, which the
 Vite dev server proxies — so the preflighted absolute-URL path is bypassed while
-you iterate. **Remove `server.url` before shipping**: it is explicitly not
-intended for production and would load the app from the network instead of the
-bundle.
+you iterate.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
-| Blank white screen after launch | `android/app/src/main/assets/public/` is stale or missing — run `npm run cap:sync`. |
-| Every request fails with a CORS error | WebView origin drifted from `WEBVIEW_ORIGIN` (`shared/cors.js`) or the proxy has no CORS headers deployed yet. The APK only works against a deployment that includes this commit — verify prod first: `curl -i -X OPTIONS "$PROD/api/token/getcaptcha" -H "Origin: https://localhost" -H "Access-Control-Request-Headers: authorization, content-type, localname"` must return `access-control-allow-origin: https://localhost`. |
+| Blank white screen after launch | Device is completely offline on initial boot before cache warmup, or deployment URL is unreachable. |
+| Every request fails with a CORS error | WebView origin drifted from `WEBVIEW_ORIGIN` (`shared/cors.js`) or the proxy has no CORS headers deployed yet. |
 | Requests fail with `NETWORK_ERROR` | Device offline, or the production proxy URL in `apiBase.js` is wrong/undeployed. |
 | `./gradlew` cannot find a JDK / SDK | Set `JAVA_HOME` (JDK 21) and `ANDROID_HOME`; alternatively open `android/` in Android Studio. |
 | Splash shows the Capacitor logo colours | `npm run cap:assets` was not run after checkout — icons and splash are checked in, so this only happens if they were overwritten. |

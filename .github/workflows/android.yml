@@ -77,12 +77,32 @@ jobs:
       # Builds the web bundle and copies it (plus capacitor.config.json) into android/.
       - run: npm run cap:sync
 
-      - name: Compile debug APK and run unit tests
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+      - name: Setup release keystore
+        working-directory: android/app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          elif [ ! -f release.keystore ]; then
+            keytool -genkeypair -v -keystore release.keystore -alias lazyportal -keyalg RSA -keysize 2048 -validity 10000 -storepass lazyportal -keypass lazyportal -dname "CN=JUET Portal, O=Lazyportal, C=IN"
+          fi
 
-      - uses: actions/upload-artifact@v7
+      - name: Compile APKs and run unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease assembleDebug testDebugUnitTest
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v7
         with:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+

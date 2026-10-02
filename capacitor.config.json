@@ -4,7 +4,7 @@
   "webDir": "packages/web/dist",
   "backgroundColor": "#FCF8FD",
   "server": {
-    "hostname": "localhost",
-    "androidScheme": "https"
+    "url": "https://lazyportal-tan.vercel.app",
+    "cleartext": false
   }
 }

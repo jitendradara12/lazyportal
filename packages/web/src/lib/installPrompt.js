@@ -56,7 +56,11 @@ export function createInstallPrompt({ now = Date.now } = {}) {
   const cleanups = [];
 
   function isStandalone() {
-    return Boolean(displayMode?.matches || win?.navigator.standalone);
+    return Boolean(
+      displayMode?.matches ||
+      win?.navigator.standalone ||
+      (typeof win?.Capacitor?.isNativePlatform === "function" && win.Capacitor.isNativePlatform())
+    );
   }
 
   function publish() {
