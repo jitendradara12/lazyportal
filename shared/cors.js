@@ -7,7 +7,9 @@
 // blocks cross-origin responses without `Access-Control-Allow-Origin`, so
 // without this the app cannot talk to the portal at all.
 //
-// The origin is echoed rather than "*" so this stays useless as an open relay.
+// The origin is echoed rather than "*" so browsers block cross-origin reads
+// from any other site. (Non-browser callers like curl never enforce CORS, so
+// this is browser hygiene, not an access-control boundary.)
 
 /** WebView origin of the shipped shell. Keep in sync with capacitor.config.json. */
 export const WEBVIEW_ORIGIN = "https://localhost";

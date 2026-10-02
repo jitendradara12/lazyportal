@@ -5,7 +5,7 @@
 // Upstream base mirrors packages/web/vite.config.js dev proxy.
 
 import https from "node:https";
-import { corsHeaders, preflightHeaders } from "./cors.js";
+import { corsHeaders, preflightHeaders } from "../shared/cors.js";
 
 const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
@@ -16,10 +16,12 @@ export const maxDuration = 60;
 
 /** Upstream fetch via node:https: the portal omits its intermediate cert, so
  * strict Node verification fails ("unable to verify the first certificate").
- * rejectUnauthorized:false is scoped to this single upstream host only. */
+ * Verification is skipped only for the portal host itself (structural, not a
+ * comment promise): any other hostname keeps Node's default verification. */
 function fetchUpstream(target, { method, headers, body }) {
   return new Promise((resolve, reject) => {
     const url = new URL(target);
+    const portalHost = new URL(UPSTREAM).hostname;
     const req = https.request(
       {
         hostname: url.hostname,
@@ -27,7 +29,7 @@ function fetchUpstream(target, { method, headers, body }) {
         path: url.pathname + url.search,
         method,
         headers,
-        rejectUnauthorized: false,
+        rejectUnauthorized: url.hostname !== portalHost,
       },
       (res) => {
         const chunks = [];
@@ -61,7 +63,7 @@ function readRawBody(req) {
 export default async function handler(req, res) {
   const origin = req.headers?.origin;
   if (req.method === "OPTIONS") {
-    // CORS preflight (native WebView only — see api/cors.js).
+    // CORS preflight (native WebView only — see shared/cors.js).
     res.status(204);
     for (const [k, v] of Object.entries(
       preflightHeaders(origin, req.headers["access-control-request-headers"])
@@ -83,12 +85,20 @@ export default async function handler(req, res) {
   const DROP = new Set([
     "host",
     "connection",
+    "keep-alive",
     "content-length", // recomputed below from exact bytes
     "transfer-encoding",
+    "te",
+    "trailer",
+    "via",
+    "upgrade",
+    "expect", // e.g. 100-continue: the relay never answers it upstream
+    "proxy-authenticate",
+    "proxy-authorization", // client proxy creds must never reach the portal
+    "cdn-loop",
     "accept-encoding", // forced to identity: our utf8 relay can't pass gzip through
     "origin",
     "referer", // both spoofed to the portal below
-    "upgrade",
     "forwarded",
   ]);
   const headers = {
@@ -128,9 +138,12 @@ export default async function handler(req, res) {
   res.status(upstream.status);
   res.setHeader("content-type", upstream.contentType ?? "application/json");
   if (upstream.setCookies?.length) {
-    // Relay session cookies; strip Domain (portal-domain cookie would be
-    // rejected) and reset Path to / (portal paths like /StudentPortalAPI
-    // would never match our /api/* routes, so the browser would not resend).
+    // Relay session cookies for same-origin browser builds; strip Domain
+    // (portal-domain cookie would be rejected) and reset Path to / (portal
+    // paths like /StudentPortalAPI would never match our /api/* routes, so
+    // the browser would not resend). Inert for the native shell: it is
+    // token-based (Authorization: Bearer) and cross-origin fetch omits
+    // cookies by default.
     res.setHeader(
       "set-cookie",
       upstream.setCookies.map((c) =>

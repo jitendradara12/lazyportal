@@ -1,8 +1,9 @@
 name: Android
 
 # The web job is the repository's main line of defence (unit tests + production
-# build). The apk job is the acceptance test for the native shell: it syncs the
-# bundle into android/ and compiles the debug APK on a clean machine.
+# build). The apk job is a compile check for the native shell: it syncs the
+# bundle into android/ and compiles the debug APK on a clean machine. It never
+# boots the WebView — device QA (docs/ANDROID.md checklist) stays manual.
 on:
   push:
     branches: [master]
@@ -41,6 +42,11 @@ jobs:
 
       - name: Verify the bundle landed in the native project
         run: test -f android/app/src/main/assets/public/index.html
+
+      # Checked-in art must match the generator: fail loudly if someone edited
+      # res/ by hand or forgot `npm run cap:assets` after an icon change.
+      - name: Verify native art matches the generator
+        run: npm run cap:assets && git diff --exit-code -- android/app/src/main/res
 
   apk:
     name: Debug APK

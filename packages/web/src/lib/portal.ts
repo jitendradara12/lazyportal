@@ -1,16 +1,22 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
-import { Capacitor } from "@capacitor/core";
 import { auth, createClient, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
 import type { Session } from "../types";
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
 
+// ponytail: read the native bridge global directly — avoids bundling @capacitor/core in the web build
+const nativePlatform =
+  typeof (globalThis as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
+    ?.isNativePlatform === "function"
+    ? (globalThis as unknown as { Capacitor: { isNativePlatform: () => boolean } }).Capacitor.isNativePlatform()
+    : false;
+
 // Same-origin proxy in dev (vite.config proxy /api -> portal) and in the browser
 // deployment; absolute URL to the hosted proxy inside the Capacitor shell, which
 // has no same-origin `/api`. See lib/apiBase.js.
 export const BASE_URL = resolveApiBase({
-  nativePlatform: Capacitor.isNativePlatform(),
+  nativePlatform,
   envBase: env.VITE_API_BASE,
   envNativeBase: env.VITE_NATIVE_API_BASE,
 });

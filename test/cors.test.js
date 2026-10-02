@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { WEBVIEW_ORIGIN, corsHeaders, preflightHeaders } from "../api/cors.js";
+import { WEBVIEW_ORIGIN, corsHeaders, preflightHeaders } from "../shared/cors.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

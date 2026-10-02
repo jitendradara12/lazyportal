@@ -35,4 +35,9 @@ test("proxy base has no trailing slash", () => {
   // BASE_URL is used as `${BASE_URL}${endpoint}` where endpoint starts with "/".
   assert.ok(!PROD_API_BASE.endsWith("/"), PROD_API_BASE);
   assert.ok(PROD_API_BASE.endsWith("/api"), PROD_API_BASE);
+  assert.equal(resolveApiBase({ envBase: "https://preview.example/api/" }), "https://preview.example/api");
+  assert.equal(
+    resolveApiBase({ nativePlatform: true, envNativeBase: "https://fork.example/api/" }),
+    "https://fork.example/api"
+  );
 });
