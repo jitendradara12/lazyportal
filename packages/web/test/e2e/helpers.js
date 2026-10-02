@@ -47,7 +47,10 @@ export async function renewSession(page) {
     localStorage.setItem("juet.portal.session.v1", JSON.stringify(session));
     window.dispatchEvent(new CustomEvent("juet:renewed", { detail: session }));
   }, SESSION);
-  await expect(page.getByRole("button", { name: "Open Attendance page" })).toBeVisible();
+  // The dashboard's attendance hero. Its accessible name carries live data
+  // ("Attendance, Loading…" → "Attendance, 78% attendance"), so match the
+  // stable prefix instead of the full label.
+  await expect(page.getByRole("button", { name: /^Attendance,/ })).toBeVisible();
 }
 
 export async function emitNativePrompt(page, { outcome = "accepted", fail = false, pending = false } = {}) {

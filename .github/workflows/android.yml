@@ -52,6 +52,12 @@ jobs:
     name: Debug APK
     runs-on: ubuntu-latest
     needs: web
+    # The keystore step and the Gradle build are separate steps, so the
+    # signing credentials have to live at job level to reach build.gradle.
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
 
@@ -85,6 +91,10 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
           elif [ ! -f release.keystore ]; then
+            # Ephemeral fallback so PRs from forks (no secrets) still compile.
+            # Each run gets a new key, so these APKs are NOT update-compatible:
+            # add KEYSTORE_BASE64 for anything users install.
+            echo "::warning::KEYSTORE_BASE64 unset - signing release with a throwaway key."
             keytool -genkeypair -v -keystore release.keystore -alias lazyportal -keyalg RSA -keysize 2048 -validity 10000 -storepass lazyportal -keypass lazyportal -dname "CN=JUET Portal, O=Lazyportal, C=IN"
           fi
 
