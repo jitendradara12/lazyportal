@@ -193,29 +193,22 @@ export function CombinedClassLog({
             </button>
           </div>
 
-          <div className="table-scroll log-table-scroll">
-            <table className="att-log-table">
-              <thead>
-                <tr>
-                  <th>Date & Time</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                  {filtered.map((c, i) => (
-                    <tr key={i} className={c.isAttended ? "row-present" : "row-absent"}>
-                      <td>{formatClassDateTime(c.datetime)}</td>
-                      <td>{c.type || "—"}</td>
-                      <td>
-                        <span className={`log-badge ${c.isAttended ? "present" : "absent"}`}>
-                          {c.isAttended ? "Present" : "Absent"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+          <div className="att-log-list" role="list">
+            {filtered.map((c, i) => (
+              <div
+                key={i}
+                className={`att-log-row ${c.isAttended ? "row-present" : "row-absent"}`}
+                role="listitem"
+              >
+                <div className="att-log-info">
+                  <span className="att-log-date">{formatClassDateTime(c.datetime)}</span>
+                  {c.type && <span className="att-log-type-tag">{c.type}</span>}
+                </div>
+                <span className={`log-badge ${c.isAttended ? "present" : "absent"}`}>
+                  {c.isAttended ? "Present" : "Absent"}
+                </span>
+              </div>
+            ))}
           </div>
         </>
       )}

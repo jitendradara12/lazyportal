@@ -293,13 +293,13 @@ export function AttendancePage({
                 <span className="att-sync-dot" aria-hidden="true" />
                 <span>
                   {syncProgress.total > 0
-                    ? `Updating ${syncProgress.done}/${syncProgress.total}…`
+                    ? `Refreshing ${syncProgress.done}/${syncProgress.total}…`
                     : "Refreshing…"}
                 </span>
               </span>
             ) : lastSync ? (
               <span className="att-sync-pill">
-                Updated {formatLastSync(lastSync)}
+                Refreshed {formatLastSync(lastSync)}
               </span>
             ) : null}
           </div>
