@@ -2,7 +2,7 @@
 
 The official portal (`studentportal.juet.ac.in/studentportal/`) forgets you on every visit. It wipes `localStorage` when the login page loads, and its token refresh never saves the new token. So you solve a captcha and type your password daily for no reason.
 
-This repo logs in once through the same API, keeps the token in its own storage keys, and gives you a readable dashboard. Captcha is still required for the login lazyportal tries to solve it for you.
+This repo logs in once through the same API, keeps the token in its own storage keys, and gives you a readable dashboard. Captcha is still required for the login; lazyportal tries to solve it for you.
 
 ## Run it
 
@@ -17,24 +17,15 @@ Local dev proxies `/api` to the portal, since the portal only accepts its own or
 ## Android app
 
 The same web build also ships as a native Android app (`com.lazyportal.juet`)
-via Capacitor. The shell bundles `packages/web/dist` and talks to the hosted
-proxy, because a WebView served from `https://localhost` has no same-origin
-`/api`. Needs Node, JDK 21 and the Android SDK:
+via Capacitor.
 
 ```sh
-npm run cap:sync     # build web bundle + copy into android/
-npm run android:apk  # ...and compile app-debug.apk
+npm run cap:sync    # build web bundle + copy into android/
+npm run android:apk # ...and compile app-debug.apk
 ```
 
 Icons, splash, API routing and release signing: [docs/ANDROID.md](docs/ANDROID.md).
 CI compiles the APK on every push (`.github/workflows/android.yml`).
-
-## Install on mobile
-
-The login and dashboard offer a dismissible Home Screen install card: a native
-install button on supported Android browsers, or Share → Add to Home Screen
-guidance in iOS Safari. The APK fallback opens GitHub Releases (Android builds
-will be published separately). See [installation behavior and verification](docs/INSTALL.md).
 
 ## Notes
 
