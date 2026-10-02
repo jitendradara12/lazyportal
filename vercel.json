@@ -5,7 +5,7 @@
   "framework": "vite",
   "rewrites": [{ "source": "/api/:path*", "destination": "/api/proxy?path=:path*" }],
   "functions": {
-    "api/*.js": {
+    "api/proxy.js": {
       "maxDuration": 60
     }
   }

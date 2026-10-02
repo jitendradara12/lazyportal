@@ -54,17 +54,20 @@ origin: it is served from `https://localhost` (Capacitor's default hostname +
 | Build | `BASE_URL` | Resolved by |
 |---|---|---|
 | `npm run dev`, browser deployment | `/api` (same-origin) | Vite proxy / Vercel rewrite |
-| Capacitor app | `https://lazyportal-tan.vercel.app/api` | `packages/web/src/lib/apiBase.ts` |
+| Capacitor app | `https://lazyportal-tan.vercel.app/api` | `packages/web/src/lib/apiBase.js` |
 | Fork / preview | `VITE_API_BASE` (web), `VITE_NATIVE_API_BASE` (app) | same file |
 
 Because the WebView origin (`https://localhost`) is cross-origin to the proxy,
-`api/cors.js` allows exactly that origin on both preflight and responses. Two
+`shared/cors.js` allows exactly that origin on both preflight and responses. (The
+browser still needs the proxy either way, so the shell reuses it instead of
+calling the portal directly — e.g. via CapacitorHttp — keeping one fetch path
+for web and native.) Two
 things must stay in sync or the app breaks with a CORS error instead of a
 portal error:
 
-1. `WEBVIEW_ORIGIN` in `api/cors.js` ↔ `server.hostname` + `server.androidScheme`
+1. `WEBVIEW_ORIGIN` in `shared/cors.js` ↔ `server.hostname` + `server.androidScheme`
    in `capacitor.config.json` (a test asserts this).
-2. `PROD_API_BASE` in `packages/web/src/lib/apiBase.ts` ↔ the deployed proxy
+2. `PROD_API_BASE` in `packages/web/src/lib/apiBase.js` ↔ the deployed proxy
    URL. **Changing the deployment URL means updating this constant and
    redeploying the web app** — an installed app keeps calling the old URL.
 
@@ -105,8 +108,26 @@ cd android
 `app/build.gradle` ships the Capacitor default: `minifyEnabled false`, unsigned
 release. Sign with your own keystore via `signingConfigs`, or `npx cap build
 android` (which takes the keystore options from `capacitor.config.json` →
-`android.buildOptions`). Install a debug build on a device with
+`android.buildOptions`). Never distribute `app-debug.apk` (debuggable by
+definition) — install a debug build on a device with
 `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+
+## Before merging a native change (device QA)
+
+CI only compiles the APK; it never boots the WebView. Manual signoff on a
+physical device or emulator, against the deployed proxy:
+
+1. Fresh install, log in, open attendance — no CORS/`NETWORK_ERROR`.
+2. Rotate, background 1 min, foreground — session holds, no white screen.
+3. Lock/unlock — no re-login prompt unless the token truly expired.
+
+## If the proxy deployment moves
+
+Installed apps keep calling the baked-in `PROD_API_BASE`
+(`packages/web/src/lib/apiBase.js`) — there is no update channel. Recovery is
+a new app build: update the constant, `npm run cap:sync`, `npm run
+android:apk`, redistribute. Forks should set `VITE_NATIVE_API_BASE` to their
+own proxy at build time instead.
 
 ## Live reload (dev only)
 
@@ -132,7 +153,7 @@ bundle.
 | Symptom | Cause |
 |---|---|
 | Blank white screen after launch | `android/app/src/main/assets/public/` is stale or missing — run `npm run cap:sync`. |
-| Every request fails with a CORS error | WebView origin drifted from `WEBVIEW_ORIGIN` (`api/cors.js`) or the proxy has no CORS headers deployed yet. |
-| Requests fail with `NETWORK_ERROR` | Device offline, or the production proxy URL in `apiBase.ts` is wrong/undeployed. |
+| Every request fails with a CORS error | WebView origin drifted from `WEBVIEW_ORIGIN` (`shared/cors.js`) or the proxy has no CORS headers deployed yet. The APK only works against a deployment that includes this commit — verify prod first: `curl -i -X OPTIONS "$PROD/api/token/getcaptcha" -H "Origin: https://localhost" -H "Access-Control-Request-Headers: authorization, content-type, localname"` must return `access-control-allow-origin: https://localhost`. |
+| Requests fail with `NETWORK_ERROR` | Device offline, or the production proxy URL in `apiBase.js` is wrong/undeployed. |
 | `./gradlew` cannot find a JDK / SDK | Set `JAVA_HOME` (JDK 21) and `ANDROID_HOME`; alternatively open `android/` in Android Studio. |
 | Splash shows the Capacitor logo colours | `npm run cap:assets` was not run after checkout — icons and splash are checked in, so this only happens if they were overwritten. |

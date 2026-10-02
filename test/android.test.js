@@ -3,7 +3,18 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import sharp from "sharp";
+import { createRequire } from "node:module";
+
+// ponytail: sharp is only needed for pixel checks — skip those tests when it
+// isn't installed so `npm test` still passes on a clean checkout.
+const require = createRequire(import.meta.url);
+let sharp = null;
+try {
+  sharp = require("sharp");
+} catch {
+  sharp = null;
+}
+const sharpMissing = !sharp;
 
 /**
  * Static checks on the checked-in native project. They need no Android
@@ -72,7 +83,14 @@ test("launcher icons are the generated brand assets, at every density", () => {
   }
 });
 
-test("adaptive icon uses the brand colour and a padded white glyph", async () => {
+test("docs table matches the baked-in proxy URL", async () => {
+  // Installed apps call whatever PROD_API_BASE was at build time; the docs
+  // table must name the same URL or the recovery runbook points nowhere.
+  const { PROD_API_BASE } = await import("../packages/web/src/lib/apiBase.js");
+  assert.ok(read("docs/ANDROID.md").includes(PROD_API_BASE), "docs/ANDROID.md must contain PROD_API_BASE");
+});
+
+test("adaptive icon uses the brand colour and a padded white glyph", { skip: sharpMissing }, async () => {
   const background = read("android/app/src/main/res/values/ic_launcher_background.xml");
   assert.match(background, /<color name="ic_launcher_background">#1a237e<\/color>/);
 
@@ -94,7 +112,7 @@ test("adaptive icon uses the brand colour and a padded white glyph", async () =>
   assert.equal(pixel(safeInset, safeInset)[3], 0, "glyph must not reach the mask edge");
 });
 
-test("splash screens are branded, not the Capacitor default", async () => {
+test("splash screens are branded, not the Capacitor default", { skip: sharpMissing }, async () => {
   const files = ["drawable/splash.png", "drawable-port-xhdpi/splash.png", "drawable-land-xhdpi/splash.png"];
   for (const file of files) {
     const { width, height } = pngSize(path.join(res, file));
@@ -109,7 +127,7 @@ test("splash screens are branded, not the Capacitor default", async () => {
   assert.deepEqual(px(Math.floor(info.width / 2), Math.floor(info.height / 2)), [0xff, 0xff, 0xff]);
 });
 
-test("launcher art derives from the committed web icon", async () => {
+test("launcher art derives from the committed web icon", { skip: sharpMissing }, async () => {
   // icon-512.png (the PWA icon) is what launchers show on API < 26 and the
   // adaptive foreground comes from the maskable asset — so both inputs must exist.
   for (const file of ["icon-512.png", "icon-maskable-512.png"]) {
