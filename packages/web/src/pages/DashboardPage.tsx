@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { auth } from "@juet/core";
 import { client } from "../lib/portal";
 import { titleCase, formatLastSync } from "../components/DataViews";

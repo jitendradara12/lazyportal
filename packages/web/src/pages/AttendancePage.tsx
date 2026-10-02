@@ -393,7 +393,7 @@ export function AttendancePage({
                     {isSubjectSyncing ? (
                       <span className="att-count-syncing">
                         <span className="sync-pulse-dot" aria-hidden="true" />
-                        Updating…
+                        Refreshing…
                       </span>
                     ) : attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? (
                       `${attInfo.totalPresent}/${attInfo.totalClasses} classes`

@@ -407,7 +407,7 @@ button, input, select, textarea { font-family: inherit; }
   overflow: hidden;
 }
 
-.m3-nav-item-btn, .m3-card-toggle-btn { cursor: pointer; width: 100%; }
+.m3-card-toggle-btn { cursor: pointer; width: 100%; }
 
 .m3-list-item::before,
 .att-subject-row::before {
@@ -982,26 +982,6 @@ tr.detail-expanded-row > td { padding: 4px 0 20px; background: transparent; bord
 .chip-btn.active { background: var(--primary); color: var(--onPrimary); }
 .chip-btn.chip-absent.active { background: var(--danger); color: var(--onError); }
 
-.log-table-scroll { max-height: 360px; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; border-radius: var(--r-md); background: var(--surfaceContainerLow); }
-.att-log-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-
-.att-log-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 12px 14px;
-  font-size: var(--fs-s);
-  background: var(--surfaceContainer);
-  border-bottom: 1px solid var(--border);
-}
-
-.att-log-table td { padding: 14px; line-height: 1.4; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--surfaceContainer); }
-.att-log-table td:last-child, .att-log-table th:last-child { white-space: nowrap; text-align: right; }
-.att-log-table td:nth-child(2), .att-log-table th:nth-child(2) { text-align: center; width: 48px; font-weight: 600; }
-
-.row-present { background: var(--surface); }
-.row-absent { background: var(--rowAbsent); }
-.row-absent td:first-child { font-weight: 600; }
 
 .log-badge { display: inline-block; padding: 4px 12px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--r-full); }
 .log-badge.present { background: var(--successContainer); color: var(--success); }
@@ -1031,7 +1011,6 @@ tr.detail-expanded-row > td { padding: 4px 0 20px; background: transparent; bord
 
 input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .m3-list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
-.m3-nav-item-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .att-subject-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-md); }
@@ -1491,56 +1470,6 @@ tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offse
   color: var(--onSurface);
 }
 
-.att-sim-mode { display: flex; gap: 2px; }
-
-.att-sim-mode-btn {
-  flex: 1;
-  min-height: 52px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: var(--r-xs);
-  background: var(--surfaceContainer);
-  color: var(--onSurfaceVariant);
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-radius 0.35s var(--motion-spring), background-color 0.2s ease, color 0.2s ease;
-}
-
-.att-sim-mode-btn:first-child { border-radius: 26px var(--r-xs) var(--r-xs) 26px; }
-.att-sim-mode-btn:last-child { border-radius: var(--r-xs) 26px 26px var(--r-xs); }
-.att-sim-mode-btn[aria-checked="true"] { border-radius: 26px; background: var(--sim-accent); color: var(--sim-on-accent); font-weight: 700; }
-.att-sim-mode-btn:active { border-radius: 14px; }
-
-@media (hover: hover) {
-  .att-sim-mode-btn[aria-checked="false"]:hover { background: var(--surfaceContainerHigh); color: var(--onSurface); }
-}
-
-.att-sim-pill { display: flex; align-items: center; justify-content: space-between; height: 80px; padding: 0 12px; border-radius: 40px; background: var(--surfaceContainer); }
-
-.att-sim-step {
-  width: 56px;
-  height: 56px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 28px;
-  background: var(--sim-accent);
-  color: var(--sim-on-accent);
-  cursor: pointer;
-  transition: border-radius 0.3s var(--motion-spring), transform 0.3s var(--motion-spring), opacity 0.2s ease, background-color 0.2s ease, filter 0.15s ease;
-}
-
-@media (hover: hover) {
-  .att-sim-step:hover:not(:disabled) { filter: brightness(1.08); }
-}
-
-.att-sim-step:active:not(:disabled) { border-radius: 16px; transform: scale(0.94); }
-.att-sim-step:disabled { opacity: 0.38; cursor: default; }
-.att-sim-step svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
-
-.att-sim-value { min-width: 2ch; font-size: var(--fs-display); font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; text-align: center; }
 
 .att-sim-outcome {
   display: flex;
@@ -1733,8 +1662,6 @@ tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offse
 
 @media (max-width: 639px) {
   .att-comp-box { padding: 4px 0 0; background: none; border: 0; border-radius: 0; }
-  .att-log-table th, .att-log-table td { padding: 12px; }
-  .att-log-table td:first-child { text-wrap: balance; }
 }
 
 @media (min-width: 640px) {
@@ -1759,11 +1686,10 @@ tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offse
 /* High-contrast mode drops background colors, so selected and status states need a border */
 @media (forced-colors: active) {
   .segmented-pill.active,
-  .att-sim-mode-btn[aria-checked="true"],
   .chip-btn.active { outline: 2px solid Highlight; outline-offset: -2px; }
 
-  .badge, .att-code-badge, .log-badge, .att-advice-inline, .att-sim-preview-badge { border: 1px solid CanvasText; }
-  .att-sim-step, .att-stepper-card-btn { border: 1px solid ButtonText; }
+  .badge, .log-badge, .att-advice-inline, .att-sim-preview-badge { border: 1px solid CanvasText; }
+  .att-stepper-card-btn { border: 1px solid ButtonText; }
   .att-sync-dot, .sync-pulse-dot { background: CanvasText; }
 }
 
