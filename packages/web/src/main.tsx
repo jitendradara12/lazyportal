@@ -39,7 +39,7 @@ createRoot(el).render(
   </ErrorBoundary>
 );
 
-if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+if (typeof window !== "undefined" && "serviceWorker" in navigator && import.meta.env.PROD) {
   const isNative =
     typeof (globalThis as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
       ?.isNativePlatform === "function"
