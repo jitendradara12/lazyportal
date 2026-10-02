@@ -365,7 +365,7 @@ export function AttendancePage({
       )}
 
       {/* Subject List Items */}
-      <section className="m3-stacked-sections att-subjects-card" aria-label="Subject list">
+      <section className="att-list" aria-label="Subject list">
         {loading && (
           <p className="muted" style={{ padding: "24px 20px" }}>Loading attendance records…</p>
         )}
@@ -377,42 +377,6 @@ export function AttendancePage({
             const isSubjectSyncing = syncingIds.has(subId);
             const attInfo = combinedAttendance(r, detailsMap[subId]);
 
-            let supportingContent = null;
-            if (isSubjectSyncing) {
-              supportingContent = (
-                <span className="att-count-text att-count-syncing">
-                  <span className="sync-pulse-dot" aria-hidden="true" />
-                  Updating…
-                </span>
-              );
-            } else if (attInfo.hasHeldClasses && attInfo.totalClasses > 0) {
-              supportingContent = (
-                <span className="att-count-text">
-                  {attInfo.totalPresent}/{attInfo.totalClasses} classes
-                </span>
-              );
-            } else if (attInfo.hasHeldClasses && attInfo.totalClasses === 0) {
-              supportingContent = (
-                <span className="att-count-text">
-                  {attInfo.components.L?.pct != null && attInfo.components.T?.pct != null
-                    ? `L: ${attInfo.components.L.pct}% · T: ${attInfo.components.T.pct}%`
-                    : attInfo.components.L?.pct != null
-                    ? `L: ${attInfo.components.L.pct}%`
-                    : attInfo.components.T?.pct != null
-                    ? `T: ${attInfo.components.T.pct}%`
-                    : attInfo.components.P?.pct != null
-                    ? `Lab: ${attInfo.components.P.pct}%`
-                    : "Classes held"}
-                </span>
-              );
-            } else if (!attInfo.hasHeldClasses) {
-              supportingContent = (
-                <span className="att-count-text muted">
-                  No classes yet
-                </span>
-              );
-            }
-
             return (
               <button
                 key={String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? i)}
@@ -421,30 +385,30 @@ export function AttendancePage({
                 onClick={() => setSelectedSubject(r as AttRow & Record<string, unknown>)}
                 aria-label={`${name}, ${attInfo.pct} attendance`}
               >
-                {/* Subject Content */}
                 <div className="m3-item-content">
-                  <div className="att-subject-headline-row">
-                    <span className="m3-item-headline">{name}</span>
-                    {badge && <span className="att-code-badge">{badge}</span>}
-                  </div>
-                  {supportingContent && (
-                    <div className="att-subject-supporting-row">
-                      {supportingContent}
-                    </div>
-                  )}
-                </div>
-
-                {/* Trailing Attendance % + Chevron */}
-                <div className="att-trailing-group">
-                  <span className={`att-row-pct ${attInfo.colorClass} ${isSubjectSyncing ? "att-pct-syncing" : ""}`}>
-                    {attInfo.pct !== "—" ? attInfo.pct : isSubjectSyncing ? "…" : "—"}
+                  <span className="m3-item-headline att-subject-name">{name}</span>
+                  <span className="att-subject-supporting">
+                    {badge && <span className="att-code">{badge}</span>}
+                    {badge && " · "}
+                    {isSubjectSyncing ? (
+                      <span className="att-count-syncing">
+                        <span className="sync-pulse-dot" aria-hidden="true" />
+                        Updating…
+                      </span>
+                    ) : attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? (
+                      `${attInfo.totalPresent}/${attInfo.totalClasses} classes`
+                    ) : attInfo.hasHeldClasses && attInfo.totalClasses === 0 ? (
+                      attInfo.components.L?.pct != null && attInfo.components.T?.pct != null
+                        ? `L: ${attInfo.components.L.pct}% · T: ${attInfo.components.T.pct}%`
+                        : "Classes held"
+                    ) : (
+                      "No classes yet"
+                    )}
                   </span>
-                  <div className="m3-trailing-chevron" aria-hidden="true">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </div>
                 </div>
+                <span className={`att-row-pct ${attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? attInfo.colorClass : "is-empty"} ${isSubjectSyncing ? "att-pct-syncing" : ""}`}>
+                  {isSubjectSyncing ? "…" : attInfo.hasHeldClasses && attInfo.pct !== "—" ? attInfo.pct : "--"}
+                </span>
               </button>
             );
           })}

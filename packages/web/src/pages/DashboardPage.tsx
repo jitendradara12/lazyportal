@@ -151,25 +151,34 @@ export function DashboardPage({
       {/* Material 3 Compact Top Status Bar */}
       <header className="dash-top-bar">
         <div className="dash-user-meta">
-          <span className="dash-user-name">{displayName}</span>
-          <span className="dash-meta-sep" aria-hidden="true">·</span>
-          <span className="dash-sync-time">
-            {lastSync ? `Updated ${formatLastSync(lastSync)}` : "Live"}
-          </span>
-          {institutes.length > 1 && (
-            <select
-              value={String(session.instituteid ?? "")}
-              onChange={(e) => onSelectInstitute(e.target.value)}
-              className="dash-institute-select"
-              aria-label="Select Institute"
-            >
-              {institutes.map((o) => (
-                <option key={String(o.value)} value={String(o.value)}>
-                  {String(o.label ?? o.value)}
-                </option>
-              ))}
-            </select>
-          )}
+          <h1 className="dash-user-name">{displayName}</h1>
+          <div className="dash-user-sub">
+            <span className="dash-sync-time">
+              {isRefreshing ? (
+                <>
+                  <span className="sync-pulse-dot" aria-hidden="true" /> Refreshing…
+                </>
+              ) : lastSync ? (
+                `Updated ${formatLastSync(lastSync)}`
+              ) : (
+                "Live"
+              )}
+            </span>
+            {institutes.length > 1 && (
+              <select
+                value={String(session.instituteid ?? "")}
+                onChange={(e) => onSelectInstitute(e.target.value)}
+                className="dash-institute-select"
+                aria-label="Select Institute"
+              >
+                {institutes.map((o) => (
+                  <option key={String(o.value)} value={String(o.value)}>
+                    {String(o.label ?? o.value)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         <div className="dash-top-actions">
@@ -200,47 +209,27 @@ export function DashboardPage({
         </div>
       </header>
 
-      {/* Material 3 Expressive Expandable Stacked Sections */}
-      <div className="m3-stacked-sections" role="list">
-        {/* Attendance Navigation Item (Opens Full Page) */}
-        <div className="m3-card m3-nav-card">
-          <div className="m3-card-header">
-            <button
-              type="button"
-              className="m3-list-item m3-nav-item-btn"
-              onClick={openAttendance}
-              aria-label="Open Attendance page"
-            >
-              <div className="m3-leading-icon-circle">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
-                  <path d="m9 14 2 2 4-4" />
-                </svg>
-              </div>
-              <div className="m3-item-content">
-                <span className="m3-item-headline">Attendance</span>
-                <span className={`m3-item-supporting ${attSummary.shortsCount > 0 ? "short" : ""}`}>
-                  {attSummary.badgeText}
-                </span>
-              </div>
-              <div className="m3-trailing-chevron" aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-              </div>
-            </button>
-          </div>
-        </div>
+      <div className="dash-content">
+        <button
+          type="button"
+          className="dash-hero"
+          data-state={attSummary.shortsCount > 0 ? "short" : "ok"}
+          onClick={openAttendance}
+          aria-label={`Attendance, ${attSummary.badgeText}`}
+        >
+          <span className="dash-hero-label">Attendance</span>
+          <span className="dash-hero-status">{attSummary.badgeText}</span>
+        </button>
 
-        {/* Other Sections (Expandable in-place) */}
-        {otherSections.map(({ id, Component }) => (
-          <Component
-            key={`${id}:${String(session.instituteid ?? "")}`}
-            session={session}
-            onLogout={onLogout}
-          />
-        ))}
+        <div className="m3-stacked-sections" role="list">
+          {otherSections.map(({ id, Component }) => (
+            <Component
+              key={`${id}:${String(session.instituteid ?? "")}`}
+              session={session}
+              onLogout={onLogout}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Material 3 Connected Button Group Footer */}
