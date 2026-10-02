@@ -29,7 +29,7 @@ export function AttendancePage({
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
-  const [filter, setFilter] = useState<"all" | "short" | "safe">("all");
+  const [filter, setFilter] = useState<"all" | "short">("all");
   const [showRenewModal, setShowRenewModal] = useState(false);
 
   const att = useFeature<AttData>({
@@ -60,46 +60,10 @@ export function AttendancePage({
   const error = att.error ?? detail.error;
   const retry = att.error ? att.retry : detail.retry;
 
-  // Aggregate stats across all subjects
-  let totalAttendedAll = 0;
-  let totalHeldAll = 0;
-  const validPcts: number[] = [];
-
-  for (const r of rows) {
-    const res = combinedAttendance(r);
-    if (res.totalClasses > 0) {
-      totalAttendedAll += res.totalPresent;
-      totalHeldAll += res.totalClasses;
-    }
-    if (res.pctNum !== null && Number.isFinite(res.pctNum)) {
-      validPcts.push(res.pctNum);
-    }
-  }
-
-  const overallPct =
-    totalHeldAll > 0
-      ? (totalAttendedAll / totalHeldAll) * 100
-      : validPcts.length > 0
-        ? validPcts.reduce((a, b) => a + b, 0) / validPcts.length
-        : null;
-
-  const overallColorClass =
-    overallPct === null
-      ? ""
-      : overallPct < 70
-        ? "att-red"
-        : overallPct < 80
-          ? "att-yellow"
-          : overallPct < 90
-            ? "att-normal"
-            : "att-green";
-
   const shortsCount = rows.filter((r) => combinedAttendance(r).isShort).length;
-  const safeCount = rows.length - shortsCount;
 
   const filteredRows = rows.filter((r) => {
     if (filter === "short") return combinedAttendance(r).isShort;
-    if (filter === "safe") return !combinedAttendance(r).isShort;
     return true;
   });
 
@@ -127,19 +91,23 @@ export function AttendancePage({
         </aside>
       )}
 
-      {/* Top Navigation Bar with Back button */}
+      {/* Top Navigation Bar */}
       <header className="dash-top-bar att-top-bar">
-        <button
-          type="button"
-          onClick={onBack}
-          className="att-back-btn"
-          aria-label="Back to dashboard"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          <span>Dashboard</span>
-        </button>
+        <div className="att-top-left">
+          <button
+            type="button"
+            onClick={onBack}
+            className="dash-refresh-btn"
+            aria-label="Back to dashboard"
+            title="Back to dashboard"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+
+          <h1 className="att-header-title">Attendance</h1>
+        </div>
 
         <div className="att-top-actions">
           {semesters.length > 1 && (
@@ -174,80 +142,33 @@ export function AttendancePage({
         </div>
       </header>
 
-      {/* Hero Overview Card with Filter Chips */}
-      {rows.length > 0 && (
-        <section className="att-hero-card" aria-label="Attendance summary">
-          <div className="att-hero-main">
-            <div className="att-hero-left">
-              <span className="att-hero-eyebrow">Semester Aggregate</span>
-              <div className="att-hero-stat-row">
-                <span className={`att-hero-pct ${overallColorClass}`}>
-                  {overallPct != null ? `${overallPct.toFixed(1)}%` : "—"}
-                </span>
-                <span className="att-hero-ratio">
-                  {totalHeldAll > 0
-                    ? `${totalAttendedAll} of ${totalHeldAll} classes attended`
-                    : `Average across ${rows.length} subjects`}
-                </span>
-              </div>
-            </div>
-
-            <div className="att-hero-right">
-              {shortsCount === 0 ? (
-                <div className="att-hero-badge safe">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  <span>All {rows.length} safe</span>
-                </div>
-              ) : (
-                <div className="att-hero-badge short">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-                  <span>{shortsCount} {shortsCount === 1 ? "subject" : "subjects"} short</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Quick Filter Chips */}
-          <div className="att-filter-chips" role="group" aria-label="Filter subjects">
+      {/* Segmented Pill Toggle (only when subjects are short) */}
+      {shortsCount > 0 && rows.length > 0 && (
+        <div className="att-filter-bar">
+          <div className="segmented-pill-toggle" role="tablist" aria-label="Filter subjects">
             <button
               type="button"
-              className={`att-filter-chip ${filter === "all" ? "active" : ""}`}
+              role="tab"
+              aria-selected={filter === "all"}
+              className={`segmented-pill ${filter === "all" ? "active" : ""}`}
               onClick={() => setFilter("all")}
             >
-              <span>All</span>
-              <span className="chip-count">{rows.length}</span>
+              All {rows.length}
             </button>
-
-            {shortsCount > 0 && (
-              <button
-                type="button"
-                className={`att-filter-chip chip-short ${filter === "short" ? "active" : ""}`}
-                onClick={() => setFilter("short")}
-              >
-                <span>Short</span>
-                <span className="chip-count short">{shortsCount}</span>
-              </button>
-            )}
-
             <button
               type="button"
-              className={`att-filter-chip chip-safe ${filter === "safe" ? "active" : ""}`}
-              onClick={() => setFilter("safe")}
+              role="tab"
+              aria-selected={filter === "short"}
+              className={`segmented-pill ${filter === "short" ? "active" : ""}`}
+              onClick={() => setFilter("short")}
             >
-              <span>Safe</span>
-              <span className="chip-count">{safeCount}</span>
+              Short {shortsCount}
             </button>
           </div>
-        </section>
+        </div>
       )}
 
-      {/* 72px Minimalist Subject List Items (Unified Card Container) */}
+      {/* Subject List Items */}
       <section className="m3-stacked-sections att-subjects-card" aria-label="Subject list">
         {loading && (
           <p className="muted" style={{ padding: "24px 20px" }}>Loading attendance records…</p>
@@ -257,6 +178,46 @@ export function AttendancePage({
           filteredRows.map((r, i) => {
             const { name, badge } = subjectName(r.subjectcode);
             const attInfo = combinedAttendance(r);
+
+            // Compute supporting row content only when real signal exists
+            let supportingContent = null;
+            if (attInfo.totalClasses > 0) {
+              supportingContent = (
+                <>
+                  <span className="att-count-text">
+                    {attInfo.totalPresent}/{attInfo.totalClasses} classes
+                  </span>
+                  {attInfo.margin.text && (
+                    <>
+                      <span className="att-dot-sep" aria-hidden="true">·</span>
+                      <span className={`att-margin-inline ${attInfo.margin.type}`}>
+                        {attInfo.margin.text}
+                      </span>
+                    </>
+                  )}
+                </>
+              );
+            } else {
+              const compParts: string[] = [];
+              if (attInfo.components.L?.pct != null) {
+                compParts.push(`Lecture: ${String(attInfo.components.L.pct).replace("%", "")}%`);
+              }
+              if (attInfo.components.T?.pct != null) {
+                compParts.push(`Tutorial: ${String(attInfo.components.T.pct).replace("%", "")}%`);
+              }
+              if (attInfo.components.P?.pct != null) {
+                compParts.push(`Practical: ${String(attInfo.components.P.pct).replace("%", "")}%`);
+              }
+
+              if (compParts.length > 1) {
+                supportingContent = (
+                  <span className="att-count-text">
+                    {compParts.join(" · ")}
+                  </span>
+                );
+              }
+            }
+
             return (
               <button
                 key={String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? i)}
@@ -265,76 +226,17 @@ export function AttendancePage({
                 onClick={() => setSelectedSubject(r as AttRow & Record<string, unknown>)}
                 aria-label={`${name}, ${attInfo.pct} attendance`}
               >
-                {/* 44px Leading Icon Circle */}
-                <div className="m3-leading-icon-circle att-leading-circle">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
-                    <path d="M6 6h10"/>
-                    <path d="M6 10h10"/>
-                  </svg>
-                </div>
-
                 {/* Subject Content */}
                 <div className="m3-item-content">
                   <div className="att-subject-headline-row">
                     <span className="m3-item-headline">{name}</span>
                     {badge && <span className="att-code-badge">{badge}</span>}
                   </div>
-                  <div className="att-subject-supporting-row">
-                    {(() => {
-                      if (attInfo.totalClasses > 0) {
-                        return (
-                          <>
-                            <span className="att-count-text">
-                              {attInfo.totalPresent}/{attInfo.totalClasses} classes
-                            </span>
-                            {attInfo.margin.text && (
-                              <>
-                                <span className="att-dot-sep" aria-hidden="true">·</span>
-                                <span className={`att-margin-inline ${attInfo.margin.type}`}>
-                                  {attInfo.margin.text}
-                                </span>
-                              </>
-                            )}
-                          </>
-                        );
-                      }
-
-                      // When total classes are not known from the summary row, show component percentages or status
-                      const compParts: string[] = [];
-                      if (attInfo.components.L?.pct != null) {
-                        compParts.push(`Lecture: ${String(attInfo.components.L.pct).replace("%", "")}%`);
-                      }
-                      if (attInfo.components.T?.pct != null) {
-                        compParts.push(`Tutorial: ${String(attInfo.components.T.pct).replace("%", "")}%`);
-                      }
-                      if (attInfo.components.P?.pct != null) {
-                        compParts.push(`Practical: ${String(attInfo.components.P.pct).replace("%", "")}%`);
-                      }
-
-                      if (compParts.length > 1) {
-                        return (
-                          <span className="att-count-text">
-                            {compParts.join(" · ")}
-                          </span>
-                        );
-                      }
-
-                      if (attInfo.isShort) {
-                        return (
-                          <span className="att-margin-inline attend">
-                            Short of 75% minimum
-                          </span>
-                        );
-                      }
-
-                      return (
-                        <span className="att-margin-inline bunk">
-                          Safe (≥75%)
-                        </span>
-                      );
-                    })()}
-                  </div>
+                  {supportingContent && (
+                    <div className="att-subject-supporting-row">
+                      {supportingContent}
+                    </div>
+                  )}
                 </div>
 
                 {/* Trailing Attendance % + Chevron */}
@@ -369,7 +271,7 @@ export function AttendancePage({
         {error && <SectionError label="Attendance" error={error} retry={retry} />}
       </section>
 
-      {/* Slide-over sheet / Bottom Sheet for detailed history */}
+      {/* Slide-over sheet for detailed history */}
       {selectedSubject && (
         <SubjectDetailSheet
           row={selectedSubject}
