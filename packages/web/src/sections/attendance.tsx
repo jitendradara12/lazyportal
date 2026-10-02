@@ -39,7 +39,7 @@ interface ClassRecord {
   type?: string;
 }
 
-function cleanDateTime(dt?: string): string {
+export function cleanDateTime(dt?: string): string {
   if (!dt) return "—";
   return dt
     .replace(/:([AP]M)/gi, " $1")
@@ -49,7 +49,26 @@ function cleanDateTime(dt?: string): string {
     .trim();
 }
 
-function parseClassLogs(raw: unknown, type?: string): {
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function formatClassDateTime(dt?: string): string {
+  if (!dt) return "—";
+  const ms = parseIndianDateTime(dt);
+  if (!ms) return cleanDateTime(dt);
+  const d = new Date(ms);
+  const day = d.getDate();
+  const month = MONTH_NAMES[d.getMonth()];
+  let hours = d.getHours();
+  const minutes = d.getMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const minStr = minutes < 10 ? `0${minutes}` : String(minutes);
+  return `${day} ${month}, ${hours}:${minStr} ${ampm}`;
+}
+
+
+export function parseClassLogs(raw: unknown, type?: string): {
   total: number;
   attended: number;
   absent: number;
@@ -106,7 +125,7 @@ function parseClassLogs(raw: unknown, type?: string): {
   return { total, attended, absent, pct: percentage, classes };
 }
 
-function CombinedClassLog({
+export function CombinedClassLog({
   data,
 }: {
   data: Record<string, unknown>;
@@ -146,15 +165,6 @@ function CombinedClassLog({
 
   return (
     <div className="att-comp-box" onClick={(e) => e.stopPropagation()}>
-      <div className="att-comp-header">
-        <span className="att-comp-label">Class History</span>
-        <span className="att-comp-val">
-          <strong>{attended}</strong> of {total} attended
-          {percentage != null && ` (${percentage}%)`}
-          {absent > 0 && <span className="absent-count"> · {absent} absent</span>}
-        </span>
-      </div>
-
       {allClasses.length > 0 && (
         <>
           <div className="filter-chips">
@@ -193,17 +203,17 @@ function CombinedClassLog({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c, i) => (
-                  <tr key={i} className={c.isAttended ? "row-present" : "row-absent"}>
-                    <td>{c.datetime}</td>
-                    <td>{c.type || "—"}</td>
-                    <td>
-                      <span className={`log-badge ${c.isAttended ? "present" : "absent"}`}>
-                        {c.isAttended ? "Present" : "Absent"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                  {filtered.map((c, i) => (
+                    <tr key={i} className={c.isAttended ? "row-present" : "row-absent"}>
+                      <td>{formatClassDateTime(c.datetime)}</td>
+                      <td>{c.type || "—"}</td>
+                      <td>
+                        <span className={`log-badge ${c.isAttended ? "present" : "absent"}`}>
+                          {c.isAttended ? "Present" : "Absent"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -262,35 +272,36 @@ export interface BunkMargin {
   text: string;
 }
 
-function computeBunkMargin(present: number, total: number): BunkMargin {
+export function computeBunkMargin(present: number, total: number, target = 0.70): BunkMargin {
   if (total <= 0) return { type: "none", count: 0, text: "" };
   const currentRatio = present / total;
-  if (currentRatio < 0.75) {
-    // Need: (present + x) / (total + x) >= 0.75 => x >= 3*total - 4*present
-    const needed = Math.max(1, Math.ceil(3 * total - 4 * present));
+  // Criteria is strictly debar below 70% (even 69.9% is debarred)
+  if (currentRatio < target) {
+    const needed = Math.max(1, Math.ceil((target * total - present) / (1 - target)));
     return {
       type: "attend",
       count: needed,
       text: `Need ${needed} ${needed === 1 ? "class" : "classes"}`,
     };
   }
-  // Can bunk: present / (total + y) >= 0.75 => y <= (4*present - 3*total) / 3
-  const canBunk = Math.max(0, Math.floor((4 * present - 3 * total) / 3));
+
+  const canBunk = Math.max(0, Math.floor(present / target - total));
   if (canBunk > 0) {
     return {
       type: "bunk",
       count: canBunk,
-      text: `Can bunk ${canBunk}`,
+      text: `Can bunk ${canBunk} ${canBunk === 1 ? "class" : "classes"}`,
     };
   }
+
   return {
     type: "bunk",
     count: 0,
-    text: "Don't bunk",
+    text: "Cannot bunk more",
   };
 }
 
-function getColorClass(val: number | null): AttColorClass {
+export function getColorClass(val: number | null): AttColorClass {
   if (val === null) return "";
   if (val < 70) return "att-red";
   if (val < 80) return "att-yellow";
@@ -306,6 +317,7 @@ export interface CombinedAttResult {
   margin: BunkMargin;
   totalClasses: number;
   totalPresent: number;
+  hasHeldClasses: boolean;
   components: {
     L?: { total: number; present: number; pct?: string | number | null };
     T?: { total: number; present: number; pct?: string | number | null };
@@ -313,7 +325,102 @@ export interface CombinedAttResult {
   };
 }
 
-export function combinedAttendance(r: AttRow & Record<string, unknown>): CombinedAttResult {
+export function getSubjectCacheKey(
+  username: string,
+  registrationid: string | undefined | null,
+  row: AttRow & Record<string, unknown>
+): string {
+  const subId = row.subjectid ?? row.individualsubjectcode ?? row.subjectcode;
+  return `att.subject:${username}:${registrationid ?? "cur"}:${subId}`;
+}
+
+export function getCachedSubjectDetail(
+  username: string,
+  registrationid: string | undefined | null,
+  row: AttRow & Record<string, unknown>
+): Record<string, Record<string, unknown>> | null {
+  const key = getSubjectCacheKey(username, registrationid, row);
+  try {
+    const raw = localStorage.getItem(`juet.cache.${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "data" in parsed) {
+      return parsed.data as Record<string, Record<string, unknown>>;
+    }
+    return parsed as Record<string, Record<string, unknown>>;
+  } catch {
+    return null;
+  }
+}
+
+export function combinedAttendance(
+  r: AttRow & Record<string, unknown>,
+  detail?: Record<string, Record<string, unknown>> | null,
+  target = 0.70
+): CombinedAttResult {
+  const isLab = Boolean(
+    (r.Psubjectcomponentid || r.Ppercentage) &&
+    !r.Lsubjectcomponentid &&
+    !r.Tsubjectcomponentid
+  );
+
+  // When class-by-class detail logs are available (from live fetch or cache)
+  if (detail && typeof detail === "object" && Object.keys(detail).length > 0) {
+    let totalClasses = 0;
+    let totalPresent = 0;
+    const components: CombinedAttResult["components"] = {};
+
+    const lStats = detail.L ? parseClassLogs(detail.L, "L") : null;
+    const tStats = detail.T ? parseClassLogs(detail.T, "T") : null;
+    const pStats = detail.P ? parseClassLogs(detail.P, "P") : null;
+
+    if (lStats && (lStats.total > 0 || r.Lsubjectcomponentid)) {
+      components.L = { total: lStats.total, present: lStats.attended, pct: lStats.pct };
+      totalClasses += lStats.total;
+      totalPresent += lStats.attended;
+    }
+    if (tStats && (tStats.total > 0 || r.Tsubjectcomponentid)) {
+      components.T = { total: tStats.total, present: tStats.attended, pct: tStats.pct };
+      totalClasses += tStats.total;
+      totalPresent += tStats.attended;
+    }
+    if (pStats && (pStats.total > 0 || r.Psubjectcomponentid)) {
+      components.P = { total: pStats.total, present: pStats.attended, pct: pStats.pct };
+      if (isLab || (!components.L && !components.T)) {
+        totalClasses += pStats.total;
+        totalPresent += pStats.attended;
+      }
+    }
+
+    if (totalClasses > 0) {
+      const val = (totalPresent / totalClasses) * 100;
+      return {
+        pct: `${val.toFixed(1)}%`,
+        pctNum: val,
+        isShort: val < 70.0,
+        colorClass: getColorClass(val),
+        margin: computeBunkMargin(totalPresent, totalClasses, target),
+        totalClasses,
+        totalPresent,
+        hasHeldClasses: true,
+        components,
+      };
+    }
+
+    return {
+      pct: "—",
+      pctNum: null,
+      isShort: false,
+      colorClass: "",
+      margin: { type: "none", count: 0, text: "" },
+      totalClasses: 0,
+      totalPresent: 0,
+      hasHeldClasses: false,
+      components,
+    };
+  }
+
+  // Fallback when counts are directly embedded in row
   const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);
   const Lpres = Number(r.Ltotalpresent ?? r.LTotalpresent ?? r.ltotalpresent ?? 0);
   const Ttotal = Number(r.Ttotalclass ?? r.TTotalclass ?? r.ttotalclass ?? 0);
@@ -321,8 +428,8 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): Combine
   const Ptotal = Number(r.Ptotalclass ?? r.PTotalclass ?? r.ptotalclass ?? 0);
   const Ppres = Number(r.Ptotalpresent ?? r.PTotalpresent ?? r.ptotalpresent ?? 0);
 
-  const totalClasses = Ltotal + Ttotal + Ptotal;
-  const totalPresent = Lpres + Tpres + Ppres;
+  const totalClasses = isLab ? Ptotal : Ltotal + Ttotal + (r.Lsubjectcomponentid ? 0 : Ptotal);
+  const totalPresent = isLab ? Ppres : Lpres + Tpres + (r.Lsubjectcomponentid ? 0 : Ppres);
 
   const components: CombinedAttResult["components"] = {};
   if (Ltotal > 0 || r.Lpercentage != null) {
@@ -340,77 +447,53 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): Combine
     return {
       pct: `${val.toFixed(1)}%`,
       pctNum: val,
-      isShort: val < 75,
+      isShort: val < 70.0,
       colorClass: getColorClass(val),
-      margin: computeBunkMargin(totalPresent, totalClasses),
+      margin: computeBunkMargin(totalPresent, totalClasses, target),
       totalClasses,
       totalPresent,
+      hasHeldClasses: true,
       components,
     };
   }
 
-  // Check direct overall/total percentage if portal returns it
-  const direct = pct(r.totalpercentage ?? r.overallpercentage ?? r.percentage);
-  if (direct !== null) {
-    return {
-      pct: `${direct.toFixed(1)}%`,
-      pctNum: direct,
-      isShort: direct < 75,
-      colorClass: getColorClass(direct),
-      margin: { type: "none", count: 0, text: "" },
-      totalClasses: 0,
-      totalPresent: 0,
-      components,
-    };
+  // If lab course and only P% is available
+  if (isLab && r.Ppercentage != null) {
+    const p = pct(r.Ppercentage);
+    if (p !== null) {
+      return {
+        pct: `${p.toFixed(1)}%`,
+        pctNum: p,
+        isShort: p < 70.0,
+        colorClass: getColorClass(p),
+        margin: { type: "none", count: 0, text: "" },
+        totalClasses: 0,
+        totalPresent: 0,
+        hasHeldClasses: true,
+        components,
+      };
+    }
   }
 
-  // Extract component percentages: L, T, P
-  const l = pct(r.Lpercentage);
-  const t = pct(r.Tpercentage);
-  const p = pct(r.Ppercentage);
-
-  const active: { type: string; val: number }[] = [];
-
-  // Lecture: active if L component ID exists or if neither T nor P exists
-  if (l !== null && (r.Lsubjectcomponentid || (!r.Tsubjectcomponentid && !r.Psubjectcomponentid))) {
-    active.push({ type: "L", val: l });
-  } else if (l !== null && !r.Lsubjectcomponentid && !r.Tsubjectcomponentid && !r.Psubjectcomponentid) {
-    active.push({ type: "L", val: l });
+  // If theory course with only Lecture percentage
+  if (!isLab && r.Lpercentage != null && r.Tpercentage == null) {
+    const l = pct(r.Lpercentage);
+    if (l !== null) {
+      return {
+        pct: `${l.toFixed(1)}%`,
+        pctNum: l,
+        isShort: l < 70.0,
+        colorClass: getColorClass(l),
+        margin: { type: "none", count: 0, text: "" },
+        totalClasses: 0,
+        totalPresent: 0,
+        hasHeldClasses: true,
+        components,
+      };
+    }
   }
 
-  // Tutorial: active if T component ID exists
-  if (t !== null && (r.Tsubjectcomponentid || (!r.Lsubjectcomponentid && !r.Psubjectcomponentid))) {
-    active.push({ type: "T", val: t });
-  }
-
-  // Practical: active if P component ID exists (practicals typically have separate course code)
-  if (p !== null && (r.Psubjectcomponentid || (!r.Lsubjectcomponentid && !r.Tsubjectcomponentid))) {
-    active.push({ type: "P", val: p });
-  }
-
-  // Fallback if no component IDs were present
-  if (active.length === 0) {
-    if (l !== null) active.push({ type: "L", val: l });
-    if (t !== null) active.push({ type: "T", val: t });
-    if (p !== null) active.push({ type: "P", val: p });
-  }
-
-  if (active.length > 0) {
-    const sum = active.reduce((a, b) => a + b.val, 0);
-    const avg = sum / active.length;
-
-    return {
-      pct: `${avg.toFixed(1)}%`,
-      pctNum: avg,
-      isShort: avg < 75 || active.some((a) => a.val < 75),
-      colorClass: getColorClass(avg),
-      margin: { type: "none", count: 0, text: "" },
-      totalClasses: 0,
-      totalPresent: 0,
-      components,
-    };
-  }
-
+  // When both L and T exist without detail or class counts, avoid misleading flat averages
   return {
     pct: "—",
     pctNum: null,
@@ -419,6 +502,7 @@ export function combinedAttendance(r: AttRow & Record<string, unknown>): Combine
     margin: { type: "none", count: 0, text: "" },
     totalClasses: 0,
     totalPresent: 0,
+    hasHeldClasses: false,
     components,
   };
 }
@@ -430,7 +514,11 @@ export function useAttendanceSummary(session: SectionProps["session"]) {
     cacheKey: `att.initial:${session.username}`,
   });
   const rows = att.data?.rows ?? [];
-  const shortsCount = rows.filter((r) => combinedAttendance(r).isShort).length;
+  const semId = att.data?.semesters?.[0]?.registrationid;
+  const shortsCount = rows.filter((r) => {
+    const cached = getCachedSubjectDetail(session.username, semId != null ? String(semId) : null, r);
+    return combinedAttendance(r, cached).isShort;
+  }).length;
   const badgeText = rows.length > 0
     ? (shortsCount > 0 ? `${shortsCount} short` : "All clear")
     : (att.loading ? "Loading…" : "Subject breakdown");

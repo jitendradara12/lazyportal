@@ -195,8 +195,15 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
         });
         successCount++;
       } catch (e) {
-        lastErr = e;
-        out[t] = null;
+        const msg = e?.message || "";
+        const errList = Array.isArray(e?.errors) ? e.errors.join(" ") : "";
+        if (/no attendance/i.test(msg) || /no attendance/i.test(errList)) {
+          out[t] = { summary: [] };
+          successCount++;
+        } else {
+          lastErr = e;
+          out[t] = null;
+        }
       }
     })
   );

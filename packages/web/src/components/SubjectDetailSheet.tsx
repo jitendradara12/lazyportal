@@ -1,11 +1,19 @@
 import { useState, useEffect } from "react";
+import { features } from "@juet/core";
+import { client } from "../lib/portal";
+import { useFeature } from "../hooks/useFeature";
+import { SectionError } from "./DataViews";
 import type { Session } from "../types";
 import {
   type AttRow,
   subjectName,
   combinedAttendance,
-  SubjectDetail,
+  computeBunkMargin,
+  getColorClass,
+  getSubjectCacheKey,
+  CombinedClassLog,
 } from "../sections/attendance";
+import { WhatIfStepper } from "./WhatIfStepper";
 
 export function SubjectDetailSheet({
   row,
@@ -13,7 +21,7 @@ export function SubjectDetailSheet({
   registrationcode,
   session,
   onClose,
-  onLogout,
+  onLogout: _onLogout,
 }: {
   row: AttRow & Record<string, unknown>;
   registrationid?: string;
@@ -23,8 +31,33 @@ export function SubjectDetailSheet({
   onLogout: () => void;
 }) {
   const [isClosing, setIsClosing] = useState(false);
-  const { name, badge } = subjectName(row.subjectcode);
-  const attInfo = combinedAttendance(row);
+  const [target, setTarget] = useState<70 | 80 | 90>(70);
+  const [simMode, setSimMode] = useState<"attend" | "miss">("attend");
+  const [simCount, setSimCount] = useState(0);
+
+  const { name } = subjectName(row.subjectcode);
+  const base = { registrationid, registrationcode };
+  const cacheKey = getSubjectCacheKey(session.username, registrationid, row);
+
+  const detail = useFeature<Record<string, Record<string, unknown>>>({
+    run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
+    deps: [session, registrationid, String(row.subjectid)],
+    cacheKey,
+  });
+
+  const attInfo = combinedAttendance(row, detail.data, target / 100);
+
+  // Simulation calculations
+  const simPresent = simMode === "attend" ? simCount : 0;
+  const simAbsent = simMode === "miss" ? simCount : 0;
+  const totalSimPresent = attInfo.totalPresent + simPresent;
+  const totalSimClasses = attInfo.totalClasses + simPresent + simAbsent;
+  const isSimulated = simCount > 0;
+
+  const simPctNum = totalSimClasses > 0 ? (totalSimPresent / totalSimClasses) * 100 : null;
+  const simPct = simPctNum != null ? `${simPctNum.toFixed(1)}%` : attInfo.pct;
+  const simColorClass = getColorClass(simPctNum);
+  const simMargin = computeBunkMargin(totalSimPresent, totalSimClasses, target / 100);
 
   const handleClose = () => {
     if (isClosing) return;
@@ -38,7 +71,7 @@ export function SubjectDetailSheet({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleClose]);
+  }, []);
 
   return (
     <div className={`att-sheet-backdrop ${isClosing ? "closing" : ""}`} onClick={handleClose} role="presentation">
@@ -54,12 +87,9 @@ export function SubjectDetailSheet({
 
         {/* Sheet Header */}
         <div className="att-sheet-header">
-          <div className="att-sheet-header-main">
-            <h2 className="att-sheet-title" id="att-sheet-title">
-              {name}
-            </h2>
-            {badge && <span className="att-code-badge">{badge}</span>}
-          </div>
+          <h2 className="att-sheet-title" id="att-sheet-title">
+            {name}
+          </h2>
           <button
             type="button"
             className="auth-close-btn"
@@ -90,97 +120,66 @@ export function SubjectDetailSheet({
             )}
           </div>
 
-          {/* Actionable Status Advice */}
-          {attInfo.margin.text ? (
-            <div className={`att-sheet-advice ${attInfo.margin.type}`}>
-              {attInfo.margin.type === "bunk" ? (
-                <>
-                  <span className="advice-icon" aria-hidden="true">🎉</span>
-                  <span>
-                    Can safely skip <strong>{attInfo.margin.count}</strong> {attInfo.margin.count === 1 ? "class" : "classes"} and maintain ≥75%.
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="advice-icon" aria-hidden="true">⚠️</span>
-                  <span>
-                    Must attend next <strong>{attInfo.margin.count}</strong> {attInfo.margin.count === 1 ? "class" : "classes"} in a row to reach 75%.
-                  </span>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className={`att-sheet-advice ${attInfo.isShort ? "short" : "safe"}`}>
-              <span className="advice-icon" aria-hidden="true">{attInfo.isShort ? "⚠️" : "✓"}</span>
-              <span>
-                {attInfo.isShort
-                  ? "Currently below the 75% minimum attendance requirement."
-                  : "Attendance is comfortably above the 75% minimum threshold."}
-              </span>
+          {/* Interactive Target Selector & Actionable Advice in Same Compact Row */}
+          {attInfo.hasHeldClasses && (
+            <div className="att-target-row">
+              {attInfo.margin.text ? (
+                <div className={`att-advice-inline ${attInfo.margin.type}`}>
+                  <span>{attInfo.margin.text}</span>
+                </div>
+              ) : <div />}
+
+              <div className="segmented-pill-toggle att-target-toggle" role="radiogroup" aria-label="Target percentage">
+                {([70, 80, 90] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="radio"
+                    aria-checked={target === t}
+                    className={`segmented-pill ${target === t ? "active" : ""}`}
+                    onClick={() => setTarget(t)}
+                  >
+                    {t}%
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Component Chips (Lecture / Tutorial / Practical) */}
-          {(attInfo.components.L || attInfo.components.T || attInfo.components.P) && (
-            <div className="att-sheet-components" aria-label="Component breakdown">
-              {attInfo.components.L && (
-                <div className="att-comp-chip">
-                  <span className="comp-name">Lecture</span>
-                  {attInfo.components.L.total > 0 && (
-                    <span className="comp-ratio">
-                      {attInfo.components.L.present}/{attInfo.components.L.total}
-                    </span>
-                  )}
-                  {attInfo.components.L.pct != null && (
-                    <span className="comp-pct">
-                      {String(attInfo.components.L.pct).replace("%", "")}%
-                    </span>
-                  )}
-                </div>
-              )}
-              {attInfo.components.T && (
-                <div className="att-comp-chip">
-                  <span className="comp-name">Tutorial</span>
-                  {attInfo.components.T.total > 0 && (
-                    <span className="comp-ratio">
-                      {attInfo.components.T.present}/{attInfo.components.T.total}
-                    </span>
-                  )}
-                  {attInfo.components.T.pct != null && (
-                    <span className="comp-pct">
-                      {String(attInfo.components.T.pct).replace("%", "")}%
-                    </span>
-                  )}
-                </div>
-              )}
-              {attInfo.components.P && (
-                <div className="att-comp-chip">
-                  <span className="comp-name">Practical</span>
-                  {attInfo.components.P.total > 0 && (
-                    <span className="comp-ratio">
-                      {attInfo.components.P.present}/{attInfo.components.P.total}
-                    </span>
-                  )}
-                  {attInfo.components.P.pct != null && (
-                    <span className="comp-pct">
-                      {String(attInfo.components.P.pct).replace("%", "")}%
-                    </span>
-                  )}
-                </div>
-              )}
+          {/* Interactive What-If Simulator (M3 Expressive) */}
+          {attInfo.hasHeldClasses && (
+            <WhatIfStepper
+              mode={simMode}
+              count={simCount}
+              onModeChange={setSimMode}
+              onCountChange={setSimCount}
+              projectedPct={simPct}
+              projectedColorClass={simColorClass}
+              projectedRatio={{ present: totalSimPresent, total: totalSimClasses }}
+              margin={simMargin}
+            />
+          )}
+
+          {/* Empty state when no classes held yet */}
+          {!attInfo.hasHeldClasses && !detail.loading && (
+            <div className="att-empty-held-card">
+              <span className="att-empty-icon" aria-hidden="true">📋</span>
+              <p>No classes held yet.</p>
             </div>
           )}
         </div>
 
         {/* Detailed Class History Log */}
         <div className="att-sheet-history-section">
-          <SubjectDetail
-            row={row}
-            registrationid={registrationid}
-            registrationcode={registrationcode}
-            session={session}
-            onLogout={onLogout}
-          />
+          {detail.loading && !detail.data && <p className="muted">Loading class breakdown…</p>}
+          {detail.error && !detail.data && (
+            <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />
+          )}
+          {detail.data && Object.keys(detail.data).length > 0 && (
+            <div className="att-detail-grid">
+              <CombinedClassLog data={detail.data} />
+            </div>
+          )}
         </div>
       </div>
     </div>

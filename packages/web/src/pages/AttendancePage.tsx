@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
@@ -12,6 +12,8 @@ import {
   type AttData,
   subjectName,
   combinedAttendance,
+  getCachedSubjectDetail,
+  getSubjectCacheKey,
 } from "../sections/attendance";
 
 export function AttendancePage({
@@ -60,10 +62,78 @@ export function AttendancePage({
   const error = att.error ?? detail.error;
   const retry = att.error ? att.retry : detail.retry;
 
-  const shortsCount = rows.filter((r) => combinedAttendance(r).isShort).length;
+  // Cache-backed map of subject details for accurate L+T aggregation
+  const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
+    const map: Record<string, Record<string, unknown>> = {};
+    for (const r of rows) {
+      const cached = getCachedSubjectDetail(session.username, semId, r);
+      if (cached) {
+        const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+        map[subId] = cached;
+      }
+    }
+    return map;
+  });
+
+  // Re-sync cached details when rows or semester change, and prefetch uncached in background
+  useEffect(() => {
+    if (!rows.length) return;
+
+    let isLive = true;
+    const currentMap: Record<string, Record<string, unknown>> = {};
+    const uncached: (AttRow & Record<string, unknown>)[] = [];
+
+    for (const r of rows) {
+      const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+      const cached = getCachedSubjectDetail(session.username, semId, r);
+      if (cached) {
+        currentMap[subId] = cached;
+      } else {
+        uncached.push(r as AttRow & Record<string, unknown>);
+      }
+    }
+
+    setDetailsMap((prev) => ({ ...prev, ...currentMap }));
+
+    if (uncached.length > 0) {
+      const base = {
+        stynumber: initial?.header?.stynumber,
+        registrationid: sem?.registrationid,
+        registrationcode: sem?.registrationcode,
+      };
+
+      Promise.all(
+        uncached.map(async (r) => {
+          try {
+            const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
+            if (isLive && data) {
+              const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+              const key = getSubjectCacheKey(session.username, semId, r);
+              try {
+                localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
+              } catch {}
+              setDetailsMap((prev) => ({ ...prev, [subId]: data }));
+            }
+          } catch {}
+        })
+      );
+    }
+
+    return () => {
+      isLive = false;
+    };
+  }, [rows, semId, session, initial?.header?.stynumber, sem?.registrationid, sem?.registrationcode]);
+
+  const shortsCount = rows.filter((r) => {
+    const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+    return combinedAttendance(r, detailsMap[subId]).isShort;
+  }).length;
 
   const filteredRows = rows.filter((r) => {
-    if (filter === "short") return combinedAttendance(r).isShort;
+    if (filter === "short") {
+      const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+      return combinedAttendance(r, detailsMap[subId]).isShort;
+    }
     return true;
   });
 
@@ -177,52 +247,29 @@ export function AttendancePage({
         {filteredRows.length > 0 &&
           filteredRows.map((r, i) => {
             const { name, badge } = subjectName(r.subjectcode);
-            const attInfo = combinedAttendance(r);
+            const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+            const attInfo = combinedAttendance(r, detailsMap[subId]);
 
-            // Compute supporting row content only when real signal exists
             let supportingContent = null;
-            if (attInfo.totalClasses > 0) {
+            if (attInfo.hasHeldClasses && attInfo.totalClasses > 0) {
               supportingContent = (
-                <>
-                  <span className="att-count-text">
-                    {attInfo.totalPresent}/{attInfo.totalClasses} classes
-                  </span>
-                  {attInfo.margin.text && (
-                    <>
-                      <span className="att-dot-sep" aria-hidden="true">·</span>
-                      <span className={`att-margin-inline ${attInfo.margin.type}`}>
-                        {attInfo.margin.text}
-                      </span>
-                    </>
-                  )}
-                </>
+                <span className="att-count-text">
+                  {attInfo.totalPresent}/{attInfo.totalClasses} classes
+                </span>
               );
-            } else {
-              const compParts: string[] = [];
-              if (attInfo.components.L?.pct != null) {
-                compParts.push(`Lecture: ${String(attInfo.components.L.pct).replace("%", "")}%`);
-              }
-              if (attInfo.components.T?.pct != null) {
-                compParts.push(`Tutorial: ${String(attInfo.components.T.pct).replace("%", "")}%`);
-              }
-              if (attInfo.components.P?.pct != null) {
-                compParts.push(`Practical: ${String(attInfo.components.P.pct).replace("%", "")}%`);
-              }
-
-              if (compParts.length > 1) {
-                supportingContent = (
-                  <span className="att-count-text">
-                    {compParts.join(" · ")}
-                  </span>
-                );
-              }
+            } else if (!attInfo.hasHeldClasses) {
+              supportingContent = (
+                <span className="att-count-text muted">
+                  No classes yet
+                </span>
+              );
             }
 
             return (
               <button
                 key={String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? i)}
                 type="button"
-                className="m3-list-item att-subject-row"
+                className={`m3-list-item att-subject-row ${attInfo.isShort ? "is-short-row" : ""}`}
                 onClick={() => setSelectedSubject(r as AttRow & Record<string, unknown>)}
                 aria-label={`${name}, ${attInfo.pct} attendance`}
               >

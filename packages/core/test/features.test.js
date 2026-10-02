@@ -401,6 +401,22 @@ describe("features", () => {
     assert.equal(calls[0][1].subjectcode, "ISC1");
   });
 
+  it("getSubjectAttendanceAll handles NO Attendance Found as empty summary", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("NO Attendance Found");
+        err.errors = ["NO Attendance Found"];
+        throw err;
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c1",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.deepEqual(out, { L: { summary: [] } });
+  });
+
 
 
 
