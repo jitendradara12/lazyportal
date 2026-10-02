@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { client } from "../lib/portal";
-import { titleCase } from "../components/DataViews";
+import { titleCase, formatLastSync } from "../components/DataViews";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { useAttendanceSummary } from "../sections/attendance";
@@ -11,19 +11,6 @@ import type { Session } from "../types";
 interface InstituteOption {
   value?: string;
   label?: string;
-}
-
-function formatLastSync(ts: number | null): string {
-  if (!ts) return "";
-  const diffSec = Math.floor((Date.now() - ts) / 1000);
-  if (diffSec < 60) return "just now";
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHours = Math.floor(diffMin / 60);
-  const d = new Date(ts);
-  const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (diffHours < 24) return timeStr;
-  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${timeStr}`;
 }
 
 export function DashboardPage({

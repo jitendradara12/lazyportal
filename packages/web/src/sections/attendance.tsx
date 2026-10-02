@@ -457,43 +457,29 @@ export function combinedAttendance(
     };
   }
 
-  // If lab course and only P% is available
-  if (isLab && r.Ppercentage != null) {
-    const p = pct(r.Ppercentage);
-    if (p !== null) {
-      return {
-        pct: `${p.toFixed(1)}%`,
-        pctNum: p,
-        isShort: p < 70.0,
-        colorClass: getColorClass(p),
-        margin: { type: "none", count: 0, text: "" },
-        totalClasses: 0,
-        totalPresent: 0,
-        hasHeldClasses: true,
-        components,
-      };
-    }
+  // Fallback when component percentages are available without class count breakdown
+  const l = pct(r.Lpercentage);
+  const t = pct(r.Tpercentage);
+  const p = pct(r.Ppercentage);
+  const presentPcts = [l, t, p].filter((x): x is number => x !== null);
+
+  if (presentPcts.length > 0) {
+    const avg = presentPcts.reduce((sum, val) => sum + val, 0) / presentPcts.length;
+    const allSame = presentPcts.every((x) => x === presentPcts[0]);
+    return {
+      pct: allSame ? `${presentPcts[0].toFixed(1)}%` : `~${avg.toFixed(1)}%`,
+      pctNum: avg,
+      isShort: avg < 70.0,
+      colorClass: getColorClass(avg),
+      margin: { type: "none", count: 0, text: "" },
+      totalClasses: 0,
+      totalPresent: 0,
+      hasHeldClasses: true,
+      components,
+    };
   }
 
-  // If theory course with only Lecture percentage
-  if (!isLab && r.Lpercentage != null && r.Tpercentage == null) {
-    const l = pct(r.Lpercentage);
-    if (l !== null) {
-      return {
-        pct: `${l.toFixed(1)}%`,
-        pctNum: l,
-        isShort: l < 70.0,
-        colorClass: getColorClass(l),
-        margin: { type: "none", count: 0, text: "" },
-        totalClasses: 0,
-        totalPresent: 0,
-        hasHeldClasses: true,
-        components,
-      };
-    }
-  }
-
-  // When both L and T exist without detail or class counts, avoid misleading flat averages
+  // No detail, no embedded class counts, and no component percentages -> truly no classes yet
   return {
     pct: "—",
     pctNum: null,

@@ -3,7 +3,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { SectionError, formatSemester } from "../components/DataViews";
+import { SectionError, formatSemester, formatLastSync } from "../components/DataViews";
 import { ReconnectModal } from "../components/ReconnectModal";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import type { Session } from "../types";
@@ -30,9 +30,35 @@ export function AttendancePage({
   onSessionRenewed?: (s: Session) => void;
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
   const [showRenewModal, setShowRenewModal] = useState(false);
+
+  const [lastSync, setLastSync] = useState<number | null>(() => {
+    try {
+      const raw = localStorage.getItem("juet.portal.last_sync");
+      return raw ? Number(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const update = () => {
+      try {
+        const raw = localStorage.getItem("juet.portal.last_sync");
+        if (raw) setLastSync(Number(raw));
+      } catch {}
+    };
+    window.addEventListener("storage", update);
+    window.addEventListener("juet:sync", update);
+    return () => {
+      window.removeEventListener("storage", update);
+      window.removeEventListener("juet:sync", update);
+    };
+  }, []);
 
   const att = useFeature<AttData>({
     run: () => features.getAttendance(client, session),
@@ -96,33 +122,64 @@ export function AttendancePage({
     setDetailsMap((prev) => ({ ...prev, ...currentMap }));
 
     if (uncached.length > 0) {
+      const uncachedIds = new Set(uncached.map((r) => String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode)));
+      setSyncingIds(uncachedIds);
+      setSyncProgress({ done: 0, total: uncached.length });
+
       const base = {
         stynumber: initial?.header?.stynumber,
         registrationid: sem?.registrationid,
         registrationcode: sem?.registrationcode,
       };
 
-      Promise.all(
-        uncached.map(async (r) => {
+      const queue = [...uncached];
+      const concurrency = 3;
+      const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+        while (queue.length > 0 && isLive) {
+          const r = queue.shift();
+          if (!r) break;
+          const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
             if (isLive && data) {
-              const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
               const key = getSubjectCacheKey(session.username, semId, r);
               try {
                 localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
               } catch {}
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
             }
+          } catch {
+            // Gracefully ignore network / adblock errors
+          } finally {
+            if (isLive) {
+              setSyncingIds((prev) => {
+                const next = new Set(prev);
+                next.delete(subId);
+                return next;
+              });
+              setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+            }
+          }
+        }
+      });
+
+      Promise.all(workers).then(() => {
+        if (isLive) {
+          try {
+            localStorage.setItem("juet.portal.last_sync", String(Date.now()));
+            window.dispatchEvent(new CustomEvent("juet:sync"));
           } catch {}
-        })
-      );
+        }
+      });
     }
 
     return () => {
       isLive = false;
+      setSyncingIds(new Set());
     };
   }, [rows, semId, session, initial?.header?.stynumber, sem?.registrationid, sem?.registrationcode]);
+
+  const isSyncing = isRefreshing || syncingIds.size > 0;
 
   const shortsCount = rows.filter((r) => {
     const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
@@ -137,13 +194,66 @@ export function AttendancePage({
     return true;
   });
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    window.dispatchEvent(new CustomEvent("juet:refresh-all"));
-    setTimeout(() => {
+
+    try {
+      // 1. Tell useFeature to refresh base attendance
+      window.dispatchEvent(new CustomEvent("juet:refresh-all"));
+      retry();
+
+      // 2. Fetch fresh detail for all subjects in current semester
+      if (rows.length > 0) {
+        const allIds = new Set(rows.map((r) => String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode)));
+        setSyncingIds(allIds);
+        setSyncProgress({ done: 0, total: rows.length });
+
+        const base = {
+          stynumber: initial?.header?.stynumber,
+          registrationid: sem?.registrationid,
+          registrationcode: sem?.registrationcode,
+        };
+
+        const queue = [...rows];
+        const concurrency = 3;
+        const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+          while (queue.length > 0) {
+            const r = queue.shift();
+            if (!r) break;
+            const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+            try {
+              const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
+              if (data) {
+                const key = getSubjectCacheKey(session.username, semId, r);
+                try {
+                  localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
+                } catch {}
+                setDetailsMap((prev) => ({ ...prev, [subId]: data }));
+              }
+            } catch {
+              // Gracefully handle network/block error
+            } finally {
+              setSyncingIds((prev) => {
+                const next = new Set(prev);
+                next.delete(subId);
+                return next;
+              });
+              setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+            }
+          }
+        });
+
+        await Promise.all(workers);
+      }
+
+      try {
+        localStorage.setItem("juet.portal.last_sync", String(Date.now()));
+        window.dispatchEvent(new CustomEvent("juet:sync"));
+      } catch {}
+    } finally {
       setIsRefreshing(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -176,7 +286,23 @@ export function AttendancePage({
             </svg>
           </button>
 
-          <h1 className="att-header-title">Attendance</h1>
+          <div className="att-header-titles">
+            <h1 className="att-header-title">Attendance</h1>
+            {isSyncing ? (
+              <span className="att-sync-pill is-syncing" role="status" aria-live="polite">
+                <span className="att-sync-dot" aria-hidden="true" />
+                <span>
+                  {syncProgress.total > 0
+                    ? `Updating ${syncProgress.done}/${syncProgress.total}…`
+                    : "Refreshing…"}
+                </span>
+              </span>
+            ) : lastSync ? (
+              <span className="att-sync-pill">
+                Updated {formatLastSync(lastSync)}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="att-top-actions">
@@ -184,7 +310,7 @@ export function AttendancePage({
             <select
               value={semId ?? ""}
               onChange={(e) => setSemId(e.target.value)}
-              disabled={loading}
+              disabled={loading || isSyncing}
               className="sem-picker"
               aria-label="Select Semester"
             >
@@ -199,10 +325,10 @@ export function AttendancePage({
           <button
             type="button"
             onClick={handleRefresh}
-            className={`dash-refresh-btn ${isRefreshing ? "is-spinning" : ""}`}
+            className={`dash-refresh-btn ${isSyncing ? "is-spinning" : ""}`}
             aria-label="Refresh attendance"
-            title="Refresh attendance"
-            disabled={isRefreshing}
+            title={isSyncing ? "Refreshing attendance…" : "Refresh attendance"}
+            disabled={isSyncing}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="23 4 23 10 17 10" />
@@ -248,13 +374,35 @@ export function AttendancePage({
           filteredRows.map((r, i) => {
             const { name, badge } = subjectName(r.subjectcode);
             const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+            const isSubjectSyncing = syncingIds.has(subId);
             const attInfo = combinedAttendance(r, detailsMap[subId]);
 
             let supportingContent = null;
-            if (attInfo.hasHeldClasses && attInfo.totalClasses > 0) {
+            if (isSubjectSyncing) {
+              supportingContent = (
+                <span className="att-count-text att-count-syncing">
+                  <span className="sync-pulse-dot" aria-hidden="true" />
+                  Updating…
+                </span>
+              );
+            } else if (attInfo.hasHeldClasses && attInfo.totalClasses > 0) {
               supportingContent = (
                 <span className="att-count-text">
                   {attInfo.totalPresent}/{attInfo.totalClasses} classes
+                </span>
+              );
+            } else if (attInfo.hasHeldClasses && attInfo.totalClasses === 0) {
+              supportingContent = (
+                <span className="att-count-text">
+                  {attInfo.components.L?.pct != null && attInfo.components.T?.pct != null
+                    ? `L: ${attInfo.components.L.pct}% · T: ${attInfo.components.T.pct}%`
+                    : attInfo.components.L?.pct != null
+                    ? `L: ${attInfo.components.L.pct}%`
+                    : attInfo.components.T?.pct != null
+                    ? `T: ${attInfo.components.T.pct}%`
+                    : attInfo.components.P?.pct != null
+                    ? `Lab: ${attInfo.components.P.pct}%`
+                    : "Classes held"}
                 </span>
               );
             } else if (!attInfo.hasHeldClasses) {
@@ -288,8 +436,8 @@ export function AttendancePage({
 
                 {/* Trailing Attendance % + Chevron */}
                 <div className="att-trailing-group">
-                  <span className={`att-row-pct ${attInfo.colorClass}`}>
-                    {attInfo.pct}
+                  <span className={`att-row-pct ${attInfo.colorClass} ${isSubjectSyncing ? "att-pct-syncing" : ""}`}>
+                    {attInfo.pct !== "—" ? attInfo.pct : isSubjectSyncing ? "…" : "—"}
                   </span>
                   <div className="m3-trailing-chevron" aria-hidden="true">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
