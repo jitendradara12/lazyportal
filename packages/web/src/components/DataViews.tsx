@@ -41,10 +41,10 @@ export function formatLastSync(ts: number | null): string {
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
   const d = new Date(ts);
   const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (diffHours < 24) return timeStr;
-  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${timeStr}`;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeStr}`;
 }
 
 /** Fallback table for responses whose columns we haven't mapped yet. */

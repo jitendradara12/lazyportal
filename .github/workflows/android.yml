@@ -1,0 +1,118 @@
+name: Android
+
+# The web job is the repository's main line of defence (unit tests + production
+# build). The apk job is a compile check for the native shell: it syncs the
+# bundle into android/ and compiles the debug APK on a clean machine. It never
+# boots the WebView — device QA (docs/ANDROID.md checklist) stays manual.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web tests & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm test
+
+      - run: npm run build
+
+      # `cap sync` is what packages dist/ into android/app/src/main/assets/public.
+      # It also validates capacitor.config.json against the CLI schema.
+      - name: Sync native project
+        run: npx cap sync android
+
+      - name: Verify the bundle landed in the native project
+        run: test -f android/app/src/main/assets/public/index.html
+
+      # Checked-in art must match the generator: fail loudly if someone edited
+      # res/ by hand or forgot `npm run cap:assets` after an icon change.
+      - name: Verify native art matches the generator
+        run: npm run cap:assets && git diff --exit-code -- android/app/src/main/res
+
+  apk:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    needs: web
+    # The keystore step and the Gradle build are separate steps, so the
+    # signing credentials have to live at job level to reach build.gradle.
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # No SDK setup step: the runner image ships the Android SDK at
+      # $ANDROID_HOME, including platform 36 and build-tools (see the image
+      # README), and AGP downloads anything else it needs.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+
+      - run: npm ci --no-audit --no-fund
+
+      # Builds the web bundle and copies it (plus capacitor.config.json) into android/.
+      - run: npm run cap:sync
+
+      - name: Setup release keystore
+        working-directory: android/app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          elif [ ! -f release.keystore ]; then
+            # Ephemeral fallback so PRs from forks (no secrets) still compile.
+            # Each run gets a new key, so these APKs are NOT update-compatible:
+            # add KEYSTORE_BASE64 for anything users install.
+            echo "::warning::KEYSTORE_BASE64 unset - signing release with a throwaway key."
+            keytool -genkeypair -v -keystore release.keystore -alias lazyportal -keyalg RSA -keysize 2048 -validity 10000 -storepass lazyportal -keypass lazyportal -dname "CN=JUET Portal, O=Lazyportal, C=IN"
+          fi
+
+      - name: Compile APKs and run unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease assembleDebug testDebugUnitTest
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+

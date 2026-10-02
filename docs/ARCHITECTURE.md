@@ -21,6 +21,9 @@ Wiring only. No crypto, no endpoint strings, no storage wiping.
 
 ```
 lib/portal.ts       # client + store singletons
+lib/installPrompt.js # browser install-event lifecycle + 14-day dismissal policy
+hooks/useInstallPrompt.ts # React subscription to the shared install controller
+components/InstallBanner.tsx # floating card + inline browser-specific guidance
 hooks/useSession.ts # restore session on boot, logout
 hooks/useFeature.ts # fetch + error + retry + 401 handling for sections
 hooks/useSemester.ts # persisted semester pick (defaults to first row)
@@ -34,6 +37,20 @@ To turn a section off, set `enabled: false` in `sections/index.ts`
 (grades/CGPA ship disabled: new portal returns 500/empty even officially).
 To drop it, delete its line + file. To add one, add a file plus one
 registry line and use `useSemester` for the semester pick. Nothing else changes.
+
+## Proxy (`api/`)
+
+| Module | What you call | What it hides |
+|---|---|---|
+| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, timeout/502 mapping |
+| `shared/cors.js` | `corsHeaders`, `preflightHeaders` | The only origin allowed to call the proxy cross-origin: the Capacitor WebView (`https://localhost`). Browser builds are same-origin and need none of it |
+
+## Native shell (`android/`)
+
+Capacitor wraps the same `packages/web/dist` bundle; `packages/web/src/lib/apiBase.js`
+is the single place that knows the shell must call the hosted proxy by absolute
+URL instead of `/api`. Everything else — core, sections, hooks — is untouched by
+the native build. See `docs/ANDROID.md`.
 
 ## Adding a feature
 
