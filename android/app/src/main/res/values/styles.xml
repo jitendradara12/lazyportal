@@ -2,7 +2,7 @@
 <resources>
 
     <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.DarkActionBar">
         <!-- Brand colours. @color/colorPrimary & co. come from the Capacitor
              library's defaults, which are indigo/pink; use the navy from
              packages/web/public/icon.svg instead. -->
@@ -11,9 +11,8 @@
         <item name="colorAccent">@color/ic_launcher_background</item>
     </style>
 
-    <!-- Light-only: the web UI does not ship a dark theme, so follow the system
-         here and let the WebView stay light regardless. -->
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
+    <!-- App theme without action bar, supporting system DayNight (light & dark mode). -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
@@ -29,6 +28,7 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 
     <!-- Styles do not merge across resource configurations, so Android 12+
