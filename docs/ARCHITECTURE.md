@@ -42,7 +42,7 @@ registry line and use `useSemester` for the semester pick. Nothing else changes.
 
 | Module | What you call | What it hides |
 |---|---|---|
-| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, timeout/502 mapping |
+| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, StudentPortalAPI path confinement, GET/HEAD/POST method allow-list, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, timeout/502 mapping |
 | `shared/cors.js` | `corsHeaders`, `preflightHeaders` | The only origin allowed to call the proxy cross-origin: the Capacitor WebView (`https://localhost`). Browser builds are same-origin and need none of it |
 
 ## Native shell (`android/`)
