@@ -268,10 +268,8 @@ button, input, select, textarea { font-family: inherit; }
 
 .dash-hero {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-end;
-  gap: 4px;
+  align-items: center;
+  gap: 16px;
   min-height: 128px;
   padding: 20px;
   text-align: start;
@@ -280,16 +278,74 @@ button, input, select, textarea { font-family: inherit; }
   border: 0;
   border-radius: var(--r-xl);
   cursor: pointer;
+  position: relative;
   transition: border-radius 300ms var(--motion-spring),
               transform 300ms var(--motion-spring);
 }
 .dash-hero[data-state="short"] {
   background: var(--errorContainer);
-  color: light-dark(#410E0B, #F9DEDC);
+  color: var(--onErrorContainer);
 }
 .dash-hero:active { transform: scale(0.98); border-radius: var(--r-lg); }
-.dash-hero-label  { font-size: 0.875rem; font-weight: 500; opacity: 0.8; }
-.dash-hero-status { font-size: 2rem; line-height: 1.15; font-weight: 600; }
+
+/* Text block: headline + supporting status */
+.dash-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.dash-hero-headline {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.dash-hero-status {
+  font-size: var(--fs-m);
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0.72;
+}
+
+/* ── M3 Expressive icon: glyph inside a shaped container ── */
+.dash-hero-icon {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--onPrimaryContainer) 14%, transparent);
+  color: var(--onPrimaryContainer);
+  /* OK state → clover (four-lobed rounded blob) */
+  border-radius: 60% 40% 55% 45% / 45% 55% 40% 60%;
+  transition: border-radius 350ms var(--motion-standard),
+              background-color 200ms ease,
+              color 200ms ease;
+}
+.dash-hero[data-state="short"] .dash-hero-icon {
+  background: color-mix(in srgb, var(--onErrorContainer) 14%, transparent);
+  color: var(--onErrorContainer);
+  /* Short state → diamond / rotated-square blob */
+  border-radius: 28% 72% 28% 72% / 72% 28% 72% 28%;
+}
+.dash-hero-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* Navigation chevron affordance */
+.dash-hero-chevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  opacity: 0.5;
+  transition: transform 200ms var(--motion-spring), opacity 150ms ease;
+}
+.dash-hero:hover .dash-hero-chevron { opacity: 0.8; transform: translateX(2px); }
+.dash-hero:active .dash-hero-chevron { transform: translateX(4px); }
 
 /* secondary sections: connected group, tonal not outlined */
 .m3-stacked-sections {

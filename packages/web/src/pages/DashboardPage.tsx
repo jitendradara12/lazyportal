@@ -217,8 +217,30 @@ export function DashboardPage({
           onClick={openAttendance}
           aria-label={`Attendance, ${attSummary.badgeText}`}
         >
-          <span className="dash-hero-label">Attendance</span>
-          <span className="dash-hero-status">{attSummary.badgeText}</span>
+          <div className="dash-hero-text">
+            <span className="dash-hero-headline">Attendance</span>
+            <span className="dash-hero-status">{attSummary.badgeText}</span>
+          </div>
+
+          {/* M3 Expressive icon — shape differs by state (clover vs diamond) */}
+          <span className="dash-hero-icon" aria-hidden="true">
+            {attSummary.shortsCount > 0 ? (
+              /* Priority / warning glyph */
+              <svg viewBox="0 -960 960 960" fill="currentColor">
+                <path d="M480-120q-33 0-56.5-23.5T400-200q0-33 23.5-56.5T480-280q33 0 56.5 23.5T560-200q0 33-23.5 56.5T480-120Zm-80-240v-480h160v480H400Z"/>
+              </svg>
+            ) : (
+              /* Check / all-clear glyph */
+              <svg viewBox="0 -960 960 960" fill="currentColor">
+                <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/>
+              </svg>
+            )}
+          </span>
+
+          {/* Navigation chevron */}
+          <svg className="dash-hero-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
         </button>
 
         <div className="m3-stacked-sections" role="list">
