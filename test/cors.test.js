@@ -68,11 +68,17 @@ test("preflight from a foreign origin allows nothing", () => {
 
 test("proxy paths stay under the fixed StudentPortalAPI prefix", () => {
   const target = new URL(
-    buildUpstreamTarget("token/generatewebtoken", { lang: "en US" })
+    buildUpstreamTarget("token/generatewebtoken", {
+      lang: "en US",
+      plus: "a+b",
+      amp: "a&b",
+    })
   );
   assert.equal(target.origin, "https://studentportal.juet.ac.in");
   assert.equal(target.pathname, "/StudentPortalAPI/token/generatewebtoken");
   assert.equal(target.searchParams.get("lang"), "en US");
+  assert.equal(target.searchParams.get("plus"), "a+b");
+  assert.equal(target.searchParams.get("amp"), "a&b");
 
   for (const path of [
     "",
@@ -91,6 +97,23 @@ test("proxy paths stay under the fixed StudentPortalAPI prefix", () => {
     () => buildUpstreamTarget(["token", "..", "studentportal"]),
     TypeError
   );
+});
+
+test("every API endpoint used by core stays under StudentPortalAPI", () => {
+  const coreFiles = ["packages/core/src/auth.js", "packages/core/src/features.js"];
+  const apiPaths = new Set(
+    coreFiles.flatMap((file) => {
+      const source = fs.readFileSync(path.join(root, file), "utf8");
+      return [...source.matchAll(/"(\/[A-Za-z0-9._/-]+)"/g)].map((match) => match[1]);
+    })
+  );
+
+  assert.ok(apiPaths.size > 0, "expected to discover API endpoint paths");
+  for (const apiPath of apiPaths) {
+    const target = new URL(buildUpstreamTarget(apiPath.slice(1)));
+    assert.equal(target.origin, "https://studentportal.juet.ac.in", apiPath);
+    assert.equal(target.pathname, `/StudentPortalAPI${apiPath}`, apiPath);
+  }
 });
 
 test("proxy rejects path traversal before making an upstream request", async () => {
