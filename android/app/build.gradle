@@ -13,6 +13,16 @@ def getGitCommitCount = { ->
     }
 }
 
+// The removed `android.yml` workflow shipped APKs through run 13. `build-apk.yml`
+// has its own run counter, so keep new CI builds above those already-installed APKs.
+def previousWorkflowVersionCode = 13
+def getVersionCode = { ->
+    def historyVersionCode = getGitCommitCount()
+    def runNumber = System.getenv("VERSION_CODE_RUN")
+    def runVersionCode = runNumber ? runNumber.toInteger() + previousWorkflowVersionCode : 0
+    return Math.max(historyVersionCode, runVersionCode)
+}
+
 android {
     namespace = "com.lazyportal.juet"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -20,7 +30,7 @@ android {
         applicationId "com.lazyportal.juet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv("GITHUB_RUN_NUMBER") ? System.getenv("GITHUB_RUN_NUMBER").toInteger() : getGitCommitCount())
+        versionCode getVersionCode()
         versionName (System.getenv("APP_VERSION_NAME") ?: "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: getGitCommitCount()))
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

@@ -101,8 +101,11 @@ cd android
 ./gradlew assembleRelease          # or: ./gradlew bundleRelease for an AAB
 ```
 
-`app/build.gradle` uses `GITHUB_RUN_NUMBER` for `versionCode` in CI so each
-workflow run has an increasing code. On a `v*` tag, CI also sets `versionName`
+`app/build.gradle` keeps `versionCode` above previously shipped APKs by taking
+the maximum of the full Git commit count and the new workflow run number plus
+the legacy `android.yml` high-water mark (13). CI fetches full history and passes
+the run number through `VERSION_CODE_RUN`, so this workflow rename cannot cause
+Android to reject an update. On a `v*` tag, CI also sets `versionName`
 from the tag (without the leading `v`). The APK workflow always uploads
 `app-debug.apk` as a run artifact. For version tags it additionally builds a
 signed `app-release.apk` and creates or updates a published GitHub Release with
