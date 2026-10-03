@@ -24,6 +24,17 @@ export const OFFICIAL_PORTAL_STORAGE_KEYS = [
   "studentData",
   "portalUser",
   "username",
+  // Exact official keys (case-sensitive, from studentportal main.*.js):
+  // Token is read by the auth interceptor, Username/tokendate by refresh,
+  // userid/instituteid/membertype/bypassValue by GetNavigation.
+  "Username",
+  "tokendate",
+  "Today_DATE",
+  "clientidforlink",
+  "usertypeselected",
+  "otppwd",
+  "activeform",
+  "rejectedData",
   "userid",
   "clientid",
   "companyid",
@@ -87,6 +98,12 @@ export function makeOfficialPortalBootstrapScript() {
   const instituteName = session.institutename == null ? "" : String(session.institutename);
   const instituteList = JSON.stringify(Array.isArray(session.institutelist) ? session.institutelist : []);
   const bypass = String(session.bypassValue || session.bypass || "");
+  // Exact official login fields: refresh needs Username+tokendate, nav needs
+  // userid/instituteid/membertype/bypassValue. tokendate/Today_DATE fall back
+  // to "now" when the bridge was written by an older session shape.
+  const tokendate = String(session.tokendate || new Date().toString());
+  const todayDate = String(Date.now());
+  const clientIdForLink = String(session.clientidforlink || clientId || "");
   const payload = JSON.stringify(session);
 
   const seeds = new Map([
@@ -109,6 +126,11 @@ export function makeOfficialPortalBootstrapScript() {
     ["studentData", payload],
     ["portalUser", payload],
     ["username", username],
+    ["Username", username],
+    ["tokendate", tokendate],
+    ["Today_DATE", todayDate],
+    ["clientidforlink", clientIdForLink],
+    ["usertypeselected", userType],
     ["userid", userId],
     ["clientid", clientId],
     ["companyid", companyId],
@@ -202,8 +224,8 @@ export function makeOfficialPortalBootstrapScript() {
     if (!input) return input;
     if (input.startsWith(UPSTREAM_API)) return input.replace(UPSTREAM_API, PROXY_API);
     if (input.startsWith(UPSTREAM_BASE)) return input.replace(UPSTREAM_BASE, PROXY_BASE);
-    if (input.startsWith("/StudentPortalAPI")) return input.replace(/^\/StudentPortalAPI/, PROXY_API);
-    if (input.startsWith("/studentportal")) return input.replace(/^\/studentportal/, PROXY_BASE);
+    if (input.startsWith("/StudentPortalAPI")) return input.replace(/^\\/StudentPortalAPI/, PROXY_API);
+    if (input.startsWith("/studentportal")) return input.replace(/^\\/studentportal/, PROXY_BASE);
     return input;
   };
 
@@ -215,7 +237,7 @@ export function makeOfficialPortalBootstrapScript() {
   const withAuthHeaders = (headersLike) => {
     const headers = new Headers(headersLike || {});
     const auth = headers.get("Authorization") || "";
-    if (!auth.replace(/^Bearer\s+/i, "").trim()) headers.set("Authorization", `Bearer ${token}`);
+    if (!auth.replace(/^Bearer\\s+/i, "").trim()) headers.set("Authorization", "Bearer " + token);
     return headers;
   };
 
@@ -259,8 +281,8 @@ export function makeOfficialPortalBootstrapScript() {
 
   XMLHttpRequest.prototype.send = function patchedSend(body) {
     const auth = String(this.__lazyportalOfficialAuth || "");
-    if (isApiUrl(this.__lazyportalOfficialUrl) && !auth.replace(/^Bearer\s+/i, "").trim()) {
-      nativeSetRequestHeader.call(this, "Authorization", `Bearer ${token}`);
+    if (isApiUrl(this.__lazyportalOfficialUrl) && !auth.replace(/^Bearer\\s+/i, "").trim()) {
+      nativeSetRequestHeader.call(this, "Authorization", "Bearer " + token);
     }
     return nativeSend.call(this, body);
   };

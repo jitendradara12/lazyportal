@@ -167,3 +167,15 @@ test("official portal opens the dashboard route instead of the login route", () 
   const source = fs.readFileSync(path.join(root, "packages/web/src/lib/officialPortal.ts"), "utf8");
   assert.match(source, /#\/dashbord/);
 });
+
+test("official portal bootstrap is valid JS and seeds the exact official keys", async () => {
+  const { default: vm } = await import("node:vm");
+  const script = makeOfficialPortalBootstrapScript();
+  // Would have thrown SyntaxError before the nested-template fix (Bearer + regex escapes).
+  new vm.Script(script);
+  for (const key of ["Username", "tokendate", "Today_DATE", "clientidforlink", "usertypeselected", "Token"]) {
+    assert.ok(script.includes(`"${key}"`), `bootstrap missing exact key ${key}`);
+  }
+  assert.ok(script.includes("/^\\/StudentPortalAPI/"), "bootstrap regex escaping broken");
+  assert.ok(script.includes("/^Bearer\\s+/"), "bootstrap Bearer regex escaping broken");
+});
