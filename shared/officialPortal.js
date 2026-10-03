@@ -1,6 +1,5 @@
 export const OFFICIAL_PORTAL_PREFIX = "/officialportal";
-export const OFFICIAL_PORTAL_BRIDGE_KEY = "juet.portal.official_bridge.v1";
-export const OFFICIAL_PORTAL_UPSTREAM = "https://studentportal.juet.ac.in/studentportal";
+export const OFFICIAL_PORTAL_BRIDGE_KEY = "juet.portal.official_bridge.v1";export const OFFICIAL_PORTAL_UPSTREAM = "https://studentportal.juet.ac.in/studentportal";
 export const OFFICIAL_PORTAL_API_UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 export const OFFICIAL_PORTAL_API_PROXY = "/api";
 
@@ -52,6 +51,29 @@ export const OFFICIAL_PORTAL_STORAGE_KEYS = [
   "bypass",
   "bypassValue",
 ];
+
+/**
+ * Build the bridge payload the iframe bootstrap reads. The official app's
+ * GetNavigation expects `bypassValue` as AES ciphertext (same date-key scheme
+ * as core crypto), but the lazyportal session carries it raw — so upgrade just
+ * that field when an encrypt function is supplied. Any failure falls back to
+ * the raw session (today's behavior, never worse).
+ */
+export async function buildOfficialPortalBridgePayload(session, encryptBypass) {
+  const base = { ...(session ?? {}) };
+  const rawBypass = session?.bypassValue ?? session?.bypass;
+  if (rawBypass == null || String(rawBypass) === "") {
+    base.bypassValue = "";
+    return JSON.stringify(base);
+  }
+  try {
+    const encrypted = await encryptBypass(String(rawBypass));
+    base.bypassValue = encrypted ? String(encrypted) : String(rawBypass);
+  } catch {
+    base.bypassValue = String(rawBypass);
+  }
+  return JSON.stringify(base);
+}
 
 export function makeOfficialPortalBootstrapScript() {
   const bridgeKey = JSON.stringify(OFFICIAL_PORTAL_BRIDGE_KEY);

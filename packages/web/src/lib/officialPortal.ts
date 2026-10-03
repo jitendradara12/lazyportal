@@ -1,9 +1,11 @@
 import type { Session } from "../types";
+import { crypto as campusCrypto } from "@juet/core";
 import { PROD_API_BASE } from "./apiBase";
 import {
   OFFICIAL_PORTAL_BRIDGE_KEY,
   OFFICIAL_PORTAL_PREFIX,
   OFFICIAL_PORTAL_STORAGE_KEYS,
+  buildOfficialPortalBridgePayload,
 } from "../../../../shared/officialPortal.js";
 
 export { OFFICIAL_PORTAL_BRIDGE_KEY };
@@ -49,6 +51,30 @@ export function writeOfficialPortalBridge(session: Session) {
   } catch {
     // ignored
   }
+  // Background upgrade: GetNavigation wants bypassValue as AES ciphertext,
+  // not the raw session value. Same date-key scheme as core crypto (IST vs
+  // device-local agree for IST users; may differ at the midnight boundary
+  // elsewhere). The raw write above already landed, so the iframe converges
+  // via the onLoad post even if this upgrade loses the race.
+  buildOfficialPortalBridgePayload(session, (plain) =>
+    campusCrypto.encrypt(plain, { now: new Date() })
+  )
+    .then((upgraded) => {
+      if (upgraded === raw) return;
+      try {
+        localStorage.setItem(OFFICIAL_PORTAL_BRIDGE_KEY, upgraded);
+      } catch {
+        // ignored
+      }
+      try {
+        sessionStorage.setItem(OFFICIAL_PORTAL_BRIDGE_KEY, upgraded);
+      } catch {
+        // ignored
+      }
+    })
+    .catch(() => {
+      // raw bridge already written above
+    });
 }
 
 export function readOfficialPortalBridge(): string {
