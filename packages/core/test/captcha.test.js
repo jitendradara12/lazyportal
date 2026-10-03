@@ -98,5 +98,15 @@ describe("captcha", () => {
 
     assert.equal(typeof res, "string");
     assert.equal(res.length, 5);
+
+    // Second call to verify stability and template reuse
+    const res2 = await solveCaptcha(
+      { image: "test", hidden: "h" },
+      {
+        createCanvas: () => mockCanvas,
+        createImage: async () => mockImage,
+      }
+    );
+    assert.equal(res2, res);
   });
 });

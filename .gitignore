@@ -5,3 +5,4 @@ coverage/
 *.local
 playwright-report/
 test-results/
+scratch/
