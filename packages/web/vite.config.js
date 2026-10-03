@@ -13,7 +13,16 @@ function officialPortalDevProxy() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = req.url ?? "";
-        if (!url.startsWith("/officialportal")) return next();
+        // Path-boundary match: /officialportalfoo must not match. The extra
+        // /studentportal prefix is a safety net for absolute asset URLs that
+        // escape the client-side rewrite (native <img>/<worker> loads).
+        const prefix =
+          url === "/officialportal" || url.startsWith("/officialportal/") || url.startsWith("/officialportal?")
+            ? "/officialportal"
+            : url === "/studentportal" || url.startsWith("/studentportal/") || url.startsWith("/studentportal?")
+              ? "/studentportal"
+              : null;
+        if (!prefix) return next();
 
         const method = String(req.method ?? "GET").toUpperCase();
         if (method !== "GET" && method !== "HEAD") {
@@ -24,7 +33,7 @@ function officialPortalDevProxy() {
         }
 
         const parsed = new URL(url, "http://localhost");
-        const pathValue = parsed.pathname.replace(/^\/officialportal\/?/, "");
+        const pathValue = parsed.pathname.replace(/^\/(officialportal|studentportal)\/?/, "");
         let target;
         try {
           target = buildOfficialPortalTarget(pathValue, parsed.searchParams);
@@ -40,7 +49,9 @@ function officialPortalDevProxy() {
             method,
             headers: buildOfficialPortalRequestHeaders(req.headers ?? {}),
           });
-          const response = normalizeOfficialPortalResponse(upstream, { method });
+          // Same HTML-only policy as the Vercel handler: static assets pass
+          // through byte-identical (client fetch/XHR patch rewrites API URLs).
+          const response = normalizeOfficialPortalResponse(upstream, { method, target });
           res.statusCode = response.status;
           for (const [key, value] of Object.entries(response.headers)) {
             if (value != null) res.setHeader(key, value);
