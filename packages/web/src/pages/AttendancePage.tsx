@@ -338,97 +338,99 @@ export function AttendancePage({
         </div>
       </header>
 
-      {/* Segmented Pill Toggle (only when subjects are short) */}
-      {shortsCount > 0 && rows.length > 0 && (
-        <div className="att-filter-bar">
-          <div className="segmented-pill-toggle" role="tablist" aria-label="Filter subjects">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={filter === "all"}
-              className={`segmented-pill ${filter === "all" ? "active" : ""}`}
-              onClick={() => setFilter("all")}
-            >
-              All {rows.length}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={filter === "short"}
-              className={`segmented-pill ${filter === "short" ? "active" : ""}`}
-              onClick={() => setFilter("short")}
-            >
-              Short {shortsCount}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Subject List Items */}
-      <section className="att-list" aria-label="Subject list">
-        {loading && (
-          <p className="muted" style={{ padding: "24px 20px" }}>Loading attendance records…</p>
-        )}
-
-        {filteredRows.length > 0 &&
-          filteredRows.map((r, i) => {
-            const { name, badge } = subjectName(r.subjectcode);
-            const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-            const isSubjectSyncing = syncingIds.has(subId);
-            const attInfo = combinedAttendance(r, detailsMap[subId]);
-
-            return (
+      <div className="att-content">
+        {/* Segmented Pill Toggle (only when subjects are short) */}
+        {shortsCount > 0 && rows.length > 0 && (
+          <div className="att-filter-bar">
+            <div className="segmented-pill-toggle" role="tablist" aria-label="Filter subjects">
               <button
-                key={String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? i)}
                 type="button"
-                className={`m3-list-item att-subject-row ${attInfo.isShort ? "is-short-row" : ""}`}
-                onClick={() => setSelectedSubject(r as AttRow & Record<string, unknown>)}
-                aria-label={`${name}, ${attInfo.pct} attendance`}
+                role="tab"
+                aria-selected={filter === "all"}
+                className={`segmented-pill ${filter === "all" ? "active" : ""}`}
+                onClick={() => setFilter("all")}
               >
-                <div className="m3-item-content">
-                  <span className="m3-item-headline att-subject-name">{name}</span>
-                  <span className="att-subject-supporting">
-                    {badge && <span className="att-code">{badge}</span>}
-                    {badge && " · "}
-                    {isSubjectSyncing ? (
-                      <span className="att-count-syncing">
-                        <span className="sync-pulse-dot" aria-hidden="true" />
-                        Refreshing…
-                      </span>
-                    ) : attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? (
-                      `${attInfo.totalPresent}/${attInfo.totalClasses} classes`
-                    ) : attInfo.hasHeldClasses && attInfo.totalClasses === 0 ? (
-                      attInfo.components.L?.pct != null && attInfo.components.T?.pct != null
-                        ? `L: ${attInfo.components.L.pct}% · T: ${attInfo.components.T.pct}%`
-                        : "Classes held"
-                    ) : (
-                      "No classes yet"
-                    )}
-                  </span>
-                </div>
-                <span className={`att-row-pct ${attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? attInfo.colorClass : "is-empty"} ${isSubjectSyncing ? "att-pct-syncing" : ""}`}>
-                  {isSubjectSyncing ? "…" : attInfo.hasHeldClasses && attInfo.pct !== "—" ? attInfo.pct : "--"}
-                </span>
+                All {rows.length}
               </button>
-            );
-          })}
-
-        {/* Empty filter message */}
-        {rows.length > 0 && filteredRows.length === 0 && (
-          <div className="att-empty-filter">
-            <p className="muted">No subjects match this filter.</p>
-            <button type="button" className="att-reset-filter-btn" onClick={() => setFilter("all")}>
-              Show All Subjects
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={filter === "short"}
+                className={`segmented-pill ${filter === "short" ? "active" : ""}`}
+                onClick={() => setFilter("short")}
+              >
+                Short {shortsCount}
+              </button>
+            </div>
           </div>
         )}
 
-        {initial && rows.length === 0 && !error && !loading && (
-          <p className="muted" style={{ padding: "24px 20px" }}>No attendance rows found.</p>
-        )}
+        {/* Subject List Items */}
+        <section className="att-list" aria-label="Subject list">
+          {loading && (
+            <p className="muted" style={{ padding: "24px 20px" }}>Loading attendance records…</p>
+          )}
 
-        {error && <SectionError label="Attendance" error={error} retry={retry} />}
-      </section>
+          {filteredRows.length > 0 &&
+            filteredRows.map((r, i) => {
+              const { name, badge } = subjectName(r.subjectcode);
+              const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+              const isSubjectSyncing = syncingIds.has(subId);
+              const attInfo = combinedAttendance(r, detailsMap[subId]);
+
+              return (
+                <button
+                  key={String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? i)}
+                  type="button"
+                  className={`m3-list-item att-subject-row ${attInfo.isShort ? "is-short-row" : ""}`}
+                  onClick={() => setSelectedSubject(r as AttRow & Record<string, unknown>)}
+                  aria-label={`${name}, ${attInfo.pct} attendance`}
+                >
+                  <div className="m3-item-content">
+                    <span className="m3-item-headline att-subject-name">{name}</span>
+                    <span className="att-subject-supporting">
+                      {badge && <span className="att-code">{badge}</span>}
+                      {badge && " · "}
+                      {isSubjectSyncing ? (
+                        <span className="att-count-syncing">
+                          <span className="sync-pulse-dot" aria-hidden="true" />
+                          Refreshing…
+                        </span>
+                      ) : attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? (
+                        `${attInfo.totalPresent}/${attInfo.totalClasses} classes`
+                      ) : attInfo.hasHeldClasses && attInfo.totalClasses === 0 ? (
+                        attInfo.components.L?.pct != null && attInfo.components.T?.pct != null
+                          ? `L: ${attInfo.components.L.pct}% · T: ${attInfo.components.T.pct}%`
+                          : "Classes held"
+                      ) : (
+                        "No classes yet"
+                      )}
+                    </span>
+                  </div>
+                  <span className={`att-row-pct ${attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? attInfo.colorClass : "is-empty"} ${isSubjectSyncing ? "att-pct-syncing" : ""}`}>
+                    {isSubjectSyncing ? "…" : attInfo.hasHeldClasses && attInfo.pct !== "—" ? attInfo.pct : "--"}
+                  </span>
+                </button>
+              );
+            })}
+
+          {/* Empty filter message */}
+          {rows.length > 0 && filteredRows.length === 0 && (
+            <div className="att-empty-filter">
+              <p className="muted">No subjects match this filter.</p>
+              <button type="button" className="att-reset-filter-btn" onClick={() => setFilter("all")}>
+                Show All Subjects
+              </button>
+            </div>
+          )}
+
+          {initial && rows.length === 0 && !error && !loading && (
+            <p className="muted" style={{ padding: "24px 20px" }}>No attendance rows found.</p>
+          )}
+
+          {error && <SectionError label="Attendance" error={error} retry={retry} />}
+        </section>
+      </div>
 
       {/* Slide-over sheet for detailed history */}
       {selectedSubject && (
