@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "../types";
-import { getOfficialPortalUrl, writeOfficialPortalBridge } from "../lib/officialPortal";
+import {
+  OFFICIAL_PORTAL_BRIDGE_KEY,
+  getOfficialPortalUrl,
+  readOfficialPortalBridge,
+  writeOfficialPortalBridge,
+} from "../lib/officialPortal";
 
 export function OfficialPortalPage({
   session,
@@ -13,13 +18,43 @@ export function OfficialPortalPage({
 }) {
   const [frameNonce, setFrameNonce] = useState(0);
   const [ready, setReady] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+
+  const iframeSrc = useMemo(() => getOfficialPortalUrl(frameNonce), [frameNonce]);
+
+  const iframeOrigin = useMemo(() => {
+    try {
+      return new URL(iframeSrc, window.location.href).origin;
+    } catch {
+      return window.location.origin;
+    }
+  }, [iframeSrc]);
+
+  // Native shell frames the hosted proxy cross-origin (https://localhost vs
+  // the deployment), so the iframe cannot read the parent's localStorage.
+  // Hand the bridge over explicitly; same-origin web ignores it (the
+  // bootstrap no-ops when storage already matches). Explicit targetOrigin:
+  // the session token rides along, so never "*".
+  const postBridgeToFrame = useCallback(() => {
+    try {
+      const raw = readOfficialPortalBridge();
+      if (!raw) return;
+      frameRef.current?.contentWindow?.postMessage(
+        { type: OFFICIAL_PORTAL_BRIDGE_KEY, raw },
+        iframeOrigin
+      );
+    } catch {
+      // ignored
+    }
+  }, [iframeOrigin]);
 
   useEffect(() => {
     writeOfficialPortalBridge(session);
     setReady(true);
-  }, [session]);
-
-  const iframeSrc = useMemo(() => getOfficialPortalUrl(frameNonce), [frameNonce]);
+    // A mid-view token refresh must reach the live frame too; if it hasn't
+    // loaded yet the onLoad post below delivers the current bridge instead.
+    postBridgeToFrame();
+  }, [session, postBridgeToFrame]);
 
   return (
     <main className="portal-view portal-view-enter">
@@ -72,11 +107,13 @@ export function OfficialPortalPage({
         ) : (
           <iframe
             key={frameNonce}
+            ref={frameRef}
             title="Official student portal"
             src={iframeSrc}
             className="portal-frame"
             loading="eager"
             referrerPolicy="no-referrer"
+            onLoad={postBridgeToFrame}
           />
         )}
       </section>

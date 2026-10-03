@@ -7,7 +7,8 @@
     { "source": "/api/:path*", "destination": "/api/proxy?path=:path*" },
     { "source": "/officialportal/:path*", "destination": "/api/official-portal?path=:path*" },
     { "source": "/officialportal/", "destination": "/api/official-portal" },
-    { "source": "/officialportal", "destination": "/api/official-portal" }
+    { "source": "/officialportal", "destination": "/api/official-portal" },
+    { "source": "/studentportal/:path*", "destination": "/api/official-portal?path=:path*" }
   ],
   "functions": {
     "api/proxy.js": {

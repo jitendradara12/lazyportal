@@ -32,6 +32,9 @@ export const OFFICIAL_PORTAL_STORAGE_KEYS = [
   "Today_DATE",
   "clientidforlink",
   "usertypeselected",
+  // Clear-only: the official prelogin flow writes these before the password
+  // step, so logout must remove them, but the dashboard bridge never seeds
+  // them (no seed value and no canonicalForKey branch).
   "otppwd",
   "activeform",
   "rejectedData",
@@ -65,6 +68,39 @@ export function makeOfficialPortalBootstrapScript() {
   const UPSTREAM_API = ${upstreamApi};
   const PROXY_BASE = ${proxyBase};
   const PROXY_API = ${proxyApi};
+
+  // Native shell (Capacitor https://localhost) frames the hosted proxy
+  // cross-origin, so storage is NOT shared with the parent app. The parent
+  // posts the bridge payload after iframe load; store it and reload once so
+  // the normal path below seeds the exact keys. Web same-origin never needs
+  // this (storage is shared) and the equality check makes re-delivery a no-op.
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (!data || data.type !== BRIDGE_KEY || typeof data.raw !== "string" || !data.raw) return;
+    const allowed = [window.location.origin, "https://localhost", "capacitor://localhost"];
+    if (allowed.indexOf(event.origin) < 0) return;
+    let incoming = null;
+    try {
+      incoming = JSON.parse(data.raw);
+    } catch {
+      return;
+    }
+    if (!incoming || typeof incoming !== "object" || !incoming.token) return;
+    let current = "";
+    try {
+      current = localStorage.getItem(BRIDGE_KEY) || sessionStorage.getItem(BRIDGE_KEY) || "";
+    } catch {
+      current = "";
+    }
+    if (current === data.raw) return;
+    try {
+      localStorage.setItem(BRIDGE_KEY, data.raw);
+      sessionStorage.setItem(BRIDGE_KEY, data.raw);
+    } catch {
+      return;
+    }
+    window.location.reload();
+  });
 
   const raw = (() => {
     try {
@@ -185,23 +221,40 @@ export function makeOfficialPortalBootstrapScript() {
   const originalRemoveItem = Storage.prototype.removeItem;
   const originalClear = Storage.prototype.clear;
 
+  // Bridge presence is the logged-in signal. Reads fall back to the seeded
+  // session only while the bridge exists; once it is removed (in-frame logout
+  // or parent clearOfficialPortalBridge), storage behaves like plain storage
+  // again instead of resurrecting a dead session.
+  const hasBridge = (storage) => {
+    try {
+      return originalGetItem.call(storage, BRIDGE_KEY) != null;
+    } catch {
+      return false;
+    }
+  };
+
   Storage.prototype.getItem = function patchedGetItem(key) {
     const existing = originalGetItem.call(this, key);
     if (existing != null && existing !== "") return existing;
+    if (!hasBridge(this)) return existing;
     const fallback = canonicalForKey(key);
     return fallback != null ? fallback : existing;
   };
 
   Storage.prototype.removeItem = function patchedRemoveItem(key) {
     const stringKey = String(key || "");
+    if (stringKey === BRIDGE_KEY || !hasBridge(this)) {
+      return originalRemoveItem.call(this, key);
+    }
     const fallback = canonicalForKey(stringKey);
-    if (stringKey === BRIDGE_KEY || fallback != null) {
+    if (fallback != null) {
       try {
         const self = this;
         queueMicrotask(() => {
           try {
-            if (stringKey === BRIDGE_KEY) self.setItem(BRIDGE_KEY, raw);
-            else if (!originalGetItem.call(self, stringKey) && fallback != null && fallback !== "") self.setItem(stringKey, fallback);
+            if (hasBridge(self) && !originalGetItem.call(self, stringKey) && fallback !== "") {
+              self.setItem(stringKey, fallback);
+            }
           } catch {
             // ignored
           }
@@ -215,8 +268,8 @@ export function makeOfficialPortalBootstrapScript() {
   };
 
   Storage.prototype.clear = function patchedClear() {
+    // clear() wipes the bridge too: treat as logout, never reseed.
     originalClear.call(this);
-    seedStorage(this);
   };
 
   const rewriteUrl = (value) => {
