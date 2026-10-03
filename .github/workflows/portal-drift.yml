@@ -1,0 +1,26 @@
+name: Portal drift probe
+on:
+  schedule:
+    # Daily tripwire: JUET redeploys silently and our crypto/endpoints assume
+    # exact bundle contents. Any marker vanishing means "they rotated" — go red.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check portal bundle markers and captcha shape
+        run: |
+          set -euo pipefail
+          HTML=$(curl -skL --max-time 30 https://studentportal.juet.ac.in/studentportal/)
+          MAIN=$(printf '%s' "$HTML" | grep -oE 'main\.[A-Za-z0-9]+\.js' | head -n 1)
+          test -n "$MAIN"
+          echo "bundle: $MAIN"
+          JS=$(curl -skL --max-time 60 "https://studentportal.juet.ac.in/studentportal/$MAIN")
+          for marker in generatewebtoken pretoken-check dcek9wb8frty1pnm StudentPortalAPI GetNavigation; do
+            printf '%s' "$JS" | grep -q "$marker" || { echo "missing marker: $marker"; exit 1; }
+          done
+          echo "markers ok"
+          curl -skL --max-time 30 https://studentportal.juet.ac.in/StudentPortalAPI/token/getcaptcha \
+            | python3 -c "import json,sys; c=json.load(sys.stdin)['response']['captcha']; assert c['hidden'] and c['image']; print('captcha shape ok')"
