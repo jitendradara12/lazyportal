@@ -83,7 +83,6 @@ function officialPortalDevProxy() {
 export default defineConfig({
   plugins: [react(), officialPortalDevProxy()],
   server: {
-    allowedHosts: true,
     port: 5173,
     proxy: {
       "/api": {
