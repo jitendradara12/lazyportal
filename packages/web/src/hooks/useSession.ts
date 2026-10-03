@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { auth } from "@juet/core";
+import { clearOfficialPortalBridge } from "../lib/officialPortal";
 import { client, onClientUnauthorized, store } from "../lib/portal";
 import type { Session } from "../types";
 
@@ -27,6 +28,7 @@ export function useSession() {
       pendingExpiredTimer.current = null;
     }
     store.clear();
+    clearOfficialPortalBridge();
     try {
       localStorage.removeItem("juet.portal.saved_pw");
       for (let i = localStorage.length - 1; i >= 0; i--) {

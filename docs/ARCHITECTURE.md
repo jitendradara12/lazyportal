@@ -27,10 +27,12 @@ components/InstallBanner.tsx # floating card + inline browser-specific guidance
 hooks/useSession.ts # restore session on boot, logout
 hooks/useFeature.ts # fetch + error + retry + 401 handling for sections
 hooks/useSemester.ts # persisted semester pick (defaults to first row)
+lib/officialPortal.ts # bridge current lazyportal session into the proxied official portal shell
 components/DataViews.tsx # tables, key/value lists, shared error line
 sections/           # one file per dashboard section + index.ts registry
 pages/LoginPage.tsx # captcha, login once, save session
 pages/DashboardPage.tsx # header, anchor nav, registry render (skips enabled:false)
+pages/OfficialPortalPage.tsx # iframe wrapper around the proxied official portal UI
 ```
 
 To turn a section off, set `enabled: false` in `sections/index.ts`
@@ -43,13 +45,17 @@ registry line and use `useSemester` for the semester pick. Nothing else changes.
 | Module | What you call | What it hides |
 |---|---|---|
 | `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, StudentPortalAPI path confinement, GET/HEAD/POST method allow-list, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, timeout/502 mapping |
+| `official-portal.js` + `shared/officialPortal*.js` | Vercel handler for `/officialportal/:path*` and Vite dev middleware | Reverse-proxy the official SPA. HTML shell only: strip frame-blocking headers, rewrite asset URLs, inject a bootstrap script that seeds the official app with the current lazyportal session. Static assets (JS/CSS/fonts/images) stream through byte-identical with long edge-cache headers — the injected fetch/XHR patch rewires API URLs at runtime, so server-side string scans are skipped |
 | `shared/cors.js` | `corsHeaders`, `preflightHeaders` | The only origin allowed to call the proxy cross-origin: the Capacitor WebView (`https://localhost`). Browser builds are same-origin and need none of it |
 
 ## Native shell (`android/`)
 
 Capacitor wraps the same `packages/web/dist` bundle; `packages/web/src/lib/apiBase.js`
 is the single place that knows the shell must call the hosted proxy by absolute
-URL instead of `/api`. Everything else — core, sections, hooks — is untouched by
+URL instead of `/api`. Same for the official-portal frame: `lib/officialPortal.ts`
+resolves `/officialportal` to the hosted deployment inside the shell (plus a
+`postMessage` session handoff, since cross-origin iframes share no storage).
+Everything else — core, sections, hooks — is untouched by
 the native build. See `docs/ANDROID.md`.
 
 ## Adding a feature
