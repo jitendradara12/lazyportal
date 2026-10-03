@@ -8,7 +8,7 @@ import {
 export { OFFICIAL_PORTAL_BRIDGE_KEY };
 
 export function getOfficialPortalUrl(version = 0) {
-  return `${OFFICIAL_PORTAL_PREFIX}?v=${version}#/`;
+  return `${OFFICIAL_PORTAL_PREFIX}?v=${version}#/dashbord`;
 }
 
 export function writeOfficialPortalBridge(session: Session) {

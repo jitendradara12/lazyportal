@@ -161,3 +161,8 @@ test("vercel rewrites cover officialportal with and without a trailing slash", (
     "missing /officialportal/ rewrite"
   );
 });
+
+test("official portal opens the dashboard route instead of the login route", () => {
+  const source = fs.readFileSync(path.join(root, "packages/web/src/lib/officialPortal.ts"), "utf8");
+  assert.match(source, /#\/dashbord/);
+});
