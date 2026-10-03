@@ -4,6 +4,7 @@ import { getSessionStatus } from "../lib/portal";
 import { titleCase, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
+import { OfficialPortalPage } from "./OfficialPortalPage";
 import { useAttendanceSummary } from "../sections/attendance";
 import { ReconnectModal } from "../components/ReconnectModal";
 import type { Session } from "../types";
@@ -103,15 +104,18 @@ export function DashboardPage({
   const otherSections = visible.filter((s) => s.id !== "attendance");
   const displayName = titleCase(session.name ?? session.enrollmentno ?? "Student");
 
-  const [view, setView] = useState<"dashboard" | "attendance">(() => {
-    return typeof window !== "undefined" && window.location.hash === "#attendance"
-      ? "attendance"
-      : "dashboard";
-  });
+  const getViewFromHash = (): "dashboard" | "attendance" | "webportal" => {
+    if (typeof window === "undefined") return "dashboard";
+    if (window.location.hash === "#attendance") return "attendance";
+    if (window.location.hash === "#webportal") return "webportal";
+    return "dashboard";
+  };
+
+  const [view, setView] = useState<"dashboard" | "attendance" | "webportal">(getViewFromHash);
 
   useEffect(() => {
     const handleHash = () => {
-      setView(window.location.hash === "#attendance" ? "attendance" : "dashboard");
+      setView(getViewFromHash());
     };
     window.addEventListener("hashchange", handleHash);
     return () => window.removeEventListener("hashchange", handleHash);
@@ -146,6 +150,22 @@ export function DashboardPage({
     });
   };
 
+  const openOfficialPortal = () => {
+    navigateWithTransition(() => {
+      window.location.hash = "#webportal";
+      setView("webportal");
+    });
+  };
+
+  const closeOfficialPortal = () => {
+    navigateWithTransition(() => {
+      if (window.location.hash === "#webportal") {
+        history.back();
+      } else {
+        setView("dashboard");
+      }
+    });
+  };
   const renewModal =
     showRenewModal && onSessionRenewed ? (
       <ReconnectModal
@@ -172,6 +192,10 @@ export function DashboardPage({
         {renewModal}
       </>
     );
+  }
+
+  if (view === "webportal") {
+    return <OfficialPortalPage session={session} onBack={closeOfficialPortal} onLogout={onLogout} />;
   }
 
   return (
@@ -269,6 +293,27 @@ export function DashboardPage({
           <svg className="dash-hero-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <polyline points="9 18 15 12 9 6" />
           </svg>
+        </button>
+
+        <button
+          type="button"
+          className="dash-portal-card"
+          onClick={openOfficialPortal}
+          aria-label="Open the official student portal without logging in again"
+        >
+          <div className="dash-portal-copy">
+            <span className="dash-portal-kicker">New</span>
+            <span className="dash-portal-title">Official student portal</span>
+            <span className="dash-portal-subtitle">Open the original JUET portal UI with your current lazyportal session.</span>
+          </div>
+          <span className="dash-portal-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 5a2 2 0 0 1 2-2h7" />
+              <path d="M18 3h3v3" />
+              <path d="M10 14 21 3" />
+              <rect x="4" y="7" width="16" height="13" rx="2" ry="2" />
+            </svg>
+          </span>
         </button>
 
         <div className="m3-stacked-sections" role="list">
