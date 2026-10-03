@@ -49,11 +49,12 @@ export function OfficialPortalPage({
   }, [iframeOrigin]);
 
   useEffect(() => {
-    writeOfficialPortalBridge(session);
     setReady(true);
-    // A mid-view token refresh must reach the live frame too; if it hasn't
-    // loaded yet the onLoad post below delivers the current bridge instead.
-    postBridgeToFrame();
+    // Post after the bridge (including the bypass upgrade) is final: an
+    // iframe that parsed early would otherwise keep the raw snapshot.
+    writeOfficialPortalBridge(session)
+      .then(() => postBridgeToFrame())
+      .catch(() => {});
   }, [session, postBridgeToFrame]);
 
   return (
@@ -78,7 +79,14 @@ export function OfficialPortalPage({
             target="_blank"
             rel="noopener noreferrer"
             className="portal-action-btn"
-            onClick={() => writeOfficialPortalBridge(session)}
+            onClick={(e) => {
+              // A fresh tab has no parent to re-post: open only after the
+              // bridge (including the bypass upgrade) is final.
+              e.preventDefault();
+              writeOfficialPortalBridge(session)
+                .then(() => window.open(iframeSrc, "_blank", "noopener,noreferrer"))
+                .catch(() => {});
+            }}
           >
             Open in tab
           </a>
@@ -86,8 +94,9 @@ export function OfficialPortalPage({
             type="button"
             className="portal-action-btn"
             onClick={() => {
-              writeOfficialPortalBridge(session);
-              setFrameNonce((value) => value + 1);
+              writeOfficialPortalBridge(session)
+                .then(() => setFrameNonce((value) => value + 1))
+                .catch(() => {});
             }}
           >
             Reload

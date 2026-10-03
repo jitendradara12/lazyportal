@@ -39,7 +39,7 @@ export function getOfficialPortalUrl(version = 0) {
   return `${prefix}?v=${version}#/dashbord`;
 }
 
-export function writeOfficialPortalBridge(session: Session) {
+export function writeOfficialPortalBridge(session: Session): Promise<void> {
   const raw = JSON.stringify(session);
   try {
     localStorage.setItem(OFFICIAL_PORTAL_BRIDGE_KEY, raw);
@@ -54,9 +54,8 @@ export function writeOfficialPortalBridge(session: Session) {
   // Background upgrade: GetNavigation wants bypassValue as AES ciphertext,
   // not the raw session value. Same date-key scheme as core crypto (IST vs
   // device-local agree for IST users; may differ at the midnight boundary
-  // elsewhere). The raw write above already landed, so the iframe converges
-  // via the onLoad post even if this upgrade loses the race.
-  buildOfficialPortalBridgePayload(session, (plain) =>
+  // elsewhere). Resolves when the stored bridge is final.
+  return buildOfficialPortalBridgePayload(session, (plain) =>
     campusCrypto.encrypt(plain, { now: new Date() })
   )
     .then((upgraded) => {
