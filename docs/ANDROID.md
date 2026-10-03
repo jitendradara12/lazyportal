@@ -11,7 +11,7 @@ one; only where API traffic goes differs (see [API routing](#api-routing)).
 | Synced web bundle (generated, git-ignored) | `android/app/src/main/assets/public/` |
 | Launcher icons + splash (generated, checked in) | `android/app/src/main/res/mipmap-*/`, `drawable*/splash.png` |
 | Icon/splash generator | `scripts/generate-app-assets.mjs` |
-| CI (tests, build, `assembleDebug`) | `.github/workflows/android.yml` |
+| CI (tests, debug APK, tagged releases) | `.github/workflows/build-apk.yml` |
 
 App id `com.lazyportal.juet`, name `JUET Portal` — both from
 `capacitor.config.json`; `npx cap sync` writes them into the native project.
@@ -101,19 +101,38 @@ cd android
 ./gradlew assembleRelease          # or: ./gradlew bundleRelease for an AAB
 ```
 
-`app/build.gradle` automatically derives `versionCode` from git commit count
-(or `GITHUB_RUN_NUMBER` in CI) so updates over existing installs succeed. It signs
-release builds whenever `android/app/release.keystore` exists (or when configured
-via `KEYSTORE_FILE` / `KEYSTORE_PASSWORD` environment variables).
+`app/build.gradle` uses `GITHUB_RUN_NUMBER` for `versionCode` in CI so each
+workflow run has an increasing code. On a `v*` tag, CI also sets `versionName`
+from the tag (without the leading `v`). The APK workflow always uploads
+`app-debug.apk` as a run artifact. For version tags it additionally builds a
+signed `app-release.apk` and creates or updates a published GitHub Release with
+that APK attached.
 
-To generate a permanent release keystore:
+Release-tag builds require a persistent signing key; CI deliberately fails
+rather than publishing an APK signed by a temporary key that cannot receive
+future updates. To create a keystore, choose strong, unique passwords and keep
+them private:
+
 ```sh
-keytool -genkeypair -v -keystore android/app/release.keystore -alias lazyportal -keyalg RSA -keysize 2048 -validity 10000 -storepass lazyportal -keypass lazyportal -dname "CN=JUET Portal, O=Lazyportal, C=IN"
+keytool -genkeypair -v \
+  -keystore android/app/release.keystore \
+  -alias lazyportal -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass 'choose-a-strong-store-password' \
+  -keypass 'choose-a-strong-key-password' \
+  -dname "CN=JUET Portal, O=Lazyportal, C=IN"
 ```
-In GitHub Actions, store the base64-encoded keystore in `KEYSTORE_BASE64` secret.
-CI automatically builds and signs `app-release.apk` alongside `app-debug.apk`.
-Never distribute debug builds to users; release builds prevent Play Protect debug
-blocks and permit seamless updates without "App not installed" errors.
+
+Add these repository Actions secrets before pushing a version tag:
+
+- `KEYSTORE_BASE64` — output of `base64 < android/app/release.keystore | tr -d '\n'`
+- `KEYSTORE_PASSWORD` — the keystore password
+- `KEY_ALIAS` — the key alias (for the command above, `lazyportal`)
+- `KEY_PASSWORD` — the key password
+
+The keystore is ignored by Git; never commit it or share the encoded value. The
+workflow uses Java 21 because the Capacitor Android project compiles with Java 21.
+Never distribute debug builds to users; release builds prevent Play Protect
+debug blocks and permit seamless updates without "App not installed" errors.
 
 
 ## Before merging a native change (device QA)

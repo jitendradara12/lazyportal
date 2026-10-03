@@ -1,0 +1,155 @@
+name: Android APK
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Tests and Android APKs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Install the SDK packages used by variables.gradle (compileSdk 36).
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          validate-wrappers: true
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm test
+
+      # Build the web bundle and synchronize it into the checked-in Capacitor project.
+      - run: npm run cap:sync
+
+      - name: Verify the bundle landed in the native project
+        run: test -f android/app/src/main/assets/public/index.html
+
+      - name: Verify native art matches the generator
+        run: npm run cap:assets && git diff --exit-code -- android/app/src/main/res
+
+      - name: Build debug APK and run Android unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Version names in the release APK match the v* tag, without the prefix.
+      - name: Set release version name
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: printf 'APP_VERSION_NAME=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      # Never publish a release signed by an ephemeral key: Android would reject
+      # future updates signed with the real key (or a different ephemeral key).
+      - name: Configure release signing key
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: android/app
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          for secret in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::Missing required GitHub Actions secret: ${secret}"
+              exit 1
+            fi
+          done
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+          test -s release.keystore
+          keytool -list -keystore release.keystore \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
+      - name: Build signed release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Upload signed release APK for publishing
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-release
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed release APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: app-release
+          path: release
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          apk=release/app-release.apk
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --clobber
+            if [[ "$TAG" == *-* ]]; then
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+            else
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false
+            fi
+          else
+            release_flags=(--title "$TAG" --generate-notes --verify-tag)
+            if [[ "$TAG" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create "$TAG" "$apk" \
+              --repo "$GITHUB_REPOSITORY" "${release_flags[@]}"
+          fi
