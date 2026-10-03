@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import officialPortalHandler from "../api/official-portal.js";
 import {
   OFFICIAL_PORTAL_BRIDGE_KEY,
@@ -11,6 +14,8 @@ import {
   buildOfficialPortalTarget,
   normalizeOfficialPortalResponse,
 } from "../shared/officialPortalProxy.js";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function mockResponse() {
   const headers = {};
@@ -140,4 +145,19 @@ test("official portal proxy only allows GET and HEAD", async () => {
   assert.equal(res.statusCode, 405);
   assert.equal(res.headers.Allow, "GET, HEAD");
   assert.equal(res.ended, true);
+});
+
+test("vercel rewrites cover officialportal with and without a trailing slash", () => {
+  const config = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  const rewrites = config.rewrites ?? [];
+  const pairs = rewrites.map(({ source, destination }) => `${source} -> ${destination}`);
+
+  assert.ok(
+    pairs.includes("/officialportal -> /api/official-portal"),
+    "missing /officialportal rewrite"
+  );
+  assert.ok(
+    pairs.includes("/officialportal/ -> /api/official-portal"),
+    "missing /officialportal/ rewrite"
+  );
 });
