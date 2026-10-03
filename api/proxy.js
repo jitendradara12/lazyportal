@@ -5,14 +5,48 @@
 // Upstream base mirrors packages/web/vite.config.js dev proxy.
 
 import https from "node:https";
-import { corsHeaders, preflightHeaders } from "../shared/cors.js";
+import {
+  ALLOWED_METHODS as CORS_ALLOWED_METHODS,
+  corsHeaders,
+  preflightHeaders,
+} from "../shared/cors.js";
 
 const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
 const PORTAL_REFERER = "https://studentportal.juet.ac.in/studentportal/";
+const ALLOWED_METHODS = new Set(
+  CORS_ALLOWED_METHODS.filter((method) => method !== "OPTIONS")
+);
+const ALLOW_HEADER = CORS_ALLOWED_METHODS.join(", ");
+const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 export const config = { api: { bodyParser: false } };
 export const maxDuration = 60;
+
+/** Build a target beneath the fixed API prefix, rejecting URL delimiters and
+ * dot segments before WHATWG URL normalization can remove the prefix. */
+export function buildUpstreamTarget(pathValue, query = {}) {
+  const rawPath = Array.isArray(pathValue)
+    ? pathValue.join("/")
+    : typeof pathValue === "string"
+      ? pathValue
+      : "";
+  const segments = rawPath.split("/");
+  if (
+    !rawPath ||
+    segments.some(
+      (segment) =>
+        !PATH_SEGMENT.test(segment) || segment === "." || segment === ".."
+    )
+  ) {
+    throw new TypeError("Invalid proxy path");
+  }
+
+  const target = new URL(UPSTREAM);
+  target.pathname = `${target.pathname}/${segments.map(encodeURIComponent).join("/")}`;
+  target.search = new URLSearchParams(query).toString();
+  return target.toString();
+}
 
 /** Upstream fetch via node:https: the portal omits its intermediate cert, so
  * strict Node verification fails ("unable to verify the first certificate").
@@ -61,8 +95,9 @@ function readRawBody(req) {
 }
 
 export default async function handler(req, res) {
+  const method = String(req.method ?? "").toUpperCase();
   const origin = req.headers?.origin;
-  if (req.method === "OPTIONS") {
+  if (method === "OPTIONS") {
     // CORS preflight (native WebView only — see shared/cors.js).
     res.status(204);
     for (const [k, v] of Object.entries(
@@ -75,10 +110,20 @@ export default async function handler(req, res) {
   }
   for (const [k, v] of Object.entries(corsHeaders(origin))) res.setHeader(k, v);
 
-  const { path: _drop, ...rest } = req.query ?? {};
-  const path = Array.isArray(_drop) ? _drop.join("/") : (_drop ?? "");
-  const qs = new URLSearchParams(rest).toString();
-  const target = `${UPSTREAM}/${path}${qs ? `?${qs}` : ""}`;
+  if (!ALLOWED_METHODS.has(method)) {
+    res.setHeader("Allow", ALLOW_HEADER);
+    res.status(405).end();
+    return;
+  }
+
+  const { path: pathValue, ...rest } = req.query ?? {};
+  let target;
+  try {
+    target = buildUpstreamTarget(pathValue, rest);
+  } catch {
+    res.status(400).json({ message: "Invalid proxy path" });
+    return;
+  }
 
   // Dev parity: forward everything except hop-by-hop / infra headers.
   // (The old allowlist silently dropped anything new: UA, Cookie, ...).
@@ -114,7 +159,7 @@ export default async function handler(req, res) {
   if (!req.headers.accept) headers.Accept = "application/json";
 
   let body;
-  if (req.method !== "GET" && req.method !== "HEAD") {
+  if (method !== "GET" && method !== "HEAD") {
     const raw = await readRawBody(req);
     if (raw) {
       body = raw;
@@ -124,7 +169,7 @@ export default async function handler(req, res) {
 
   let upstream;
   try {
-    upstream = await fetchUpstream(target, { method: req.method, headers, body });
+    upstream = await fetchUpstream(target, { method, headers, body });
   } catch (err) {
     console.error("proxy upstream fetch failed:", err);
     res.status(502).json({

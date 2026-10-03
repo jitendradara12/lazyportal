@@ -25,7 +25,10 @@ npm run android:apk # ...and compile app-debug.apk
 ```
 
 Icons, splash, API routing and release signing: [docs/ANDROID.md](docs/ANDROID.md).
-CI compiles the APK on every push (`.github/workflows/android.yml`).
+CI builds a debug APK on pushes to `master`, pull requests, and manual runs
+(`.github/workflows/build-apk.yml`). Pushing a `v*` tag additionally builds a
+signed release APK and publishes it to GitHub Releases after signing secrets
+are configured.
 
 ## Notes
 

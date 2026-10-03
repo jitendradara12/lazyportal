@@ -64,6 +64,17 @@ test("native project matches the Capacitor config", () => {
   assert.match(activity, /extends BridgeActivity/);
 });
 
+test("CI version codes remain above existing APKs after the workflow rename", () => {
+  const gradle = read("android/app/build.gradle");
+  assert.match(gradle, /previousWorkflowVersionCode\s*=\s*13/);
+  assert.match(gradle, /System\.getenv\("VERSION_CODE_RUN"\)/);
+  assert.match(gradle, /Math\.max\(historyVersionCode,\s*runVersionCode\)/);
+
+  const workflow = read(".github/workflows/build-apk.yml");
+  assert.match(workflow, /fetch-depth:\s*0/);
+  assert.match(workflow, /VERSION_CODE_RUN:\s*\$\{\{\s*github\.run_number\s*\}\}/);
+});
+
 test("launcher icons are the generated brand assets, at every density", () => {
   // Density bucket → launcher icon px (adaptive foreground is 108dp of the 48dp icon).
   const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };

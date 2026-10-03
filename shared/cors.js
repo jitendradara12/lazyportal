@@ -14,6 +14,9 @@
 /** WebView origin of the shipped shell. Keep in sync with capacitor.config.json. */
 export const WEBVIEW_ORIGIN = "https://lazyportal-tan.vercel.app";
 
+/** Methods supported by the proxy; keep its request guard in sync. */
+export const ALLOWED_METHODS = Object.freeze(["GET", "HEAD", "POST", "OPTIONS"]);
+
 /**
  * Headers to add to any proxy response.
  *
@@ -38,7 +41,7 @@ export function corsHeaders(origin) {
 export function preflightHeaders(origin, requestedHeaders) {
   const headers = corsHeaders(origin);
   if (origin !== WEBVIEW_ORIGIN) return headers;
-  headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST, OPTIONS";
+  headers["Access-Control-Allow-Methods"] = ALLOWED_METHODS.join(", ");
   const allow = sanitizeHeaderList(requestedHeaders);
   if (allow) headers["Access-Control-Allow-Headers"] = allow;
   headers["Access-Control-Max-Age"] = "600";
