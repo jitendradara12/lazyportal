@@ -7,6 +7,7 @@ import officialPortalHandler from "../api/official-portal.js";
 import {
   OFFICIAL_PORTAL_BRIDGE_KEY,
   OFFICIAL_PORTAL_PREFIX,
+  buildOfficialPortalBridgePayload,
   injectOfficialPortalBootstrap,
   makeOfficialPortalBootstrapScript,
   rewriteOfficialPortalText,
@@ -393,6 +394,27 @@ test("official portal inject falls back when html has no head or body", () => {
   const out = injectOfficialPortalBootstrap("<p>hi</p>");
   assert.ok(out.includes(OFFICIAL_PORTAL_BRIDGE_KEY));
   assert.ok(out.startsWith("<script>("));
+});
+
+test("official portal bridge upgrades bypassValue to ciphertext, raw on failure", async () => {
+  const session = { token: "t", username: "u", bypassValue: "rawbypass" };
+  const enc = JSON.parse(
+    await buildOfficialPortalBridgePayload(session, async (s) => `ENC(${s})`)
+  );
+  assert.equal(enc.bypassValue, "ENC(rawbypass)");
+  assert.equal(enc.token, "t");
+
+  const fallback = JSON.parse(
+    await buildOfficialPortalBridgePayload(session, async () => {
+      throw new Error("no subtlecrypto");
+    })
+  );
+  assert.equal(fallback.bypassValue, "rawbypass");
+
+  const empty = JSON.parse(
+    await buildOfficialPortalBridgePayload({ token: "t" }, async (s) => `ENC(${s})`)
+  );
+  assert.equal(empty.bypassValue, "");
 });
 
 test("official portal URL resolves to the hosted proxy inside the native shell", () => {
