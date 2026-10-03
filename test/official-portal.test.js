@@ -8,6 +8,7 @@ import {
   OFFICIAL_PORTAL_BRIDGE_KEY,
   OFFICIAL_PORTAL_PREFIX,
   injectOfficialPortalBootstrap,
+  makeOfficialPortalBootstrapScript,
   rewriteOfficialPortalText,
 } from "../shared/officialPortal.js";
 import {

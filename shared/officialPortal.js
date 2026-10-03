@@ -207,21 +207,62 @@ export function makeOfficialPortalBootstrapScript() {
     return input;
   };
 
+  const isApiUrl = (value) => {
+    const input = String(value || "");
+    return input.startsWith(PROXY_API) || input.startsWith(UPSTREAM_API) || input.startsWith("/StudentPortalAPI");
+  };
+
+  const withAuthHeaders = (headersLike) => {
+    const headers = new Headers(headersLike || {});
+    const auth = headers.get("Authorization") || "";
+    if (!auth.replace(/^Bearer\s+/i, "").trim()) headers.set("Authorization", `Bearer ${token}`);
+    return headers;
+  };
+
   const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
   if (nativeFetch) {
     window.fetch = (input, init) => {
-      if (typeof input === "string") return nativeFetch(rewriteUrl(input), init);
-      if (input instanceof URL) return nativeFetch(new URL(rewriteUrl(input.toString()), window.location.origin), init);
+      if (typeof input === "string") {
+        const url = rewriteUrl(input);
+        return nativeFetch(url, isApiUrl(url) ? { ...(init || {}), headers: withAuthHeaders(init?.headers) } : init);
+      }
+      if (input instanceof URL) {
+        const url = rewriteUrl(input.toString());
+        return nativeFetch(new URL(url, window.location.origin), isApiUrl(url) ? { ...(init || {}), headers: withAuthHeaders(init?.headers) } : init);
+      }
       if (input && typeof Request !== "undefined" && input instanceof Request) {
-        return nativeFetch(new Request(rewriteUrl(input.url), input), init);
+        const url = rewriteUrl(input.url);
+        const nextInit = isApiUrl(url)
+          ? { ...(init || {}), headers: withAuthHeaders(init?.headers ?? input.headers) }
+          : init;
+        return nativeFetch(new Request(url, input), nextInit);
       }
       return nativeFetch(input, init);
     };
   }
 
   const nativeOpen = XMLHttpRequest.prototype.open;
+  const nativeSend = XMLHttpRequest.prototype.send;
+  const nativeSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+
   XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
-    return nativeOpen.call(this, method, rewriteUrl(url), ...rest);
+    const rewritten = rewriteUrl(url);
+    this.__lazyportalOfficialUrl = rewritten;
+    this.__lazyportalOfficialAuth = "";
+    return nativeOpen.call(this, method, rewritten, ...rest);
+  };
+
+  XMLHttpRequest.prototype.setRequestHeader = function patchedSetRequestHeader(name, value) {
+    if (String(name || "").toLowerCase() === "authorization") this.__lazyportalOfficialAuth = String(value || "");
+    return nativeSetRequestHeader.call(this, name, value);
+  };
+
+  XMLHttpRequest.prototype.send = function patchedSend(body) {
+    const auth = String(this.__lazyportalOfficialAuth || "");
+    if (isApiUrl(this.__lazyportalOfficialUrl) && !auth.replace(/^Bearer\s+/i, "").trim()) {
+      nativeSetRequestHeader.call(this, "Authorization", `Bearer ${token}`);
+    }
+    return nativeSend.call(this, body);
   };
 
   window.__lazyportalOfficialSession = session;
