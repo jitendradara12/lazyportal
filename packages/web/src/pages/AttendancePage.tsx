@@ -4,7 +4,6 @@ import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync } from "../components/DataViews";
-import { ReconnectModal } from "../components/ReconnectModal";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import type { Session } from "../types";
 import {
@@ -21,20 +20,19 @@ export function AttendancePage({
   isExpired,
   onBack,
   onLogout,
-  onSessionRenewed,
+  onRequestRenew,
 }: {
   session: Session;
   isExpired?: boolean;
   onBack: () => void;
   onLogout: () => void;
-  onSessionRenewed?: (s: Session) => void;
+  onRequestRenew?: () => void;
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
-  const [showRenewModal, setShowRenewModal] = useState(false);
 
   const [lastSync, setLastSync] = useState<number | null>(() => {
     try {
@@ -258,19 +256,6 @@ export function AttendancePage({
 
   return (
     <main className="dash att-page dash-view-enter">
-      {/* Session Expired Sticky Notice */}
-      {isExpired && (
-        <aside className="expiry-banner" role="alert">
-          <div className="expiry-banner-content">
-            <span className="expiry-icon" aria-hidden="true">⚠️</span>
-            <span><strong>Portal logged you out</strong> — showing cached data.</span>
-          </div>
-          <button onClick={() => setShowRenewModal(true)} className="renew-btn">
-            Reconnect
-          </button>
-        </aside>
-      )}
-
       {/* Top Navigation Bar */}
       <header className="dash-top-bar att-top-bar">
         <div className="att-top-left">
@@ -320,6 +305,17 @@ export function AttendancePage({
                 </option>
               ))}
             </select>
+          )}
+
+          {isExpired && (
+            <button
+              onClick={onRequestRenew}
+              className="m3-reconnect-pill"
+              title="Session expired — tap to reconnect"
+            >
+              <span className="reconnect-dot" />
+              <span>Reconnect</span>
+            </button>
           )}
 
           <button
@@ -475,14 +471,6 @@ export function AttendancePage({
           </button>
         </div>
       </footer>
-
-      {showRenewModal && onSessionRenewed && (
-        <ReconnectModal
-          session={session}
-          onRenewed={onSessionRenewed}
-          onClose={() => setShowRenewModal(false)}
-        />
-      )}
     </main>
   );
 }

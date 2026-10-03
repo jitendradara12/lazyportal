@@ -141,11 +141,11 @@ button, input, select, textarea { font-family: inherit; }
 
 /* 48px hit area, visual size unchanged */
 .dash-refresh-btn, .auth-close-btn, .chip-btn, .m3-connected-btn, .att-reset-filter-btn,
-.att-sim-reset-btn, .att-stepper-card-btn, .renew-btn, .m3-reconnect-pill, .saved-profile-clear,
+.att-sim-reset-btn, .att-stepper-card-btn, .m3-reconnect-pill, .saved-profile-clear,
 .segmented-pill, .auth-input-inline-btn { position: relative; }
 
 .dash-refresh-btn::after, .auth-close-btn::after, .chip-btn::after, .m3-connected-btn::after,
-.att-reset-filter-btn::after, .att-sim-reset-btn::after, .att-stepper-card-btn::after, .renew-btn::after,
+.att-reset-filter-btn::after, .att-sim-reset-btn::after, .att-stepper-card-btn::after,
 .m3-reconnect-pill::after, .saved-profile-clear::after, .segmented-pill::after,
 .auth-input-inline-btn::after { content: ""; position: absolute; inset: min(0px, calc((100% - var(--tap)) / 2)); }
 
@@ -915,45 +915,9 @@ button, input, select, textarea { font-family: inherit; }
 .renew-submit-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
 @media (max-width: 639px) {
-  .renew-modal-card { max-width: 100%; margin: 0; border-radius: var(--r-xl) var(--r-xl) 0 0; animation: sheetSlideUp 0.28s var(--motion-standard) backwards; }
+  .renew-modal-card { max-width: 100%; margin: 0; border-radius: var(--r-xl) var(--r-xl) 0 0; padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); animation: sheetSlideUp 0.28s var(--motion-standard) backwards; }
   .renew-modal-card.closing { animation: sheetSlideDown 0.2s var(--motion-standard) forwards; }
 }
-
-/* ==== Expiry banner ==== */
-
-.expiry-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px 10px 16px;
-  font-size: var(--fs-s);
-  line-height: 1.4;
-  background: var(--tertiaryContainer);
-  color: var(--onTertiaryContainer);
-  border-radius: var(--r-lg);
-}
-
-.expiry-banner-content { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.expiry-icon { font-size: var(--fs-m); flex-shrink: 0; }
-
-.renew-btn {
-  height: 32px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 16px;
-  background: var(--warning);
-  color: var(--onWarning);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: border-radius 0.3s var(--motion-spring), opacity 0.15s ease;
-}
-
-.renew-btn:hover { opacity: 0.9; }
-.renew-btn:active { border-radius: 8px; }
 
 /* ==== Tables ==== */
 
@@ -1070,7 +1034,9 @@ tr.detail-expanded-row > td { padding: 4px 0 20px; background: transparent; bord
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 0;
+  /* Edge-to-edge native shell: keep the sheet clear of the status bar area
+     when it grows tall, and respect gesture insets at the bottom. */
+  padding: env(safe-area-inset-top, 0px) 0 0;
   background: var(--scrim);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { auth, session } from "@juet/core";
 import { client } from "../lib/portal";
+import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Captcha, Session } from "../types";
 
 export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
@@ -42,35 +43,40 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const userRef = useRef<HTMLInputElement>(null);
   const passRef = useRef<HTMLInputElement>(null);
   const captchaInputRef = useRef<HTMLInputElement>(null);
+  const abortController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortController.current?.abort();
+    };
+  }, []);
 
   const load = async () => {
     if (loading.current) return;
+    abortController.current?.abort();
+    const ac = new AbortController();
+    abortController.current = ac;
     loading.current = true;
     setIsCaptchaLoading(true);
     setAutoSolveFailed(false);
     setIsAutoSolved(false);
     try {
-      const c = await auth.fetchCaptcha(client);
+      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, { signal: ac.signal });
+      if (ac.signal.aborted) return;
       setCaptcha(c);
-      try {
-        const solved = await auth.solveCaptcha(c);
-        if (solved) {
-          setCaptchaText(solved);
-          setAutoSolveFailed(false);
-          setIsAutoSolved(true);
-        } else {
-          setAutoSolveFailed(true);
-          setIsAutoSolved(false);
-          setTimeout(() => captchaInputRef.current?.focus(), 60);
-        }
-      } catch {
+      if (text) {
+        setCaptchaText(text);
+        setAutoSolveFailed(!autoSolved);
+        setIsAutoSolved(autoSolved);
+      } else {
+        setCaptchaText("");
         setAutoSolveFailed(true);
         setIsAutoSolved(false);
         setTimeout(() => captchaInputRef.current?.focus(), 60);
       }
     } finally {
       loading.current = false;
-      setIsCaptchaLoading(false);
+      if (!ac.signal.aborted) setIsCaptchaLoading(false);
     }
   };
 

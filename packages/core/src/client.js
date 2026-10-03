@@ -56,9 +56,13 @@ export function createClient({
     if (!onRefresh) return null;
     if (!refreshing) {
       // Guard: a hung captcha/solve must not hold every 401 forever.
+      // 90s: silent re-login may fetch+solve up to 10 captchas (no rate
+      // limit observed) plus two login calls; 30s cut it off mid-retry,
+      // flashed the expired banner, then the background retry succeeded
+      // and cleared it again.
       let timer = null;
       const timeout = new Promise((resolve) => {
-        timer = setTimeout(() => resolve(false), 30000);
+        timer = setTimeout(() => resolve(false), 90000);
         if (timer?.unref) timer.unref();
       });
       const attempt = Promise.resolve()

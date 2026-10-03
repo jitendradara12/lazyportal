@@ -30,8 +30,8 @@ export function DashboardPage({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    if (isExpired) {
-      setShowRenewModal(true);
+    if (!isExpired) {
+      setShowRenewModal(false);
     }
   }, [isExpired]);
 
@@ -121,33 +121,35 @@ export function DashboardPage({
 
   const attSummary = useAttendanceSummary(session);
 
+  const renewModal =
+    showRenewModal && isExpired && onSessionRenewed ? (
+      <ReconnectModal
+        session={session}
+        onRenewed={(s) => {
+          setShowRenewModal(false);
+          onSessionRenewed(s);
+        }}
+        onClose={() => setShowRenewModal(false)}
+      />
+    ) : null;
+
   if (view === "attendance") {
     return (
-      <AttendancePage
-        session={session}
-        isExpired={isExpired}
-        onBack={closeAttendance}
-        onLogout={onLogout}
-        onSessionRenewed={onSessionRenewed}
-      />
+      <>
+        <AttendancePage
+          session={session}
+          isExpired={isExpired}
+          onBack={closeAttendance}
+          onLogout={onLogout}
+          onRequestRenew={() => setShowRenewModal(true)}
+        />
+        {renewModal}
+      </>
     );
   }
 
   return (
     <main className="dash dash-view-enter">
-      {/* Session Expired Sticky Notice */}
-      {isExpired && (
-        <aside className="expiry-banner" role="alert">
-          <div className="expiry-banner-content">
-            <span className="expiry-icon" aria-hidden="true">⚠️</span>
-            <span><strong>Portal logged you out</strong> — showing cached data.</span>
-          </div>
-          <button onClick={() => setShowRenewModal(true)} className="renew-btn">
-            Reconnect
-          </button>
-        </aside>
-      )}
-
       {/* Material 3 Compact Top Status Bar */}
       <header className="dash-top-bar">
         <div className="dash-user-meta">
@@ -287,13 +289,7 @@ export function DashboardPage({
         </div>
       </footer>
 
-      {showRenewModal && onSessionRenewed && (
-        <ReconnectModal
-          session={session}
-          onRenewed={onSessionRenewed}
-          onClose={() => setShowRenewModal(false)}
-        />
-      )}
+      {renewModal}
     </main>
   );
 }

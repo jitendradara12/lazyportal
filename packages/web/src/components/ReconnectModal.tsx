@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { client } from "../lib/portal";
+import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Session, Captcha } from "../types";
 
 export function ReconnectModal({
@@ -31,41 +32,48 @@ export function ReconnectModal({
   const [isCaptchaLoading, setIsCaptchaLoading] = useState(false);
   const captchaInputRef = useRef<HTMLInputElement>(null);
   const loading = useRef(false);
+  const abortController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortController.current?.abort();
+    };
+  }, []);
 
   const loadCaptcha = async () => {
     if (loading.current) return;
+    abortController.current?.abort();
+    const ac = new AbortController();
+    abortController.current = ac;
     loading.current = true;
     setIsCaptchaLoading(true);
     setAutoSolveFailed(false);
     setIsAutoSolved(false);
     try {
-      const c = await auth.fetchCaptcha(client);
+      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, { signal: ac.signal });
+      if (ac.signal.aborted) return;
       setCaptcha(c);
-      try {
-        const solved = await auth.solveCaptcha(c);
-        if (solved) {
-          setCaptchaText(solved);
-          setAutoSolveFailed(false);
-          setIsAutoSolved(true);
-        } else {
-          setAutoSolveFailed(true);
-          setIsAutoSolved(false);
-        }
-      } catch {
+      if (text) {
+        setCaptchaText(text);
+        setAutoSolveFailed(!autoSolved);
+        setIsAutoSolved(autoSolved);
+      } else {
+        setCaptchaText("");
         setAutoSolveFailed(true);
         setIsAutoSolved(false);
       }
       setTimeout(() => captchaInputRef.current?.focus(), 60);
     } catch {
-      setError("JUET's portal is down (not us).");
+      if (!ac.signal.aborted) setError("JUET's portal is down (not us).");
     } finally {
       loading.current = false;
-      setIsCaptchaLoading(false);
+      if (!ac.signal.aborted) setIsCaptchaLoading(false);
     }
   };
 
   useEffect(() => {
     loadCaptcha();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
