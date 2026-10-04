@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { auth } from "@juet/core";
 import { client, onClientUnauthorized, store } from "../lib/portal";
 import type { Session } from "../types";
 
@@ -76,39 +75,6 @@ export function useSession() {
     window.addEventListener("juet:renewed", onRenewed);
     return () => window.removeEventListener("juet:renewed", onRenewed);
   }, []);
-
-  // Keep-alive heartbeat: ping token refresh every 3 mins while app is open
-  useEffect(() => {
-    if (!session?.username) return;
-    const heartbeat = async () => {
-      // Read live store (not stale closure): silent re-login may have
-      // rotated the token since this interval was created.
-      let cur: Session | null = null;
-      try {
-        cur = store.load() as Session | null;
-      } catch {}
-      const active = cur ?? session;
-      if (!active?.username) return;
-      try {
-        const r = await auth.refreshSession(client, active);
-        if (r.ok) {
-          if (r.token && r.token !== active.token) {
-            let latest: Session | null = active;
-            try {
-              latest = (store.load() as Session | null) ?? active;
-            } catch {}
-            if (latest?.token === active.token) save({ ...latest, token: r.token });
-          }
-          setIsExpired(false);
-        }
-      } catch {
-        // Keep-alive failures are non-fatal; active requests handle 401 transparently
-      }
-    };
-
-    const interval = setInterval(heartbeat, 3 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [session, save]);
 
   return { session, isExpired, save, logout };
 }

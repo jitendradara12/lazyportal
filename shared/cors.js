@@ -44,7 +44,7 @@ export function preflightHeaders(origin, requestedHeaders) {
   headers["Access-Control-Allow-Methods"] = ALLOWED_METHODS.join(", ");
   const allow = sanitizeHeaderList(requestedHeaders);
   if (allow) headers["Access-Control-Allow-Headers"] = allow;
-  headers["Access-Control-Max-Age"] = "600";
+  headers["Access-Control-Max-Age"] = "86400";
   return headers;
 }
 

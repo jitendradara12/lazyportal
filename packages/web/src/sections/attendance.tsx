@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, STALE_MS } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
@@ -234,6 +234,7 @@ export function SubjectDetail({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey: `att.subject:${session.username}:${registrationid ?? "cur"}:${row.subjectid ?? row.individualsubjectcode ?? row.subjectcode}`,
+    staleTimeMs: STALE_MS,
   });
 
   if (detail.loading && !detail.data) return <p className="muted">Loading class breakdown…</p>;

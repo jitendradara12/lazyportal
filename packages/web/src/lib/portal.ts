@@ -57,7 +57,7 @@ export const client = createClient({
     } catch {}
 
     if (savedPw) {
-      const maxAttempts = 10;
+      const maxAttempts = 5;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         let cap;
         try {

@@ -3,7 +3,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { SectionError, formatSemester, formatLastSync } from "../components/DataViews";
+import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import type { Session } from "../types";
 import {
@@ -177,7 +177,7 @@ export function AttendancePage({
     };
   }, [rows, semId, session, initial?.header?.stynumber, sem?.registrationid, sem?.registrationcode]);
 
-  const isSyncing = isRefreshing || syncingIds.size > 0;
+  const isSyncing = isRefreshing || loading || syncingIds.size > 0;
 
   const shortsCount = rows.filter((r) => {
     const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
@@ -193,13 +193,12 @@ export function AttendancePage({
   });
 
   const handleRefresh = async () => {
-    if (isRefreshing) return;
+    if (isRefreshing || shouldThrottleRefresh()) return;
     setIsRefreshing(true);
 
     try {
-      // 1. Tell useFeature to refresh base attendance
+      // 1. Tell useFeature to refresh base attendance (bypasses cache-first check)
       window.dispatchEvent(new CustomEvent("juet:refresh-all"));
-      retry();
 
       // 2. Fetch fresh detail for all subjects in current semester
       if (rows.length > 0) {

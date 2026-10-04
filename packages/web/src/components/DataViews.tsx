@@ -47,6 +47,18 @@ export function formatLastSync(ts: number | null): string {
   return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeStr}`;
 }
 
+export const REFRESH_THROTTLE_MS = 2 * 60 * 1000;
+
+/** Check whether an explicit refresh should be throttled based on the last sync time. */
+export function shouldThrottleRefresh(throttleMs = REFRESH_THROTTLE_MS): boolean {
+  try {
+    const raw = localStorage.getItem("juet.portal.last_sync");
+    return Boolean(raw && Date.now() - Number(raw) < throttleMs);
+  } catch {
+    return false;
+  }
+}
+
 /** Fallback table for responses whose columns we haven't mapped yet. */
 export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (rows.length === 0) return null;

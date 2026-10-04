@@ -8,6 +8,8 @@ interface UseFeatureOptions<T> {
   enabled?: boolean;
   /** Optional key to enable stale-while-revalidate local caching. */
   cacheKey?: string;
+  /** Skip network when cache is fresher than this (default 2h). */
+  staleTimeMs?: number;
 }
 
 function isUnauthorized(e: unknown): boolean {
@@ -55,14 +57,17 @@ function setCached<T>(key: string | undefined, data: T): number {
   return now;
 }
 
+export const STALE_MS = 2 * 60 * 60 * 1000;
+
 /** Centralized per-section fetch status: data + error + loading + retry with SWR caching. */
-export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseFeatureOptions<T>) {
+export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS }: UseFeatureOptions<T>) {
   const initialCache = getCached<T>(cacheKey);
   const [data, setData] = useState<T | null>(() => initialCache.data);
   const [updatedAt, setUpdatedAt] = useState<number | null>(() => initialCache.updatedAt);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => enabled && initialCache.data === null);
   const [retryKey, setRetryKey] = useState(0);
+  const forceRef = useRef(false);
   const runRef = useRef(run);
   runRef.current = run;
 
@@ -75,6 +80,7 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
   }, [cacheKey, enabled]);
 
   const retry = useCallback(() => {
+    forceRef.current = true;
     setError(null);
     setRetryKey((k) => k + 1);
   }, []);
@@ -82,6 +88,7 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
   // Re-fetch live data when an app-wide refresh is requested
   useEffect(() => {
     const handleRefresh = () => {
+      forceRef.current = true;
       setError(null);
       setRetryKey((k) => k + 1);
     };
@@ -91,12 +98,22 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey }: UseF
 
   useEffect(() => {
     if (!enabled) {
+      forceRef.current = false;
       setLoading(false);
       setError(null);
       return;
     }
     let live = true;
+    const isForce = forceRef.current;
+    forceRef.current = false;
     const cached = getCached<T>(cacheKey);
+    // ponytail: cache-first — fresh cache skips network entirely unless forced
+    if (!isForce && cached.data && cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs) {
+      setUpdatedAt(cached.updatedAt);
+      setLoading(false);
+      setError(null);
+      return () => void (live = false);
+    }
     if (!cached.data && !data) {
       setLoading(true);
     }

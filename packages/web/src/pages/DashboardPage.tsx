@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { auth } from "@juet/core";
 import { client } from "../lib/portal";
-import { titleCase, formatLastSync } from "../components/DataViews";
+import { titleCase, formatLastSync, shouldThrottleRefresh } from "../components/DataViews";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { useAttendanceSummary } from "../sections/attendance";
@@ -62,8 +62,11 @@ export function DashboardPage({
     };
   }, []);
 
+  const attSummary = useAttendanceSummary(session);
+  const isSpinning = isRefreshing || attSummary.loading;
+
   const handleRefresh = () => {
-    if (isRefreshing) return;
+    if (isSpinning || shouldThrottleRefresh()) return;
     setIsRefreshing(true);
     window.dispatchEvent(new CustomEvent("juet:refresh-all"));
     setTimeout(() => {
@@ -119,8 +122,6 @@ export function DashboardPage({
     });
   };
 
-  const attSummary = useAttendanceSummary(session);
-
   const renewModal =
     showRenewModal && isExpired && onSessionRenewed ? (
       <ReconnectModal
@@ -156,7 +157,7 @@ export function DashboardPage({
           <h1 className="dash-user-name">{displayName}</h1>
           <div className="dash-user-sub">
             <span className="dash-sync-time">
-              {isRefreshing ? (
+              {isSpinning ? (
                 <>
                   <span className="sync-pulse-dot" aria-hidden="true" /> Refreshing…
                 </>
@@ -198,10 +199,10 @@ export function DashboardPage({
           <button
             type="button"
             onClick={handleRefresh}
-            className={`dash-refresh-btn ${isRefreshing ? "is-spinning" : ""}`}
+            className={`dash-refresh-btn ${isSpinning ? "is-spinning" : ""}`}
             aria-label="Refresh portal data"
-            title="Refresh portal data"
-            disabled={isRefreshing}
+            title={isSpinning ? "Refreshing portal data…" : "Refresh portal data"}
+            disabled={isSpinning}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="23 4 23 10 17 10" />

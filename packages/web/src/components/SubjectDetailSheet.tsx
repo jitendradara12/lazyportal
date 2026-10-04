@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, STALE_MS } from "../hooks/useFeature";
 import { SectionError } from "./DataViews";
 import type { Session } from "../types";
 import {
@@ -43,6 +43,7 @@ export function SubjectDetailSheet({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey,
+    staleTimeMs: STALE_MS,
   });
 
   const attInfo = combinedAttendance(row, detail.data, target / 100);

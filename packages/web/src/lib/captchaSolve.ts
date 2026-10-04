@@ -4,7 +4,7 @@ import { auth } from "@juet/core";
 import { client } from "./portal";
 import type { Captcha } from "../types";
 
-const MAX_AUTOSOLVE_ATTEMPTS = 10;
+const MAX_AUTOSOLVE_ATTEMPTS = 5;
 
 function isFatalSolverError(): boolean {
   // Canvas/Image missing (SSR, old webview): retrying fetch won't help.
