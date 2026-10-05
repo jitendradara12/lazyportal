@@ -498,13 +498,17 @@ export function combinedAttendance(
   };
 }
 
-export function useAttendanceSummary(session: SectionProps["session"]) {
-  const att = useFeature<AttData>({
+export function useAttendanceInitial(session: SectionProps["session"]) {
+  return useFeature<AttData>({
     run: () => features.getAttendance(client, session),
     deps: [session],
     cacheKey: `att.initial:${session.username}`,
     scope: "all",
   });
+}
+
+export function useAttendanceSummary(session: SectionProps["session"]) {
+  const att = useAttendanceInitial(session);
   const rows = att.data?.rows ?? [];
   const semId = att.data?.semesters?.[0]?.registrationid;
   const shortsCount = rows.filter((r) => {
@@ -517,13 +521,9 @@ export function useAttendanceSummary(session: SectionProps["session"]) {
   return { shortsCount, badgeText, loading: att.loading };
 }
 
-export function AttendanceSection({ session, onLogout }: SectionProps) {
+export function AttendanceSection({ session }: SectionProps) {
   const card = useCardState("attendance", true);
-  const att = useFeature<AttData>({
-    run: () => features.getAttendance(client, session),
-    deps: [session],
-    cacheKey: `att.initial:${session.username}`,
-  });
+  const att = useAttendanceInitial(session);
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester("attendance", initial?.semesters);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { auth, features } from "@juet/core";
-import { client, getSessionStatus } from "../lib/portal";
+import { auth } from "@juet/core";
+import { getSessionStatus } from "../lib/portal";
 import { titleCase, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
@@ -87,26 +87,10 @@ export function DashboardPage({
 
     setIsRefreshing(true);
     try {
-      // 1. Fetch fresh attendance summary first (primary anchor of the dashboard)
-      const freshAtt = await features.getAttendance(client, session);
-      if (freshAtt) {
-        try {
-          localStorage.setItem(
-            `juet.cache.att.initial:${session.username}`,
-            JSON.stringify({ data: freshAtt, updatedAt: Date.now() })
-          );
-        } catch {}
-      }
-
-      // 2. Dispatch to other dashboard sections to update with fresh data
       window.dispatchEvent(new CustomEvent("juet:refresh-dashboard"));
-
-      // 3. Only record refresh attempt on success and non-expired session
       if (getSessionStatus() !== "expired") {
         recordRefreshAttempt();
       }
-    } catch {
-      // Network failure / 401 / 500: do not record throttle attempt so user can retry immediately
     } finally {
       setTimeout(() => {
         setIsRefreshing(false);

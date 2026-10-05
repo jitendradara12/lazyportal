@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, STALE_MS } from "../hooks/useFeature";
+import { useFeature, STALE_MS, setCached } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
@@ -14,6 +14,7 @@ import {
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
   getSubjectCacheKey,
+  useAttendanceInitial,
 } from "../sections/attendance";
 
 export function AttendancePage({
@@ -61,11 +62,7 @@ export function AttendancePage({
     };
   }, []);
 
-  const att = useFeature<AttData>({
-    run: () => features.getAttendance(client, session),
-    deps: [session],
-    cacheKey: `att.initial:${session.username}`,
-  });
+  const att = useAttendanceInitial(session);
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester("attendance", initial?.semesters);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
@@ -269,23 +266,13 @@ export function AttendancePage({
         const freshAtt = await features.getAttendance(client, session);
         if (freshAtt?.rows) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
-          try {
-            localStorage.setItem(
-              `juet.cache.att.initial:${session.username}`,
-              JSON.stringify({ data: freshAtt, updatedAt: Date.now() })
-            );
-          } catch {}
+          setCached(`att.initial:${session.username}`, freshAtt);
         }
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
         if (freshDetail?.rows) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
-          try {
-            localStorage.setItem(
-              `juet.cache.att.detail:${session.username}:${semId}`,
-              JSON.stringify({ data: freshDetail, updatedAt: Date.now() })
-            );
-          } catch {}
+          setCached(`att.detail:${session.username}:${semId}`, freshDetail);
         }
       }
 

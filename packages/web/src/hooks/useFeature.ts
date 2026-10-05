@@ -29,7 +29,10 @@ interface CacheEntry<T> {
   updatedAt: number;
 }
 
-function getCached<T>(key?: string): { data: T | null; updatedAt: number | null } {
+// ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
+const inFlight = new Map<string, Promise<{ data: unknown; updatedAt: number }>>();
+
+export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null } {
   if (!key) return { data: null, updatedAt: null };
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
@@ -44,7 +47,7 @@ function getCached<T>(key?: string): { data: T | null; updatedAt: number | null 
   }
 }
 
-function setCached<T>(key: string | undefined, data: T): number {
+export function setCached<T>(key: string | undefined, data: T): number {
   const now = Date.now();
   if (!key || data == null) return now;
   try {
@@ -129,8 +132,9 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     const isForce = forceRef.current;
     forceRef.current = false;
     const cached = getCached<T>(cacheKey);
-    // ponytail: cache-first — fresh cache skips network entirely unless forced
-    if (!isForce && cached.data && cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs) {
+    const isVeryFresh = cached.data && cached.updatedAt && Date.now() - cached.updatedAt < 15_000;
+    if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs) {
+      setData(cached.data);
       setUpdatedAt(cached.updatedAt);
       setLoading(false);
       setError(null);
@@ -140,11 +144,24 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
       setLoading(true);
     }
     setError(null);
-    runRef.current().then(
-      (d) => {
+
+    let promise = cacheKey ? inFlight.get(cacheKey) : undefined;
+    if (!promise) {
+      promise = runRef.current()
+        .then((d) => {
+          const time = setCached(cacheKey, d);
+          return { data: d, updatedAt: time };
+        })
+        .finally(() => {
+          if (cacheKey) inFlight.delete(cacheKey);
+        });
+      if (cacheKey) inFlight.set(cacheKey, promise);
+    }
+
+    promise.then(
+      ({ data: d, updatedAt: time }) => {
         if (!live) return;
-        setData(d);
-        const time = setCached(cacheKey, d);
+        setData(d as T);
         setUpdatedAt(time);
         setLoading(false);
       },
