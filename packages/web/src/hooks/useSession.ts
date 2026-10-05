@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSessionStatus, onSessionStatus, setSessionStatus, store, type SessionStatus } from "../lib/portal";
+import { clearOfficialPortalBridge } from "../lib/officialPortal";
 import type { Session } from "../types";
 
 function restore(): Session | null {
@@ -19,6 +20,7 @@ export function useSession() {
 
   const logout = useCallback(() => {
     store.clear();
+    clearOfficialPortalBridge();
     try {
       localStorage.removeItem("juet.portal.saved_pw");
       localStorage.removeItem("juet.portal.last_refresh_attempt");

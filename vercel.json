@@ -3,9 +3,18 @@
   "buildCommand": "npm --workspace @juet/web run build",
   "outputDirectory": "packages/web/dist",
   "framework": "vite",
-  "rewrites": [{ "source": "/api/:path*", "destination": "/api/proxy?path=:path*" }],
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/proxy?path=:path*" },
+    { "source": "/officialportal/:path*", "destination": "/api/official-portal?path=:path*" },
+    { "source": "/officialportal/", "destination": "/api/official-portal" },
+    { "source": "/officialportal", "destination": "/api/official-portal" },
+    { "source": "/studentportal/:path*", "destination": "/api/official-portal?path=:path*" }
+  ],
   "functions": {
     "api/proxy.js": {
+      "maxDuration": 60
+    },
+    "api/official-portal.js": {
       "maxDuration": 60
     }
   }
