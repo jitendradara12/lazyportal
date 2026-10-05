@@ -49,14 +49,20 @@ export function formatLastSync(ts: number | null): string {
 
 export const REFRESH_THROTTLE_MS = 2 * 60 * 1000;
 
-/** Check whether an explicit refresh should be throttled based on the last sync time. */
+/** Check whether an explicit refresh should be throttled based on the last manual refresh attempt. */
 export function shouldThrottleRefresh(throttleMs = REFRESH_THROTTLE_MS): boolean {
   try {
-    const raw = localStorage.getItem("juet.portal.last_sync");
+    const raw = localStorage.getItem("juet.portal.last_refresh_attempt");
     return Boolean(raw && Date.now() - Number(raw) < throttleMs);
   } catch {
     return false;
   }
+}
+
+export function recordRefreshAttempt(): void {
+  try {
+    localStorage.setItem("juet.portal.last_refresh_attempt", String(Date.now()));
+  } catch {}
 }
 
 /** Fallback table for responses whose columns we haven't mapped yet. */

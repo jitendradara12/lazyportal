@@ -23,10 +23,18 @@ export function createClient({
   fetchImpl = globalThis.fetch,
   onRefresh,
   onUnauthorized,
+  onSessionStatusChange,
   now = () => new Date(),
 } = {}) {
   if (!baseUrl) throw new Error("baseUrl required");
   let refreshing = null;
+  let currentStatus = null;
+
+  function setStatus(status) {
+    if (currentStatus === status) return;
+    currentStatus = status;
+    onSessionStatusChange?.(status);
+  }
 
   async function safeFetch(url, init) {
     try {
@@ -55,6 +63,7 @@ export function createClient({
   async function refreshedRetry(sent) {
     if (!onRefresh) return null;
     if (!refreshing) {
+      setStatus("recovering");
       // Guard: a hung captcha/solve must not hold every 401 forever.
       // 90s: silent re-login may fetch+solve up to 10 captchas (no rate
       // limit observed) plus two login calls; 30s cut it off mid-retry,
@@ -68,12 +77,18 @@ export function createClient({
       const attempt = Promise.resolve()
         .then(() => onRefresh())
         .catch(() => false);
-      refreshing = Promise.race([attempt, timeout]).finally(() => {
-        if (timer) clearTimeout(timer);
-        refreshing = null;
-      });
+      refreshing = Promise.race([attempt, timeout])
+        .then((ok) => {
+          setStatus(ok ? "authenticated" : "expired");
+          return ok;
+        })
+        .finally(() => {
+          if (timer) clearTimeout(timer);
+          refreshing = null;
+        });
     }
-    if (!(await refreshing)) return null;
+    const ok = await refreshing;
+    if (!ok) return null;
     // Rebuild headers: the token may have rotated during refresh.
     const retry = await safeFetch(`${baseUrl}${sent.endpoint}`, await sent.build());
     return retry.status === 401 ? null : retry;
@@ -86,7 +101,10 @@ export function createClient({
         // The retry gets no second refresh: another 401 here is final.
         if (retry) return handle(retry, sent, { ...opts, skipRefresh: true });
       }
-      if (!opts.silent) await onUnauthorized?.();
+      if (!opts.silent) {
+        setStatus("expired");
+        await onUnauthorized?.();
+      }
       throw new SessionExpiredError();
     }
     if (res.status === 204) {

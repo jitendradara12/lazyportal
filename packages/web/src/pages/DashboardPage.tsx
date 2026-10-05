@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { auth } from "@juet/core";
-import { client } from "../lib/portal";
-import { titleCase, formatLastSync, shouldThrottleRefresh } from "../components/DataViews";
+import { auth, features } from "@juet/core";
+import { client, getSessionStatus } from "../lib/portal";
+import { titleCase, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { useAttendanceSummary } from "../sections/attendance";
@@ -16,12 +16,14 @@ interface InstituteOption {
 export function DashboardPage({
   session,
   isExpired,
+  isRecovering,
   onLogout,
   onSessionRenewed,
   onSelectInstitute,
 }: {
   session: Session;
   isExpired?: boolean;
+  isRecovering?: boolean;
   onLogout: () => void;
   onSessionRenewed?: (s: Session) => void;
   onSelectInstitute: (instituteid: string) => void;
@@ -29,11 +31,12 @@ export function DashboardPage({
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Auto-dismiss renew modal once authenticated (handles background renewal and multi-tab sync)
   useEffect(() => {
-    if (!isExpired) {
+    if (!isExpired && !isRecovering) {
       setShowRenewModal(false);
     }
-  }, [isExpired]);
+  }, [isExpired, isRecovering]);
 
   const [lastSync, setLastSync] = useState<number | null>(() => {
     try {
@@ -65,13 +68,50 @@ export function DashboardPage({
   const attSummary = useAttendanceSummary(session);
   const isSpinning = isRefreshing || attSummary.loading;
 
-  const handleRefresh = () => {
-    if (isSpinning || shouldThrottleRefresh()) return;
+  const handleRefresh = async () => {
+    if (isSpinning) return;
+    if (shouldThrottleRefresh()) {
+      setIsRefreshing(true);
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 600);
+      return;
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setIsRefreshing(true);
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 600);
+      return;
+    }
+
     setIsRefreshing(true);
-    window.dispatchEvent(new CustomEvent("juet:refresh-all"));
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 1500);
+    try {
+      // 1. Fetch fresh attendance summary first (primary anchor of the dashboard)
+      const freshAtt = await features.getAttendance(client, session);
+      if (freshAtt) {
+        try {
+          localStorage.setItem(
+            `juet.cache.att.initial:${session.username}`,
+            JSON.stringify({ data: freshAtt, updatedAt: Date.now() })
+          );
+        } catch {}
+      }
+
+      // 2. Dispatch to other dashboard sections to update with fresh data
+      window.dispatchEvent(new CustomEvent("juet:refresh-dashboard"));
+
+      // 3. Only record refresh attempt on success and non-expired session
+      if (getSessionStatus() !== "expired") {
+        recordRefreshAttempt();
+      }
+    } catch {
+      // Network failure / 401 / 500: do not record throttle attempt so user can retry immediately
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 600);
+    }
   };
 
   const institutes = (session.institutelist as InstituteOption[] | undefined) ?? [];
@@ -123,7 +163,7 @@ export function DashboardPage({
   };
 
   const renewModal =
-    showRenewModal && isExpired && onSessionRenewed ? (
+    showRenewModal && onSessionRenewed ? (
       <ReconnectModal
         session={session}
         onRenewed={(s) => {
@@ -140,6 +180,7 @@ export function DashboardPage({
         <AttendancePage
           session={session}
           isExpired={isExpired}
+          isRecovering={isRecovering}
           onBack={closeAttendance}
           onLogout={onLogout}
           onRequestRenew={() => setShowRenewModal(true)}
@@ -185,7 +226,7 @@ export function DashboardPage({
         </div>
 
         <div className="dash-top-actions">
-          {isExpired && (
+          {isExpired && !isRecovering && (
             <button
               onClick={() => setShowRenewModal(true)}
               className="m3-reconnect-pill"

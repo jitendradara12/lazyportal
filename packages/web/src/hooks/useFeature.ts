@@ -10,6 +10,7 @@ interface UseFeatureOptions<T> {
   cacheKey?: string;
   /** Skip network when cache is fresher than this (default 2h). */
   staleTimeMs?: number;
+  scope?: "dashboard" | "attendance" | "all";
 }
 
 function isUnauthorized(e: unknown): boolean {
@@ -59,8 +60,14 @@ function setCached<T>(key: string | undefined, data: T): number {
 
 export const STALE_MS = 2 * 60 * 60 * 1000;
 
-/** Centralized per-section fetch status: data + error + loading + retry with SWR caching. */
-export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS }: UseFeatureOptions<T>) {
+export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS, scope }: UseFeatureOptions<T>) {
+  const targetScope = scope ?? (
+    cacheKey?.startsWith("att.subject") || cacheKey?.startsWith("att.detail")
+      ? "attendance"
+      : cacheKey?.startsWith("att.")
+      ? "all"
+      : "dashboard"
+  );
   const initialCache = getCached<T>(cacheKey);
   const [data, setData] = useState<T | null>(() => initialCache.data);
   const [updatedAt, setUpdatedAt] = useState<number | null>(() => initialCache.updatedAt);
@@ -85,16 +92,31 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     setRetryKey((k) => k + 1);
   }, []);
 
-  // Re-fetch live data when an app-wide refresh is requested
+  // Re-fetch live data when a scoped or global refresh is requested
   useEffect(() => {
     const handleRefresh = () => {
       forceRef.current = true;
       setError(null);
       setRetryKey((k) => k + 1);
     };
+
     window.addEventListener("juet:refresh-all", handleRefresh);
-    return () => window.removeEventListener("juet:refresh-all", handleRefresh);
-  }, []);
+    if (targetScope === "attendance" || targetScope === "all") {
+      window.addEventListener("juet:refresh-attendance", handleRefresh);
+    }
+    if (targetScope === "dashboard" || targetScope === "all") {
+      window.addEventListener("juet:refresh-dashboard", handleRefresh);
+    }
+    return () => {
+      window.removeEventListener("juet:refresh-all", handleRefresh);
+      if (targetScope === "attendance" || targetScope === "all") {
+        window.removeEventListener("juet:refresh-attendance", handleRefresh);
+      }
+      if (targetScope === "dashboard" || targetScope === "all") {
+        window.removeEventListener("juet:refresh-dashboard", handleRefresh);
+      }
+    };
+  }, [targetScope]);
 
   useEffect(() => {
     if (!enabled) {

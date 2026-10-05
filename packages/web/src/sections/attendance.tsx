@@ -233,7 +233,7 @@ export function SubjectDetail({
   const detail = useFeature<Record<string, Record<string, unknown>>>({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
-    cacheKey: `att.subject:${session.username}:${registrationid ?? "cur"}:${row.subjectid ?? row.individualsubjectcode ?? row.subjectcode}`,
+    cacheKey: getSubjectCacheKey(session.username, registrationid, row),
     staleTimeMs: STALE_MS,
   });
 
@@ -325,7 +325,29 @@ export function getSubjectCacheKey(
   row: AttRow & Record<string, unknown>
 ): string {
   const subId = row.subjectid ?? row.individualsubjectcode ?? row.subjectcode;
-  return `att.subject:${username}:${registrationid ?? "cur"}:${subId}`;
+  return `att.subject:${username}:${registrationid ?? "default"}:${subId}`;
+}
+
+export function getCachedSubjectDetailEntry(
+  username: string,
+  registrationid: string | undefined | null,
+  row: AttRow & Record<string, unknown>
+): { data: Record<string, Record<string, unknown>> | null; updatedAt: number | null } {
+  const key = getSubjectCacheKey(username, registrationid, row);
+  try {
+    const raw = localStorage.getItem(`juet.cache.${key}`);
+    if (!raw) return { data: null, updatedAt: null };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "data" in parsed) {
+      return {
+        data: parsed.data as Record<string, Record<string, unknown>>,
+        updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : null,
+      };
+    }
+    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null };
+  } catch {
+    return { data: null, updatedAt: null };
+  }
 }
 
 export function getCachedSubjectDetail(
@@ -333,18 +355,7 @@ export function getCachedSubjectDetail(
   registrationid: string | undefined | null,
   row: AttRow & Record<string, unknown>
 ): Record<string, Record<string, unknown>> | null {
-  const key = getSubjectCacheKey(username, registrationid, row);
-  try {
-    const raw = localStorage.getItem(`juet.cache.${key}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && "data" in parsed) {
-      return parsed.data as Record<string, Record<string, unknown>>;
-    }
-    return parsed as Record<string, Record<string, unknown>>;
-  } catch {
-    return null;
-  }
+  return getCachedSubjectDetailEntry(username, registrationid, row).data;
 }
 
 export function combinedAttendance(
@@ -380,7 +391,7 @@ export function combinedAttendance(
     }
     if (pStats && (pStats.total > 0 || r.Psubjectcomponentid)) {
       components.P = { total: pStats.total, present: pStats.attended, pct: pStats.pct };
-      if (isLab || (!components.L && !components.T)) {
+      if (isLab || (!components.L && !components.T && !r.Lsubjectcomponentid)) {
         totalClasses += pStats.total;
         totalPresent += pStats.attended;
       }
@@ -492,6 +503,7 @@ export function useAttendanceSummary(session: SectionProps["session"]) {
     run: () => features.getAttendance(client, session),
     deps: [session],
     cacheKey: `att.initial:${session.username}`,
+    scope: "all",
   });
   const rows = att.data?.rows ?? [];
   const semId = att.data?.semesters?.[0]?.registrationid;

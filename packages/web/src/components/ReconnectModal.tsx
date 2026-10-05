@@ -104,6 +104,7 @@ export function ReconnectModal({
       }
 
       onRenewed(s);
+      window.dispatchEvent(new CustomEvent("juet:refresh-all"));
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));

@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { features } from "@juet/core";
-import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { client, getSessionStatus } from "../lib/portal";
+import { useFeature, STALE_MS } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh } from "../components/DataViews";
+import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import type { Session } from "../types";
 import {
@@ -12,18 +12,21 @@ import {
   subjectName,
   combinedAttendance,
   getCachedSubjectDetail,
+  getCachedSubjectDetailEntry,
   getSubjectCacheKey,
 } from "../sections/attendance";
 
 export function AttendancePage({
   session,
   isExpired,
+  isRecovering,
   onBack,
   onLogout,
   onRequestRenew,
 }: {
   session: Session;
   isExpired?: boolean;
+  isRecovering?: boolean;
   onBack: () => void;
   onLogout: () => void;
   onRequestRenew?: () => void;
@@ -86,6 +89,25 @@ export function AttendancePage({
   const error = att.error ?? detail.error;
   const retry = att.error ? att.retry : detail.retry;
 
+  function doesSubjectNeedDeepFetch(
+    r: AttRow & Record<string, unknown>,
+    cached: Record<string, Record<string, unknown>> | null,
+    cachedUpdatedAt: number | null
+  ): boolean {
+    if (!cached || Object.keys(cached).length === 0) return true;
+    const rowStats = combinedAttendance(r);
+    if (rowStats.totalClasses > 0) {
+      const cachedStats = combinedAttendance(r, cached);
+      return rowStats.totalClasses !== cachedStats.totalClasses;
+    }
+    // For rows lacking total class counts (e.g. percentage-only rows or 0 classes),
+    // revalidate if cache timestamp is missing or older than 2h.
+    if (!cachedUpdatedAt || Date.now() - cachedUpdatedAt > STALE_MS) {
+      return true;
+    }
+    return false;
+  }
+
   // Cache-backed map of subject details for accurate L+T aggregation
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
     const map: Record<string, Record<string, unknown>> = {};
@@ -99,30 +121,40 @@ export function AttendancePage({
     return map;
   });
 
-  // Re-sync cached details when rows or semester change, and prefetch uncached in background
   useEffect(() => {
-    if (!rows.length) return;
+    if (isExpired) {
+      setIsRefreshing(false);
+      setSyncingIds(new Set());
+      setSyncProgress({ done: 0, total: 0 });
+    }
+  }, [isExpired]);
+
+  // Re-sync cached details when rows or semester change, and prefetch uncached/changed in background
+  useEffect(() => {
+    if (!rows.length || isExpired) return;
 
     let isLive = true;
+    let isAborted = false;
+    let successCount = 0;
     const currentMap: Record<string, Record<string, unknown>> = {};
-    const uncached: (AttRow & Record<string, unknown>)[] = [];
+    const toFetch: (AttRow & Record<string, unknown>)[] = [];
 
     for (const r of rows) {
       const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-      const cached = getCachedSubjectDetail(session.username, semId, r);
-      if (cached) {
-        currentMap[subId] = cached;
-      } else {
-        uncached.push(r as AttRow & Record<string, unknown>);
+      const entry = getCachedSubjectDetailEntry(session.username, semId, r);
+      if (entry.data) {
+        currentMap[subId] = entry.data;
+      }
+      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt)) {
+        toFetch.push(r as AttRow & Record<string, unknown>);
       }
     }
 
-    setDetailsMap((prev) => ({ ...prev, ...currentMap }));
+    // Isolate detailsMap to current semester (no additive leak across semesters)
+    setDetailsMap(currentMap);
 
-    if (uncached.length > 0) {
-      const uncachedIds = new Set(uncached.map((r) => String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode)));
-      setSyncingIds(uncachedIds);
-      setSyncProgress({ done: 0, total: uncached.length });
+    if (toFetch.length > 0 && getSessionStatus() !== "expired") {
+      setSyncProgress({ done: 0, total: toFetch.length });
 
       const base = {
         stynumber: initial?.header?.stynumber,
@@ -130,24 +162,38 @@ export function AttendancePage({
         registrationcode: sem?.registrationcode,
       };
 
-      const queue = [...uncached];
-      const concurrency = 3;
+      const queue = [...toFetch];
+      const concurrency = 2;
       const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-        while (queue.length > 0 && isLive) {
+        while (queue.length > 0 && isLive && !isAborted && getSessionStatus() !== "expired") {
           const r = queue.shift();
           if (!r) break;
           const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+          if (isLive) {
+            setSyncingIds((prev) => new Set(prev).add(subId));
+          }
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-            if (isLive && data) {
+            if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
               const key = getSubjectCacheKey(session.username, semId, r);
               try {
                 localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
               } catch {}
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
+              successCount++;
             }
-          } catch {
-            // Gracefully ignore network / adblock errors
+          } catch (err: unknown) {
+            const code = (err as { code?: string })?.code;
+            const status = (err as { status?: number })?.status;
+            if (code === "SESSION_EXPIRED" || status === 401 || getSessionStatus() === "expired") {
+              isAborted = true;
+              queue.length = 0;
+              if (isLive) {
+                setSyncingIds(new Set());
+                setSyncProgress({ done: 0, total: 0 });
+              }
+              break;
+            }
           } finally {
             if (isLive) {
               setSyncingIds((prev) => {
@@ -161,23 +207,32 @@ export function AttendancePage({
         }
       });
 
-      Promise.all(workers).then(() => {
-        if (isLive) {
-          try {
-            localStorage.setItem("juet.portal.last_sync", String(Date.now()));
-            window.dispatchEvent(new CustomEvent("juet:sync"));
-          } catch {}
-        }
-      });
+      Promise.all(workers)
+        .then(() => {
+          if (isLive && !isAborted && successCount > 0 && getSessionStatus() !== "expired") {
+            try {
+              localStorage.setItem("juet.portal.last_sync", String(Date.now()));
+              window.dispatchEvent(new CustomEvent("juet:sync"));
+            } catch {}
+          }
+        })
+        .finally(() => {
+          if (isLive) {
+            setSyncingIds(new Set());
+            setSyncProgress({ done: 0, total: 0 });
+          }
+        });
     }
 
     return () => {
       isLive = false;
+      isAborted = true;
       setSyncingIds(new Set());
+      setSyncProgress({ done: 0, total: 0 });
     };
-  }, [rows, semId, session, initial?.header?.stynumber, sem?.registrationid, sem?.registrationcode]);
+  }, [rows, semId, session, initial?.header?.stynumber, sem?.registrationid, sem?.registrationcode, isExpired]);
 
-  const isSyncing = isRefreshing || loading || syncingIds.size > 0;
+  const isSyncing = !isExpired && (isRefreshing || loading || syncingIds.size > 0);
 
   const shortsCount = rows.filter((r) => {
     const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
@@ -193,18 +248,63 @@ export function AttendancePage({
   });
 
   const handleRefresh = async () => {
-    if (isRefreshing || shouldThrottleRefresh()) return;
+    if (isSyncing || isExpired) return;
+    if (shouldThrottleRefresh()) {
+      setIsRefreshing(true);
+      setTimeout(() => setIsRefreshing(false), 600);
+      return;
+    }
     setIsRefreshing(true);
 
     try {
-      // 1. Tell useFeature to refresh base attendance (bypasses cache-first check)
-      window.dispatchEvent(new CustomEvent("juet:refresh-all"));
+      // 1. Fetch fresh base overview first
+      let freshRows: (AttRow & Record<string, unknown>)[] = [];
+      const basePayload = {
+        stynumber: initial?.header?.stynumber,
+        registrationid: sem?.registrationid,
+        registrationcode: sem?.registrationcode,
+      };
 
-      // 2. Fetch fresh detail for all subjects in current semester
-      if (rows.length > 0) {
-        const allIds = new Set(rows.map((r) => String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode)));
-        setSyncingIds(allIds);
-        setSyncProgress({ done: 0, total: rows.length });
+      if (isDefault) {
+        const freshAtt = await features.getAttendance(client, session);
+        if (freshAtt?.rows) {
+          freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
+          try {
+            localStorage.setItem(
+              `juet.cache.att.initial:${session.username}`,
+              JSON.stringify({ data: freshAtt, updatedAt: Date.now() })
+            );
+          } catch {}
+        }
+      } else if (sem?.registrationid) {
+        const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
+        if (freshDetail?.rows) {
+          freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
+          try {
+            localStorage.setItem(
+              `juet.cache.att.detail:${session.username}:${semId}`,
+              JSON.stringify({ data: freshDetail, updatedAt: Date.now() })
+            );
+          } catch {}
+        }
+      }
+
+      // Tell hooks to update from fresh cache
+      window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
+
+      // 2. Fetch fresh detail only for subjects whose total classes changed or lack detail
+      const activeRows = freshRows.length > 0 ? freshRows : rows;
+      const toFetch: (AttRow & Record<string, unknown>)[] = [];
+      for (const r of activeRows) {
+        const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+        const entry = getCachedSubjectDetailEntry(session.username, semId, r);
+        if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt)) {
+          toFetch.push(r as AttRow & Record<string, unknown>);
+        }
+      }
+
+      if (toFetch.length > 0 && getSessionStatus() !== "expired") {
+        setSyncProgress({ done: 0, total: toFetch.length });
 
         const base = {
           stynumber: initial?.header?.stynumber,
@@ -212,24 +312,36 @@ export function AttendancePage({
           registrationcode: sem?.registrationcode,
         };
 
-        const queue = [...rows];
-        const concurrency = 3;
+        const queue = [...toFetch];
+        const concurrency = 2;
+        let isAborted = false;
+        let successCount = 0;
         const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-          while (queue.length > 0) {
+          while (queue.length > 0 && !isAborted && getSessionStatus() !== "expired") {
             const r = queue.shift();
             if (!r) break;
             const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+            setSyncingIds((prev) => new Set(prev).add(subId));
             try {
               const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-              if (data) {
+              if (data && !isAborted && getSessionStatus() !== "expired") {
                 const key = getSubjectCacheKey(session.username, semId, r);
                 try {
                   localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
                 } catch {}
                 setDetailsMap((prev) => ({ ...prev, [subId]: data }));
+                successCount++;
               }
-            } catch {
-              // Gracefully handle network/block error
+            } catch (err: unknown) {
+              const code = (err as { code?: string })?.code;
+              const status = (err as { status?: number })?.status;
+              if (code === "SESSION_EXPIRED" || status === 401 || getSessionStatus() === "expired") {
+                isAborted = true;
+                queue.length = 0;
+                setSyncingIds(new Set());
+                setSyncProgress({ done: 0, total: 0 });
+                break;
+              }
             } finally {
               setSyncingIds((prev) => {
                 const next = new Set(prev);
@@ -242,14 +354,25 @@ export function AttendancePage({
         });
 
         await Promise.all(workers);
-      }
 
-      try {
-        localStorage.setItem("juet.portal.last_sync", String(Date.now()));
-        window.dispatchEvent(new CustomEvent("juet:sync"));
-      } catch {}
+        if (!isAborted && successCount > 0 && getSessionStatus() !== "expired") {
+          try {
+            recordRefreshAttempt();
+            localStorage.setItem("juet.portal.last_sync", String(Date.now()));
+            window.dispatchEvent(new CustomEvent("juet:sync"));
+          } catch {}
+        }
+      } else if (getSessionStatus() !== "expired" && !att.error && !detail.error) {
+        try {
+          recordRefreshAttempt();
+          localStorage.setItem("juet.portal.last_sync", String(Date.now()));
+          window.dispatchEvent(new CustomEvent("juet:sync"));
+        } catch {}
+      }
     } finally {
       setIsRefreshing(false);
+      setSyncingIds(new Set());
+      setSyncProgress({ done: 0, total: 0 });
     }
   };
 
@@ -306,7 +429,7 @@ export function AttendancePage({
             </select>
           )}
 
-          {isExpired && (
+          {isExpired && !isRecovering && (
             <button
               onClick={onRequestRenew}
               className="m3-reconnect-pill"
@@ -322,7 +445,13 @@ export function AttendancePage({
             onClick={handleRefresh}
             className={`dash-refresh-btn ${isSyncing ? "is-spinning" : ""}`}
             aria-label="Refresh attendance"
-            title={isSyncing ? "Refreshing attendance…" : "Refresh attendance"}
+            title={
+              isSyncing
+                ? "Refreshing attendance…"
+                : shouldThrottleRefresh() && lastSync
+                ? `Up to date (synced ${formatLastSync(lastSync)})`
+                : "Refresh attendance"
+            }
             disabled={isSyncing}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

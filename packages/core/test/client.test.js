@@ -234,4 +234,39 @@ describe("client", () => {
     await assert.rejects(() => client.getPublic("/token/getcaptcha"), SessionExpiredError);
     assert.equal(hooked, false);
   });
+
+  it("signals recovering -> authenticated on successful refresh", async () => {
+    const statuses = [];
+    let token = "old";
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      fetchImpl: mockFetch(async (url, init) => {
+        if (init.headers.Authorization === "Bearer old") return { ok: false, status: 401, text: async () => "{}" };
+        return ok({ status: { responseStatus: "Success" }, response: { ok: true } });
+      }),
+      onRefresh: async () => {
+        token = "new";
+        return true;
+      },
+      onSessionStatusChange: (s) => statuses.push(s),
+      now: () => NOW,
+    });
+    await client.post("/test", {});
+    assert.deepEqual(statuses, ["recovering", "authenticated"]);
+  });
+
+  it("signals recovering -> expired when refresh fails", async () => {
+    const statuses = [];
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () => ({ ok: false, status: 401, text: async () => "{}" })),
+      onRefresh: async () => false,
+      onSessionStatusChange: (s) => statuses.push(s),
+      now: () => NOW,
+    });
+    await assert.rejects(() => client.post("/test", {}), SessionExpiredError);
+    assert.deepEqual(statuses, ["recovering", "expired"]);
+  });
 });
+

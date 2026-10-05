@@ -23,14 +23,38 @@ export const BASE_URL = resolveApiBase({
 
 export const store = session.createStore(session.browserLocalAdapter());
 
-let unauthListener: (() => void) | null = null;
-export function onClientUnauthorized(cb: () => void) {
-  unauthListener = cb;
+export type SessionStatus = "authenticated" | "recovering" | "expired";
+let currentSessionStatus: SessionStatus = store.load()?.token ? "authenticated" : "expired";
+const statusListeners = new Set<(status: SessionStatus) => void>();
+
+export function getSessionStatus(): SessionStatus {
+  return currentSessionStatus;
+}
+
+export function setSessionStatus(status: SessionStatus) {
+  if (currentSessionStatus === status) return;
+  currentSessionStatus = status;
+  for (const cb of statusListeners) {
+    try {
+      cb(status);
+    } catch {}
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("juet:session-status", { detail: { status } }));
+  }
+}
+
+export function onSessionStatus(cb: (status: SessionStatus) => void): () => void {
+  statusListeners.add(cb);
+  return () => {
+    statusListeners.delete(cb);
+  };
 }
 
 export const client = createClient({
   baseUrl: BASE_URL,
   getToken: () => store.load()?.token ?? "",
+  onSessionStatusChange: (status) => setSessionStatus(status),
   onRefresh: async () => {
     const s = store.load();
     if (!s?.username) return false;
@@ -40,6 +64,7 @@ export const client = createClient({
       const r = await auth.refreshSession(client, s);
       if (r.ok) {
         if (r.token) store.save({ ...s, token: r.token });
+        setSessionStatus("authenticated");
         return true;
       }
     } catch {
@@ -47,10 +72,9 @@ export const client = createClient({
     }
 
     // 2. Silent re-login if saved password exists. Portal shows no captcha
-    // rate limit, so retry solver low-confidence / bad-captcha up to 6 times
+    // rate limit, so retry solver low-confidence / bad-captcha up to 5 times
     // before falling through to the manual reconnect modal. Network blips
-    // retry too (without clearing the saved password); only a definitive
-    // wrong-password response clears it and stops immediately.
+    // retry too (without clearing the saved password).
     let savedPw = "";
     try {
       savedPw = localStorage.getItem("juet.portal.saved_pw") ?? "";
@@ -101,6 +125,7 @@ export const client = createClient({
           const newSession = { ...fresh, instituteid: keepId, institutename: keepName };
 
           store.save(newSession);
+          setSessionStatus("authenticated");
           window.dispatchEvent(new CustomEvent("juet:renewed", { detail: newSession }));
           return true;
         } catch (e) {
@@ -111,11 +136,15 @@ export const client = createClient({
           if (typeof navigator !== "undefined" && navigator.onLine === false) {
             return false;
           }
+          // Explicit credential rejection: clear saved credentials
+          if (/invalid (user|password|credential)|wrong password|user id or password/i.test(msg)) {
+            try {
+              localStorage.removeItem("juet.portal.saved_pw");
+            } catch {}
+            return false;
+          }
           // Transient: portal down / session race — retry with a fresh captcha.
           if (code === "NETWORK_ERROR" || code === "SESSION_EXPIRED") continue;
-          try {
-            localStorage.removeItem("juet.portal.saved_pw");
-          } catch {}
           return false;
         }
       }
@@ -125,6 +154,6 @@ export const client = createClient({
   },
   onUnauthorized: async () => {
     session.markSessionExpired();
-    unauthListener?.();
+    setSessionStatus("expired");
   },
 });

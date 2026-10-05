@@ -8,13 +8,14 @@ import { InstallBanner } from "./components/InstallBanner";
 import "./styles.css";
 
 function App() {
-  const { session, isExpired, save, logout } = useSession();
+  const { session, isExpired, isRecovering, save, logout } = useSession();
   return (
     <>
       {!session ? <LoginPage onDone={save} /> : (
         <DashboardPage
           session={session}
           isExpired={isExpired}
+          isRecovering={isRecovering}
           onLogout={logout}
           onSessionRenewed={save}
           onSelectInstitute={(instituteid) => {
