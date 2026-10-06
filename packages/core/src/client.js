@@ -153,9 +153,13 @@ export function createClient({
         }
 
         // Another tab or a user-initiated login may have installed a new token
-        // while the old request was waiting. Retry it instead of showing a
-        // misleading expired state or starting a second background login.
-        if (tokenChanged) return { kind: "token-changed", generation };
+        // while the old request was waiting. End this recovery state before
+        // retrying with that token; the retry itself may be aborted or fail.
+        if (tokenChanged && hasToken(currentAuthorization())) {
+          failedAuthorization = null;
+          setStatus("authenticated");
+          return { kind: "token-changed", generation };
+        }
 
         // This token has now had its full silent recovery attempt. Keep later
         // background 401s from restarting the same work and making the expired

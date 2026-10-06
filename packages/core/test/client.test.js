@@ -407,6 +407,40 @@ describe("client", () => {
     assert.deepEqual(statuses, ["recovering", "authenticated"]);
   });
 
+  it("does not remain recovering if an aborted request observes a token changed elsewhere", async () => {
+    const statuses = [];
+    const requestController = new AbortController();
+    let token = "old";
+    let calls = 0;
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      fetchImpl: mockFetch(async (url, init) => {
+        calls++;
+        if (calls === 1) return { ok: false, status: 401, text: async () => "{}" };
+        if (init.signal?.aborted) {
+          const error = new Error("request aborted");
+          error.name = "AbortError";
+          throw error;
+        }
+        return ok({ status: { responseStatus: "Success" }, response: {} });
+      }),
+      onRefresh: async () => {
+        token = "renewed-elsewhere";
+        requestController.abort();
+        return false;
+      },
+      onSessionStatusChange: (status) => statuses.push(status),
+      now: () => NOW,
+    });
+
+    await assert.rejects(
+      () => client.post("/test", {}, { signal: requestController.signal }),
+      (error) => error.name === "AbortError",
+    );
+    assert.deepEqual(statuses, ["recovering", "authenticated"]);
+  });
+
   it("a late 401 reuses a sibling request's renewed token", async () => {
     let token = "old";
     let refreshes = 0;
