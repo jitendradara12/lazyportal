@@ -59,6 +59,22 @@ export function resolveFeatureState<T>(
 
 // ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
 const inFlight = new Map<string, Promise<{ data: unknown; updatedAt: number }>>();
+let cacheGeneration = 0;
+
+/** Capture before an async request so it can avoid repopulating cache after logout. */
+export function getCacheGeneration(): number {
+  return cacheGeneration;
+}
+
+export function isCacheGenerationCurrent(generation: number): boolean {
+  return generation === cacheGeneration;
+}
+
+/** Invalidate pending cache writes and deduplication after the user logs out. */
+export function invalidateCacheGeneration(): void {
+  cacheGeneration++;
+  inFlight.clear();
+}
 
 /** Build a persistent cache key scoped to both account and selected institute. */
 export function sessionCacheKey(
@@ -199,15 +215,20 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
 
     let promise = cacheKey ? inFlight.get(cacheKey) : undefined;
     if (!promise) {
-      promise = runRef.current()
+      const generation = getCacheGeneration();
+      let request: Promise<{ data: unknown; updatedAt: number }>;
+      request = Promise.resolve()
+        .then(() => runRef.current())
         .then((d) => {
-          const time = setCached(cacheKey, d);
+          const time = Date.now();
+          if (isCacheGenerationCurrent(generation)) setCached(cacheKey, d);
           return { data: d, updatedAt: time };
         })
         .finally(() => {
-          if (cacheKey) inFlight.delete(cacheKey);
+          if (cacheKey && inFlight.get(cacheKey) === request) inFlight.delete(cacheKey);
         });
-      if (cacheKey) inFlight.set(cacheKey, promise);
+      promise = request;
+      if (cacheKey) inFlight.set(cacheKey, request);
     }
 
     promise.then(

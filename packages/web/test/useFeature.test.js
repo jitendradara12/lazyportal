@@ -36,7 +36,16 @@ globalThis.CustomEvent = class CustomEvent {
   }
 };
 
-const { getCached, setCached, STALE_MS, sessionCacheKey, resolveFeatureState } = await import("../src/hooks/useFeature.ts");
+const {
+  getCached,
+  setCached,
+  STALE_MS,
+  sessionCacheKey,
+  resolveFeatureState,
+  getCacheGeneration,
+  isCacheGenerationCurrent,
+  invalidateCacheGeneration,
+} = await import("../src/hooks/useFeature.ts");
 
 test("getCached returns null for missing or empty keys", () => {
   assert.deepEqual(getCached(undefined), { data: null, updatedAt: null });
@@ -93,6 +102,15 @@ test("changing to an uncached feature key hides old data and enters loading stat
     error: null,
     loading: true,
   });
+});
+
+test("logout invalidates cache writes started in the previous session", () => {
+  const requestGeneration = getCacheGeneration();
+  assert.equal(isCacheGenerationCurrent(requestGeneration), true);
+
+  invalidateCacheGeneration();
+
+  assert.equal(isCacheGenerationCurrent(requestGeneration), false);
 });
 
 test("setCached stores data with timestamp and retrieves accurately", () => {

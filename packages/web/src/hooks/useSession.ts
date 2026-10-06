@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { cancelSessionRecovery, getSessionStatus, onSessionStatus, setSessionStatus, store, type SessionStatus } from "../lib/portal";
+import { invalidateCacheGeneration } from "./useFeature";
 import type { Session } from "../types";
 
 function restore(): Session | null {
@@ -20,6 +21,7 @@ export function useSession() {
 
   const logout = useCallback(() => {
     cancelSessionRecovery();
+    invalidateCacheGeneration();
     store.clear();
     try {
       localStorage.removeItem("juet.portal.saved_pw");
