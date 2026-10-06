@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { client } from "../lib/portal";
+import { preserveSelectedInstitute } from "../lib/sessionSelection";
 import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Session, Captcha } from "../types";
 
@@ -109,7 +110,7 @@ export function ReconnectModal({
         } catch {}
       }
 
-      onRenewed(s);
+      onRenewed(preserveSelectedInstitute(s, session));
       window.dispatchEvent(new CustomEvent("juet:refresh-all"));
       onClose();
     } catch (err: unknown) {

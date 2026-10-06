@@ -1,6 +1,7 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
 import { auth, createClient, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
+import { preserveSelectedInstitute } from "./sessionSelection";
 import type { Session } from "../types";
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
@@ -119,18 +120,9 @@ export const client = createClient({
           }, { signal })) as unknown as Session;
           if (signal.aborted) return false;
 
-          // Preserve the user's selected institute: login returns the first
-          // one, but the user may have switched. Overwriting it here used to
-          // refetch every section under a different institute right after a
-          // silent renew (looked like "homepage asks for captcha again").
-          const keepId = s.instituteid ?? fresh.instituteid;
-          const keepName =
-            (s.instituteid != null
-              ? (s.institutelist as { value?: string; label?: string }[] | undefined)?.find(
-                  (o) => String(o.value) === String(s.instituteid),
-                )?.label ?? s.institutename
-              : fresh.institutename) ?? fresh.institutename;
-          const newSession = { ...fresh, instituteid: keepId, institutename: keepName };
+          // Login returns the first institute, but the user may have selected
+          // another one before the silent renewal.
+          const newSession = preserveSelectedInstitute(fresh, s);
 
           if (signal.aborted) return false;
           store.save(newSession);
