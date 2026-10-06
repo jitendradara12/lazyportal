@@ -29,6 +29,34 @@ interface CacheEntry<T> {
   updatedAt: number;
 }
 
+export interface FeatureState<T> {
+  cacheKey: string | undefined;
+  data: T | null;
+  updatedAt: number | null;
+  error: string | null;
+  loading: boolean;
+}
+
+function createFeatureState<T>(cacheKey: string | undefined, enabled: boolean): FeatureState<T> {
+  const cached = getCached<T>(cacheKey);
+  return {
+    cacheKey,
+    data: cached.data,
+    updatedAt: cached.updatedAt,
+    error: null,
+    loading: enabled && cached.data === null,
+  };
+}
+
+/** Never expose one cache key's in-memory result as another key's data. */
+export function resolveFeatureState<T>(
+  state: FeatureState<T>,
+  cacheKey: string | undefined,
+  enabled: boolean,
+): FeatureState<T> {
+  return state.cacheKey === cacheKey ? state : createFeatureState<T>(cacheKey, enabled);
+}
+
 // ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
 const inFlight = new Map<string, Promise<{ data: unknown; updatedAt: number }>>();
 
@@ -87,36 +115,41 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
       ? "all"
       : "dashboard"
   );
-  const initialCache = getCached<T>(cacheKey);
-  const [data, setData] = useState<T | null>(() => initialCache.data);
-  const [updatedAt, setUpdatedAt] = useState<number | null>(() => initialCache.updatedAt);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(() => enabled && initialCache.data === null);
+  const [state, setState] = useState<FeatureState<T>>(() => createFeatureState<T>(cacheKey, enabled));
+  // Resolve against the requested key during render, so an institute/semester
+  // switch cannot briefly show the previous key's data before effects run.
+  const visibleState = resolveFeatureState(state, cacheKey, enabled);
   const [retryKey, setRetryKey] = useState(0);
   const forceRef = useRef(false);
   const runRef = useRef(run);
   runRef.current = run;
 
-  // Sync state immediately when cacheKey changes
+  const setStateForKey = useCallback((key: string | undefined, update: Partial<FeatureState<T>>) => {
+    setState((previous) => {
+      const base = previous.cacheKey === key ? previous : createFeatureState<T>(key, enabled);
+      return { ...base, ...update, cacheKey: key };
+    });
+  }, [enabled]);
+
+  // Store the newly selected key after render; visibleState already switches
+  // synchronously, while this keeps later updates based on the same key.
   useEffect(() => {
-    const c = getCached<T>(cacheKey);
-    setData(c.data);
-    setUpdatedAt(c.updatedAt);
-    setLoading(enabled && c.data === null);
-    setError(null);
+    setState((previous) =>
+      previous.cacheKey === cacheKey ? previous : createFeatureState<T>(cacheKey, enabled),
+    );
   }, [cacheKey, enabled]);
 
   const retry = useCallback(() => {
     forceRef.current = true;
-    setError(null);
+    setStateForKey(cacheKey, { error: null });
     setRetryKey((k) => k + 1);
-  }, []);
+  }, [cacheKey, setStateForKey]);
 
   // Re-fetch live data when a scoped or global refresh is requested
   useEffect(() => {
     const handleRefresh = () => {
       forceRef.current = true;
-      setError(null);
+      setStateForKey(cacheKey, { error: null });
       setRetryKey((k) => k + 1);
     };
 
@@ -136,13 +169,12 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
         window.removeEventListener("juet:refresh-dashboard", handleRefresh);
       }
     };
-  }, [targetScope]);
+  }, [cacheKey, setStateForKey, targetScope]);
 
   useEffect(() => {
     if (!enabled) {
       forceRef.current = false;
-      setLoading(false);
-      setError(null);
+      setStateForKey(cacheKey, { loading: false, error: null });
       return;
     }
     let live = true;
@@ -151,18 +183,19 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     const cached = getCached<T>(cacheKey);
     const isVeryFresh = cached.data && cached.updatedAt && Date.now() - cached.updatedAt < 15_000;
     if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs) {
-      setData(cached.data);
-      setUpdatedAt(cached.updatedAt);
-      setLoading(false);
-      setError(null);
+      setStateForKey(cacheKey, {
+        data: cached.data,
+        updatedAt: cached.updatedAt,
+        loading: false,
+        error: null,
+      });
       return () => void (live = false);
     }
     if (cached.data === null) {
-      // Do not let data from the previous key hide the loading state for this
-      // request (e.g. switching institutes or semesters with an empty cache).
-      setLoading(true);
+      // Keep this key's loading state visible while its request is in flight.
+      setStateForKey(cacheKey, { loading: true });
     }
-    setError(null);
+    setStateForKey(cacheKey, { error: null });
 
     let promise = cacheKey ? inFlight.get(cacheKey) : undefined;
     if (!promise) {
@@ -180,21 +213,20 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     promise.then(
       ({ data: d, updatedAt: time }) => {
         if (!live) return;
-        setData(d as T);
-        setUpdatedAt(time);
-        setLoading(false);
+        setStateForKey(cacheKey, { data: d as T, updatedAt: time, loading: false });
       },
       (e) => {
         if (!live) return;
         if (isUnauthorized(e)) {
           // Only suppress auth errors when this key itself has stale cached
           // data. Data left over from a previous key is not a valid fallback.
-          if (cached.data === null) setError(toMessage(e));
-          setLoading(false);
+          setStateForKey(cacheKey, {
+            ...(cached.data === null ? { error: toMessage(e) } : {}),
+            loading: false,
+          });
           return;
         }
-        setError(toMessage(e));
-        setLoading(false);
+        setStateForKey(cacheKey, { error: toMessage(e), loading: false });
       },
     );
     return () => void (live = false);
@@ -202,5 +234,11 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, retryKey, cacheKey, ...deps]);
 
-  return { data, error, loading, retry, updatedAt };
+  return {
+    data: visibleState.data,
+    error: visibleState.error,
+    loading: visibleState.loading,
+    retry,
+    updatedAt: visibleState.updatedAt,
+  };
 }

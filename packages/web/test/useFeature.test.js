@@ -36,7 +36,7 @@ globalThis.CustomEvent = class CustomEvent {
   }
 };
 
-const { getCached, setCached, STALE_MS, sessionCacheKey } = await import("../src/hooks/useFeature.ts");
+const { getCached, setCached, STALE_MS, sessionCacheKey, resolveFeatureState } = await import("../src/hooks/useFeature.ts");
 
 test("getCached returns null for missing or empty keys", () => {
   assert.deepEqual(getCached(undefined), { data: null, updatedAt: null });
@@ -51,6 +51,48 @@ test("session cache keys are isolated by account and institute", () => {
   assert.match(campusOne, /^att\.initial:/);
   assert.notEqual(campusOne, campusTwo);
   assert.notEqual(campusOne, otherUser);
+});
+
+test("changing a feature cache key immediately resolves to that key's cached state", () => {
+  values.clear();
+  const oldKey = sessionCacheKey("marks.latest", { username: "u1", instituteid: "i1" });
+  const newKey = sessionCacheKey("marks.latest", { username: "u1", instituteid: "i2" });
+  const nextData = { rows: [{ subjectcode: "NEW-CAMPUS" }] };
+  const updatedAt = setCached(newKey, nextData);
+  const oldState = {
+    cacheKey: oldKey,
+    data: { rows: [{ subjectcode: "OLD-CAMPUS" }] },
+    updatedAt: 1,
+    error: "old error",
+    loading: false,
+  };
+
+  assert.deepEqual(resolveFeatureState(oldState, newKey, true), {
+    cacheKey: newKey,
+    data: nextData,
+    updatedAt,
+    error: null,
+    loading: false,
+  });
+});
+
+test("changing to an uncached feature key hides old data and enters loading state", () => {
+  values.clear();
+  const oldState = {
+    cacheKey: "marks.latest:u1:i1",
+    data: { rows: [{ subjectcode: "OLD-CAMPUS" }] },
+    updatedAt: 1,
+    error: "old error",
+    loading: false,
+  };
+
+  assert.deepEqual(resolveFeatureState(oldState, "marks.latest:u1:i2", true), {
+    cacheKey: "marks.latest:u1:i2",
+    data: null,
+    updatedAt: null,
+    error: null,
+    loading: true,
+  });
 });
 
 test("setCached stores data with timestamp and retrieves accurately", () => {
