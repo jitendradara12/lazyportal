@@ -491,7 +491,7 @@ export function AttendancePage({
 
           <button
             type="button"
-            onClick={handleRefresh}
+            onClick={() => void handleRefresh()}
             className={`dash-refresh-btn ${isSyncing ? "is-spinning" : ""}`}
             aria-label="Refresh attendance"
             title={
