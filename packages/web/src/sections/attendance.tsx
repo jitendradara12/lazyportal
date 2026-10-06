@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, STALE_MS } from "../hooks/useFeature";
+import { useFeature, STALE_MS, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
@@ -233,7 +233,7 @@ export function SubjectDetail({
   const detail = useFeature<Record<string, Record<string, unknown>>>({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
-    cacheKey: getSubjectCacheKey(session.username, registrationid, row),
+    cacheKey: getSubjectCacheKey(session.username, registrationid, row, session.instituteid),
     staleTimeMs: STALE_MS,
   });
 
@@ -322,18 +322,20 @@ export interface CombinedAttResult {
 export function getSubjectCacheKey(
   username: string,
   registrationid: string | undefined | null,
-  row: AttRow & Record<string, unknown>
+  row: AttRow & Record<string, unknown>,
+  instituteid?: string | null,
 ): string {
   const subId = row.subjectid ?? row.individualsubjectcode ?? row.subjectcode;
-  return `att.subject:${username}:${registrationid ?? "default"}:${subId}`;
+  return sessionCacheKey("att.subject", { username, instituteid }, registrationid ?? "default", subId);
 }
 
 export function getCachedSubjectDetailEntry(
   username: string,
   registrationid: string | undefined | null,
-  row: AttRow & Record<string, unknown>
+  row: AttRow & Record<string, unknown>,
+  instituteid?: string | null,
 ): { data: Record<string, Record<string, unknown>> | null; updatedAt: number | null } {
-  const key = getSubjectCacheKey(username, registrationid, row);
+  const key = getSubjectCacheKey(username, registrationid, row, instituteid);
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
     if (!raw) return { data: null, updatedAt: null };
@@ -353,9 +355,10 @@ export function getCachedSubjectDetailEntry(
 export function getCachedSubjectDetail(
   username: string,
   registrationid: string | undefined | null,
-  row: AttRow & Record<string, unknown>
+  row: AttRow & Record<string, unknown>,
+  instituteid?: string | null,
 ): Record<string, Record<string, unknown>> | null {
-  return getCachedSubjectDetailEntry(username, registrationid, row).data;
+  return getCachedSubjectDetailEntry(username, registrationid, row, instituteid).data;
 }
 
 export function combinedAttendance(
@@ -502,7 +505,7 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
   return useFeature<AttData>({
     run: () => features.getAttendance(client, session),
     deps: [session],
-    cacheKey: `att.initial:${session.username}`,
+    cacheKey: sessionCacheKey("att.initial", session),
     scope: "all",
   });
 }
@@ -512,7 +515,7 @@ export function useAttendanceSummary(session: SectionProps["session"]) {
   const rows = att.data?.rows ?? [];
   const semId = att.data?.semesters?.[0]?.registrationid;
   const shortsCount = rows.filter((r) => {
-    const cached = getCachedSubjectDetail(session.username, semId != null ? String(semId) : null, r);
+    const cached = getCachedSubjectDetail(session.username, semId != null ? String(semId) : null, r, session.instituteid);
     return combinedAttendance(r, cached).isShort;
   }).length;
   const badgeText = rows.length > 0
@@ -525,7 +528,7 @@ export function AttendanceSection({ session }: SectionProps) {
   const card = useCardState("attendance", true);
   const att = useAttendanceInitial(session);
   const initial = att.data;
-  const [semId, setSemId, sem] = useSemester("attendance", initial?.semesters);
+  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
   const detail = useFeature<{ rows: AttRow[] }>({
     run: () =>
@@ -536,7 +539,7 @@ export function AttendanceSection({ session }: SectionProps) {
       }),
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
-    cacheKey: semId ? `att.detail:${session.username}:${semId}` : undefined,
+    cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);

@@ -1,6 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { AutoTable, CollapsibleCard, SectionError, useCardState } from "../components/DataViews";
 import type { SectionProps } from "../types";
@@ -25,9 +25,9 @@ export function CgpaSection({ session }: SectionProps) {
     run: () => features.getSgpaLatest(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `cgpa.latest:${session.username}`,
+    cacheKey: sessionCacheKey("cgpa.latest", session),
   });
-  const [sty, setSty, sem] = useSemester("cgpa", lov.data?.semesters, (s) => s.stynumber);
+  const [sty, setSty, sem] = useSemester(sessionCacheKey("semester", session, "cgpa"), lov.data?.semesters, (s) => s.stynumber);
   const detail = useFeature<{ semesterList?: Record<string, unknown>[] }>({
     run: () =>
       features.getSgpaDetail(client, session, {
@@ -36,7 +36,7 @@ export function CgpaSection({ session }: SectionProps) {
       }),
     deps: [session, sty],
     enabled: card.hasExpanded && sem !== null,
-    cacheKey: sty ? `cgpa.detail:${session.username}:${sty}` : undefined,
+    cacheKey: sty ? sessionCacheKey("cgpa.detail", session, sty) : undefined,
   });
 
   const semesters = lov.data?.semesters ?? [];

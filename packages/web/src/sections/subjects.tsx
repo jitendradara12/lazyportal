@@ -1,6 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import {
   CollapsibleCard,
   SectionError,
@@ -29,7 +29,7 @@ export function SubjectsSection({ session }: SectionProps) {
     run: () => features.getChoiceSubjectsLatest(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `subjects.latest:${session.username}`,
+    cacheKey: sessionCacheKey("subjects.latest", session),
   });
 
   const rows = latest.data?.rows ?? [];

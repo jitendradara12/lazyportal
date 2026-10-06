@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { getSessionStatus, onSessionStatus, setSessionStatus, store, type SessionStatus } from "../lib/portal";
+import { cancelSessionRecovery, getSessionStatus, onSessionStatus, setSessionStatus, store, type SessionStatus } from "../lib/portal";
+import { invalidateCacheGeneration } from "./useFeature";
 import type { Session } from "../types";
 
 function restore(): Session | null {
@@ -11,6 +12,7 @@ export function useSession() {
   const [status, setStatus] = useState<SessionStatus>(() => (restore() ? getSessionStatus() : "expired"));
 
   const save = useCallback((s: Session) => {
+    cancelSessionRecovery();
     store.save(s);
     setSession(s);
     setSessionStatus("authenticated");
@@ -18,6 +20,8 @@ export function useSession() {
   }, []);
 
   const logout = useCallback(() => {
+    cancelSessionRecovery();
+    invalidateCacheGeneration();
     store.clear();
     try {
       localStorage.removeItem("juet.portal.saved_pw");

@@ -37,7 +37,7 @@ export function SubjectDetailSheet({
 
   const { name } = subjectName(row.subjectcode);
   const base = { registrationid, registrationcode };
-  const cacheKey = getSubjectCacheKey(session.username, registrationid, row);
+  const cacheKey = getSubjectCacheKey(session.username, registrationid, row, session.instituteid);
 
   const detail = useFeature<Record<string, Record<string, unknown>>>({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),

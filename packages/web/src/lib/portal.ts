@@ -1,6 +1,7 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
 import { auth, createClient, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
+import { preserveSelectedInstitute } from "./sessionSelection";
 import type { Session } from "../types";
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
@@ -55,19 +56,21 @@ export const client = createClient({
   baseUrl: BASE_URL,
   getToken: () => store.load()?.token ?? "",
   onSessionStatusChange: (status) => setSessionStatus(status),
-  onRefresh: async () => {
+  onRefresh: async (signal) => {
+    if (signal.aborted) return false;
     const s = store.load();
     if (!s?.username) return false;
 
     // 1. Try lightweight token refresh
     try {
-      const r = await auth.refreshSession(client, s);
+      const r = await auth.refreshSession(client, s, { signal });
+      if (signal.aborted) return false;
       if (r.ok) {
         if (r.token) store.save({ ...s, token: r.token });
-        setSessionStatus("authenticated");
         return true;
       }
     } catch {
+      if (signal.aborted) return false;
       // Upstream token refresh request failed
     }
 
@@ -83,23 +86,28 @@ export const client = createClient({
     if (savedPw) {
       const maxAttempts = 5;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (signal.aborted) return false;
         let cap;
         try {
-          cap = await auth.fetchCaptcha(client);
+          cap = await auth.fetchCaptcha(client, { signal });
         } catch {
+          if (signal.aborted) return false;
           if (typeof navigator !== "undefined" && navigator.onLine === false) {
             return false;
           }
           // Captcha image fetch failed (network/portal blip): retry.
           continue;
         }
+        if (signal.aborted) return false;
         let captchaText = "";
         try {
-          captchaText = await auth.solveCaptcha(cap);
+          captchaText = await auth.solveCaptcha(cap, { signal });
         } catch {
+          if (signal.aborted) return false;
           // Solver threw on this image: try a fresh one.
           continue;
         }
+        if (signal.aborted) return false;
         if (!captchaText) continue;
         try {
           const savedUsertype = (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") || (s.membertype === "P" ? "P" : "S");
@@ -109,26 +117,19 @@ export const client = createClient({
             captchaText,
             captcha: cap,
             usertype: savedUsertype,
-          })) as unknown as Session;
+          }, { signal })) as unknown as Session;
+          if (signal.aborted) return false;
 
-          // Preserve the user's selected institute: login returns the first
-          // one, but the user may have switched. Overwriting it here used to
-          // refetch every section under a different institute right after a
-          // silent renew (looked like "homepage asks for captcha again").
-          const keepId = s.instituteid ?? fresh.instituteid;
-          const keepName =
-            (s.instituteid != null
-              ? (s.institutelist as { value?: string; label?: string }[] | undefined)?.find(
-                  (o) => String(o.value) === String(s.instituteid),
-                )?.label ?? s.institutename
-              : fresh.institutename) ?? fresh.institutename;
-          const newSession = { ...fresh, instituteid: keepId, institutename: keepName };
+          // Login returns the first institute, but the user may have selected
+          // another one before the silent renewal.
+          const newSession = preserveSelectedInstitute(fresh, s);
 
+          if (signal.aborted) return false;
           store.save(newSession);
-          setSessionStatus("authenticated");
           window.dispatchEvent(new CustomEvent("juet:renewed", { detail: newSession }));
           return true;
         } catch (e) {
+          if (signal.aborted) return false;
           const code = (e as { code?: string })?.code;
           const msg = (e as Error)?.message ?? "";
           const isCaptchaErr = code === "CAPTCHA_INVALID" || /captcha/i.test(msg);
@@ -157,3 +158,8 @@ export const client = createClient({
     setSessionStatus("expired");
   },
 });
+
+/** Stop silent recovery when the user explicitly changes or clears the session. */
+export function cancelSessionRecovery() {
+  client.cancelRefresh();
+}

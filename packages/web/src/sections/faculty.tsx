@@ -1,6 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
@@ -24,14 +24,14 @@ export function FacultySection({ session }: SectionProps) {
     run: () => features.getFacultyRegistrations(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `faculty.lov:${session.username}`,
+    cacheKey: sessionCacheKey("faculty.lov", session),
   });
-  const [semId, setSemId, sem] = useSemester("faculty", lov.data);
+  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "faculty"), lov.data);
   const detail = useFeature<{ rows: FacultyRow[]; totalcreditpoints?: unknown }>({
     run: () => features.getFaculties(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
     enabled: card.hasExpanded && sem !== null,
-    cacheKey: semId ? `faculty.detail:${session.username}:${semId}` : undefined,
+    cacheKey: semId ? sessionCacheKey("faculty.detail", session, semId) : undefined,
   });
 
   const rows = detail.data?.rows ?? [];

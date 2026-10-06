@@ -1,6 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { CollapsibleCard, SectionError, useCardState, titleCase, formatSemester } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
@@ -25,9 +25,9 @@ export function GradesSection({ session }: SectionProps) {
     run: () => features.getGradesLatest(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `grades.lov:${session.username}`,
+    cacheKey: sessionCacheKey("grades.lov", session),
   });
-  const [semId, setSemId, sem] = useSemester("grades", lov.data?.semesters);
+  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "grades"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
   const detail = useFeature<GradeRow[]>({
     run: () =>
@@ -38,7 +38,7 @@ export function GradesSection({ session }: SectionProps) {
       }),
     deps: [session, semId],
     enabled: card.hasExpanded && sem !== null && !isDefault,
-    cacheKey: semId ? `grades.detail:${session.username}:${semId}` : undefined,
+    cacheKey: semId ? sessionCacheKey("grades.detail", session, semId) : undefined,
   });
 
   const rows = isDefault ? (lov.data?.rows ?? []) : (detail.data ?? []);

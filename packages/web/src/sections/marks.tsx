@@ -1,6 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
@@ -35,15 +35,15 @@ export function MarksSection({ session }: SectionProps) {
     run: () => features.getMarksLatest(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `marks.latest:${session.username}`,
+    cacheKey: sessionCacheKey("marks.latest", session),
   });
-  const [semId, setSemId, sem] = useSemester("marks", lov.data?.semesters);
+  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
   const detail = useFeature<MarksDetail>({
     run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
     enabled: card.hasExpanded && sem !== null && !isDefault,
-    cacheKey: semId ? `marks.detail:${session.username}:${semId}` : undefined,
+    cacheKey: semId ? sessionCacheKey("marks.detail", session, semId) : undefined,
   });
 
   const rawRows = isDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);

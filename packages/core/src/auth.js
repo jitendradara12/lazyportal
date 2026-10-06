@@ -9,8 +9,8 @@ const GENTOKEN = "/token/generatewebtoken";
 const CAPTCHA = "/token/getcaptcha";
 
 /** GET captcha (public: no auth headers, no preflight). Returns {hidden, image, imageDataUrl}. */
-export async function fetchCaptcha(client) {
-  const body = await client.getPublic(CAPTCHA);
+export async function fetchCaptcha(client, { signal } = {}) {
+  const body = await client.getPublic(CAPTCHA, { signal });
   const c = body.response.captcha;
   return { hidden: c.hidden, image: c.image, imageDataUrl: `data:image/png;base64,${c.image}` };
 }
@@ -20,11 +20,11 @@ export async function fetchCaptcha(client) {
  * Returns {ok, token?}: ok means the old token works again; token is set
  * when the server rotates it (field name varies, so sniff a few keys).
  */
-export async function refreshSession(client, session) {
+export async function refreshSession(client, session, { signal } = {}) {
   const body = await client.postRaw(
     "/token/refreshTokenRequest",
     { username: session.username, tokendate: session.tokendate ?? new Date().toString() },
-    { skipRefresh: true, silent: true }
+    { skipRefresh: true, silent: true, signal }
   );
   const res = body.response ?? {};
   if (res.msg !== "Success") return { ok: false };
@@ -44,11 +44,12 @@ export async function refreshSession(client, session) {
  */
 export async function login(
   client,
-  { username, password, captchaText, captcha, usertype = "S" }
+  { username, password, captchaText, captcha, usertype = "S" },
+  { signal } = {},
 ) {
   const normalized = String(username ?? "").trim().toUpperCase();
   const userField = usertype === "P" && !normalized.startsWith("P") ? `P${normalized}` : normalized;
-  const noRefresh = { skipRefresh: true, silent: true };
+  const noRefresh = { skipRefresh: true, silent: true, signal };
 
   const pre = await client.post(
     PRETOKEN,

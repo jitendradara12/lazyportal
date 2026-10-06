@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, STALE_MS, setCached } from "../hooks/useFeature";
+import { useFeature, STALE_MS, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
@@ -33,10 +33,20 @@ export function AttendancePage({
   onRequestRenew?: () => void;
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshInProgress = useRef(false);
+  const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
+
+  useEffect(() => {
+    pageIsLive.current = true;
+    return () => {
+      pageIsLive.current = false;
+    };
+  }, []);
 
   const [lastSync, setLastSync] = useState<number | null>(() => {
     try {
@@ -64,7 +74,7 @@ export function AttendancePage({
 
   const att = useAttendanceInitial(session);
   const initial = att.data;
-  const [semId, setSemId, sem] = useSemester("attendance", initial?.semesters);
+  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
 
   const detail = useFeature<{ rows: AttRow[] }>({
@@ -76,15 +86,13 @@ export function AttendancePage({
       }),
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
-    cacheKey: semId ? `att.detail:${session.username}:${semId}` : undefined,
+    cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
   const semesters = initial?.semesters ?? [];
 
   const loading = att.loading || detail.loading;
-  const error = att.error ?? detail.error;
-  const retry = att.error ? att.retry : detail.retry;
 
   function doesSubjectNeedDeepFetch(
     r: AttRow & Record<string, unknown>,
@@ -109,7 +117,7 @@ export function AttendancePage({
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
     const map: Record<string, Record<string, unknown>> = {};
     for (const r of rows) {
-      const cached = getCachedSubjectDetail(session.username, semId, r);
+      const cached = getCachedSubjectDetail(session.username, semId, r, session.instituteid);
       if (cached) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
         map[subId] = cached;
@@ -138,7 +146,7 @@ export function AttendancePage({
 
     for (const r of rows) {
       const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-      const entry = getCachedSubjectDetailEntry(session.username, semId, r);
+      const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
       if (entry.data) {
         currentMap[subId] = entry.data;
       }
@@ -172,7 +180,7 @@ export function AttendancePage({
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
             if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
-              const key = getSubjectCacheKey(session.username, semId, r);
+              const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
               try {
                 localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
               } catch {}
@@ -244,18 +252,24 @@ export function AttendancePage({
     return true;
   });
 
-  const handleRefresh = async () => {
-    if (isSyncing || isExpired) return;
-    if (shouldThrottleRefresh()) {
+  const handleRefresh = async (bypassThrottle = false) => {
+    if (refreshInProgress.current || isSyncing || isExpired) return;
+    if (!bypassThrottle && shouldThrottleRefresh()) {
       setIsRefreshing(true);
-      setTimeout(() => setIsRefreshing(false), 600);
+      setTimeout(() => {
+        if (pageIsLive.current) setIsRefreshing(false);
+      }, 600);
       return;
     }
+    const requestGeneration = getCacheGeneration();
+    refreshInProgress.current = true;
+    recordRefreshAttempt();
+    setRefreshError(null);
     setIsRefreshing(true);
 
     try {
       // 1. Fetch fresh base overview first
-      let freshRows: (AttRow & Record<string, unknown>)[] = [];
+      let freshRows: (AttRow & Record<string, unknown>)[] | null = null;
       const basePayload = {
         stynumber: initial?.header?.stynumber,
         registrationid: sem?.registrationid,
@@ -264,27 +278,33 @@ export function AttendancePage({
 
       if (isDefault) {
         const freshAtt = await features.getAttendance(client, session);
+        if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
         if (freshAtt?.rows) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
-          setCached(`att.initial:${session.username}`, freshAtt);
+          setCached(sessionCacheKey("att.initial", session), freshAtt);
         }
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
+        if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
         if (freshDetail?.rows) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
-          setCached(`att.detail:${session.username}:${semId}`, freshDetail);
+          setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
         }
       }
+
+      if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
       // Tell hooks to update from fresh cache
       window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
 
       // 2. Fetch fresh detail only for subjects whose total classes changed or lack detail
-      const activeRows = freshRows.length > 0 ? freshRows : rows;
+      // An empty response is a valid refresh result; only fall back when the
+      // base request did not return a new rows array at all.
+      const activeRows = freshRows ?? rows;
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-        const entry = getCachedSubjectDetailEntry(session.username, semId, r);
+        const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
         if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt)) {
           toFetch.push(r as AttRow & Record<string, unknown>);
         }
@@ -303,16 +323,29 @@ export function AttendancePage({
         const concurrency = 2;
         let isAborted = false;
         let successCount = 0;
+        let detailRefreshError: string | null = null;
         const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-          while (queue.length > 0 && !isAborted && getSessionStatus() !== "expired") {
+          while (
+            queue.length > 0 &&
+            !isAborted &&
+            pageIsLive.current &&
+            isCacheGenerationCurrent(requestGeneration) &&
+            getSessionStatus() !== "expired"
+          ) {
             const r = queue.shift();
             if (!r) break;
             const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
             setSyncingIds((prev) => new Set(prev).add(subId));
             try {
               const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-              if (data && !isAborted && getSessionStatus() !== "expired") {
-                const key = getSubjectCacheKey(session.username, semId, r);
+              if (
+                data &&
+                !isAborted &&
+                pageIsLive.current &&
+                isCacheGenerationCurrent(requestGeneration) &&
+                getSessionStatus() !== "expired"
+              ) {
+                const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
                 try {
                   localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
                 } catch {}
@@ -325,43 +358,74 @@ export function AttendancePage({
               if (code === "SESSION_EXPIRED" || status === 401 || getSessionStatus() === "expired") {
                 isAborted = true;
                 queue.length = 0;
-                setSyncingIds(new Set());
-                setSyncProgress({ done: 0, total: 0 });
+                if (pageIsLive.current) {
+                  setSyncingIds(new Set());
+                  setSyncProgress({ done: 0, total: 0 });
+                }
                 break;
               }
+              if (!detailRefreshError) {
+                detailRefreshError = err instanceof Error ? err.message : String(err);
+              }
             } finally {
-              setSyncingIds((prev) => {
-                const next = new Set(prev);
-                next.delete(subId);
-                return next;
-              });
-              setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+              if (pageIsLive.current) {
+                setSyncingIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(subId);
+                  return next;
+                });
+                setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+              }
             }
           }
         });
 
         await Promise.all(workers);
+        if (
+          detailRefreshError &&
+          pageIsLive.current &&
+          isCacheGenerationCurrent(requestGeneration) &&
+          getSessionStatus() !== "expired"
+        ) {
+          setRefreshError(detailRefreshError);
+        }
 
-        if (!isAborted && successCount > 0 && getSessionStatus() !== "expired") {
+        if (
+          !isAborted &&
+          successCount > 0 &&
+          pageIsLive.current &&
+          isCacheGenerationCurrent(requestGeneration) &&
+          getSessionStatus() !== "expired"
+        ) {
           try {
-            recordRefreshAttempt();
             localStorage.setItem("juet.portal.last_sync", String(Date.now()));
             window.dispatchEvent(new CustomEvent("juet:sync"));
           } catch {}
         }
       } else if (getSessionStatus() !== "expired" && !att.error && !detail.error) {
         try {
-          recordRefreshAttempt();
           localStorage.setItem("juet.portal.last_sync", String(Date.now()));
           window.dispatchEvent(new CustomEvent("juet:sync"));
         } catch {}
       }
+    } catch (err: unknown) {
+      // Session expiry has its own reconnect UI; report ordinary refresh errors
+      // here instead of leaking an unhandled rejection from the click handler.
+      if (pageIsLive.current && getSessionStatus() !== "expired") {
+        setRefreshError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setIsRefreshing(false);
-      setSyncingIds(new Set());
-      setSyncProgress({ done: 0, total: 0 });
+      refreshInProgress.current = false;
+      if (pageIsLive.current) {
+        setIsRefreshing(false);
+        setSyncingIds(new Set());
+        setSyncProgress({ done: 0, total: 0 });
+      }
     }
   };
+
+  const error = refreshError ?? att.error ?? detail.error;
+  const retry = refreshError ? () => handleRefresh(true) : att.error ? att.retry : detail.retry;
 
   return (
     <main className="dash att-page dash-view-enter">
@@ -429,7 +493,7 @@ export function AttendancePage({
 
           <button
             type="button"
-            onClick={handleRefresh}
+            onClick={() => void handleRefresh()}
             className={`dash-refresh-btn ${isSyncing ? "is-spinning" : ""}`}
             aria-label="Refresh attendance"
             title={
