@@ -86,7 +86,8 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     const c = getCached<T>(cacheKey);
     setData(c.data);
     setUpdatedAt(c.updatedAt);
-    if (!c.data && enabled) setLoading(true);
+    setLoading(enabled && c.data === null);
+    setError(null);
   }, [cacheKey, enabled]);
 
   const retry = useCallback(() => {
@@ -140,7 +141,9 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
       setError(null);
       return () => void (live = false);
     }
-    if (!cached.data && !data) {
+    if (cached.data === null) {
+      // Do not let data from the previous key hide the loading state for this
+      // request (e.g. switching institutes or semesters with an empty cache).
       setLoading(true);
     }
     setError(null);
@@ -168,7 +171,9 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
       (e) => {
         if (!live) return;
         if (isUnauthorized(e)) {
-          if (!data) setError(toMessage(e));
+          // Only suppress auth errors when this key itself has stale cached
+          // data. Data left over from a previous key is not a valid fallback.
+          if (cached.data === null) setError(toMessage(e));
           setLoading(false);
           return;
         }

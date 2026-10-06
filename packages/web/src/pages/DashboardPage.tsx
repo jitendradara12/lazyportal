@@ -31,9 +31,10 @@ export function DashboardPage({
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Auto-dismiss renew modal once authenticated (handles background renewal and multi-tab sync)
+  // Silent recovery takes priority over the manual form. Hide it while a
+  // background attempt is active, and after the session is authenticated.
   useEffect(() => {
-    if (!isExpired && !isRecovering) {
+    if (isRecovering || !isExpired) {
       setShowRenewModal(false);
     }
   }, [isExpired, isRecovering]);

@@ -99,20 +99,22 @@ describe("auth", () => {
     assert.equal(session.username, "241B118");
   });
 
-  it("refreshSession posts username+tokendate and sniffs rotated tokens", async () => {
+  it("refreshSession posts username+tokendate and forwards cancellation", async () => {
     let seen;
-    let skip;
+    let options;
     const fakeClient = {
       async postRaw(endpoint, payload, opts) {
         seen = [endpoint, payload];
-        skip = opts?.skipRefresh;
+        options = opts;
         return { response: { msg: "Success", token: "T2" } };
       },
     };
     const { refreshSession } = await import("../src/auth.js");
-    const out = await refreshSession(fakeClient, { username: "u", tokendate: "d" });
+    const controller = new AbortController();
+    const out = await refreshSession(fakeClient, { username: "u", tokendate: "d" }, { signal: controller.signal });
     assert.deepEqual(seen, ["/token/refreshTokenRequest", { username: "u", tokendate: "d" }]);
-    assert.equal(skip, true);
+    assert.equal(options?.skipRefresh, true);
+    assert.equal(options?.signal, controller.signal);
     assert.deepEqual(out, { ok: true, token: "T2" });
   });
 
@@ -141,16 +143,18 @@ describe("auth", () => {
         };
       },
     };
+    const controller = new AbortController();
     await login(fakeClient, {
       username: "221B001",
       password: "p",
       captchaText: "c",
       captcha: { hidden: "h", image: "i" },
-    });
+    }, { signal: controller.signal });
     assert.equal(seenOpts.length, 2);
     for (const [, opts] of seenOpts) {
       assert.equal(opts?.skipRefresh, true);
       assert.equal(opts?.silent, true);
+      assert.equal(opts?.signal, controller.signal);
     }
   });
 });

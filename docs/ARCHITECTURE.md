@@ -15,6 +15,17 @@ Small interfaces, everything tricky behind them. Each module below earns its pla
 
 Tests inject the clock, random source, storage, and fetch, so nothing touches the network.
 
+### Session recovery transitions
+
+`client.js` owns the shared recovery lifecycle: `authenticated → recovering → authenticated`
+when renewal succeeds, or `authenticated → recovering → expired` when it gives up.
+Concurrent 401s join the same attempt; a late 401 reuses a token another request
+already renewed. The 90-second guard aborts the silent refresh/captcha/login work
+before publishing `expired`. A failed token is not silently retried again in the
+background; explicit session save/logout cancels and invalidates any old attempt.
+The portal's HTTP 200 `Failure` session-expired payload follows the same path as
+HTTP 401.
+
 ## Web (`packages/web`)
 
 Wiring only. No crypto, no endpoint strings, no storage wiping.

@@ -20,7 +20,8 @@ export async function fetchAutosolvedCaptcha(
 ): Promise<{ captcha: Captcha | null; text: string; autoSolved: boolean }> {
   if (isFatalSolverError()) {
     try {
-      const c = await auth.fetchCaptcha(client);
+      const c = await auth.fetchCaptcha(client, { signal: opts?.signal });
+      if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
       return { captcha: c, text: "", autoSolved: false };
     } catch {
       return { captcha: null, text: "", autoSolved: false };
@@ -31,21 +32,26 @@ export async function fetchAutosolvedCaptcha(
     if (opts?.signal?.aborted) break;
     let c: Captcha;
     try {
-      c = await auth.fetchCaptcha(client);
+      c = await auth.fetchCaptcha(client, { signal: opts?.signal });
     } catch {
+      if (opts?.signal?.aborted) break;
       if (typeof navigator !== "undefined" && navigator.onLine === false) break;
       // Network blip fetching the image: retry with a fresh fetch.
       continue;
     }
+    if (opts?.signal?.aborted) break;
     last = c;
     try {
-      const solved = await auth.solveCaptcha(c);
+      const solved = await auth.solveCaptcha(c, { signal: opts?.signal });
+      if (opts?.signal?.aborted) break;
       if (solved) return { captcha: c, text: solved, autoSolved: true };
       // Empty = low-confidence guess: fetch a fresh image and try again.
     } catch {
+      if (opts?.signal?.aborted) break;
       // Solver threw on this image: try a fresh one.
     }
   }
+  if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
   return { captcha: last, text: "", autoSolved: false };
 }
 

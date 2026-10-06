@@ -116,9 +116,52 @@ function disambiguate(charA, charB, curX, isDark, lineY, w) {
   return charA;
 }
 
+function abortError() {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
+function waitWithAbort(promise, signal, onAbort) {
+  if (!signal) return Promise.resolve(promise);
+  if (signal.aborted) {
+    try {
+      onAbort?.();
+    } catch {}
+    return Promise.reject(abortError());
+  }
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", handleAbort);
+    const handleAbort = () => {
+      cleanup();
+      try {
+        onAbort?.();
+      } catch {}
+      reject(abortError());
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function solveCaptcha(captcha, options = {}) {
-  const { createCanvas, createImage } = options;
+  const { createCanvas, createImage, signal } = options;
   if (!captcha) return "";
+  throwIfAborted(signal);
 
   const getCanvas =
     createCanvas ??
@@ -139,21 +182,32 @@ export async function solveCaptcha(captcha, options = {}) {
 
   let img;
   if (createImage) {
-    img = await createImage(captcha);
+    img = await waitWithAbort(
+      Promise.resolve().then(() => createImage(captcha)),
+      signal,
+    );
   } else if (typeof Image !== "undefined") {
     img = new Image();
-    img.src = captcha.imageDataUrl || `data:image/png;base64,${captcha.image}`;
+    const imageUrl = captcha.imageDataUrl || `data:image/png;base64,${captcha.image}`;
     if (img.decode) {
-      await img.decode();
+      img.src = imageUrl;
+      await waitWithAbort(img.decode(), signal, () => {
+        img.src = "";
+      });
     } else {
-      await new Promise((resolve, reject) => {
+      const imageLoaded = new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
+      });
+      img.src = imageUrl;
+      await waitWithAbort(imageLoaded, signal, () => {
+        img.src = "";
       });
     }
   } else {
     throw new Error("Image API not available in this environment");
   }
+  throwIfAborted(signal);
 
   const imgCanvas = getCanvas(310, 60);
   const iCtx = imgCanvas.getContext("2d", { willReadFrequently: true });

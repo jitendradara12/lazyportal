@@ -26,6 +26,7 @@ export function ReconnectModal({
   const [showPassword, setShowPassword] = useState(false);
   const [rememberPw, setRememberPw] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const [isAutoSolved, setIsAutoSolved] = useState(false);
@@ -33,10 +34,12 @@ export function ReconnectModal({
   const captchaInputRef = useRef<HTMLInputElement>(null);
   const loading = useRef(false);
   const abortController = useRef<AbortController | null>(null);
+  const submitAbortController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     return () => {
       abortController.current?.abort();
+      submitAbortController.current?.abort();
     };
   }, []);
 
@@ -78,9 +81,11 @@ export function ReconnectModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!captcha || !password) return;
+    if (!captcha || !password || busy || isClosing) return;
     setBusy(true);
     setError(null);
+    const submitController = new AbortController();
+    submitAbortController.current = submitController;
     try {
       const savedUsertype =
         (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") ||
@@ -91,7 +96,8 @@ export function ReconnectModal({
         captchaText: captchaText.trim(),
         captcha,
         usertype: savedUsertype,
-      })) as unknown as Session;
+      }, { signal: submitController.signal })) as unknown as Session;
+      if (submitController.signal.aborted) return;
 
       if (rememberPw) {
         try {
@@ -107,17 +113,18 @@ export function ReconnectModal({
       window.dispatchEvent(new CustomEvent("juet:refresh-all"));
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-      loadCaptcha();
+      if (!submitController.signal.aborted) {
+        setError(err instanceof Error ? err.message : String(err));
+        loadCaptcha();
+      }
     } finally {
-      setBusy(false);
+      submitAbortController.current = null;
+      if (!submitController.signal.aborted) setBusy(false);
     }
   };
 
-  const [isClosing, setIsClosing] = useState(false);
-
   const handleClose = () => {
-    if (isClosing) return;
+    if (isClosing || busy) return;
     setIsClosing(true);
     setTimeout(onClose, 200);
   };
@@ -131,7 +138,7 @@ export function ReconnectModal({
   }, [handleClose]);
 
   const hasSavedPassword = Boolean(savedPw);
-  const ready = captcha !== null && !busy && Boolean(password) && Boolean(captchaText.trim());
+  const ready = captcha !== null && !busy && !isClosing && Boolean(password) && Boolean(captchaText.trim());
 
   return (
     <div className={`modal-backdrop ${isClosing ? "closing" : ""}`} onClick={handleClose} role="presentation">

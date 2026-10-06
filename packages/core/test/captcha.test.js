@@ -15,6 +15,21 @@ describe("captcha", () => {
     );
   });
 
+  it("aborts while waiting for the captcha image to decode", async () => {
+    const controller = new AbortController();
+    const pending = solveCaptcha(
+      { image: "abc" },
+      {
+        signal: controller.signal,
+        createCanvas: () => ({}),
+        createImage: () => new Promise(() => {}),
+      },
+    );
+    await Promise.resolve();
+    controller.abort();
+    await assert.rejects(pending, { name: "AbortError" });
+  });
+
   it("returns empty string on blank image (no confident match)", async () => {
     const mockImage = { width: 310, height: 60 };
 
