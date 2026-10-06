@@ -256,7 +256,9 @@ export function AttendancePage({
     if (refreshInProgress.current || isSyncing || isExpired) return;
     if (!bypassThrottle && shouldThrottleRefresh()) {
       setIsRefreshing(true);
-      setTimeout(() => setIsRefreshing(false), 600);
+      setTimeout(() => {
+        if (pageIsLive.current) setIsRefreshing(false);
+      }, 600);
       return;
     }
     const requestGeneration = getCacheGeneration();
