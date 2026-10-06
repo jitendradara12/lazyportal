@@ -51,6 +51,8 @@ export function ReconnectModal({
     abortController.current = ac;
     loading.current = true;
     setIsCaptchaLoading(true);
+    setCaptcha(null);
+    setCaptchaText("");
     setAutoSolveFailed(false);
     setIsAutoSolved(false);
     try {
@@ -82,7 +84,7 @@ export function ReconnectModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!captcha || !password || busy || isClosing) return;
+    if (!captcha || !password || busy || isCaptchaLoading || isClosing) return;
     setBusy(true);
     setError(null);
     const submitController = new AbortController();
@@ -139,7 +141,7 @@ export function ReconnectModal({
   }, [handleClose]);
 
   const hasSavedPassword = Boolean(savedPw);
-  const ready = captcha !== null && !busy && !isClosing && Boolean(password) && Boolean(captchaText.trim());
+  const ready = captcha !== null && !busy && !isCaptchaLoading && !isClosing && Boolean(password) && Boolean(captchaText.trim());
 
   return (
     <div className={`modal-backdrop ${isClosing ? "closing" : ""}`} onClick={handleClose} role="presentation">

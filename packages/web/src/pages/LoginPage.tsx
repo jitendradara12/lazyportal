@@ -58,6 +58,8 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     abortController.current = ac;
     loading.current = true;
     setIsCaptchaLoading(true);
+    setCaptcha(null);
+    setCaptchaText("");
     setAutoSolveFailed(false);
     setIsAutoSolved(false);
     try {
@@ -103,7 +105,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     userRef.current?.focus();
   };
 
-  const ready = captcha !== null && !busy && Boolean(username.trim()) && Boolean(password) && Boolean(captchaText.trim());
+  const ready = captcha !== null && !busy && !isCaptchaLoading && Boolean(username.trim()) && Boolean(password) && Boolean(captchaText.trim());
 
   return (
     <main className="auth-canvas">
@@ -112,7 +114,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           className="auth-card"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!captcha) return;
+            if (!captcha || busy || isCaptchaLoading) return;
             setBusy(true);
             setError(null);
             try {
