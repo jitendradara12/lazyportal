@@ -36,11 +36,21 @@ globalThis.CustomEvent = class CustomEvent {
   }
 };
 
-const { getCached, setCached, STALE_MS } = await import("../src/hooks/useFeature.ts");
+const { getCached, setCached, STALE_MS, sessionCacheKey } = await import("../src/hooks/useFeature.ts");
 
 test("getCached returns null for missing or empty keys", () => {
   assert.deepEqual(getCached(undefined), { data: null, updatedAt: null });
   assert.deepEqual(getCached("nonexistent"), { data: null, updatedAt: null });
+});
+
+test("session cache keys are isolated by account and institute", () => {
+  const campusOne = sessionCacheKey("att.initial", { username: "u1", instituteid: "i1" });
+  const campusTwo = sessionCacheKey("att.initial", { username: "u1", instituteid: "i2" });
+  const otherUser = sessionCacheKey("att.initial", { username: "u2", instituteid: "i1" });
+
+  assert.match(campusOne, /^att\.initial:/);
+  assert.notEqual(campusOne, campusTwo);
+  assert.notEqual(campusOne, otherUser);
 });
 
 test("setCached stores data with timestamp and retrieves accurately", () => {

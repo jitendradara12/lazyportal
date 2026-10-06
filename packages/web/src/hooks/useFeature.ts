@@ -32,6 +32,22 @@ interface CacheEntry<T> {
 // ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
 const inFlight = new Map<string, Promise<{ data: unknown; updatedAt: number }>>();
 
+/** Build a persistent cache key scoped to both account and selected institute. */
+export function sessionCacheKey(
+  feature: string,
+  session: { username?: unknown; instituteid?: unknown },
+  ...parts: unknown[]
+): string {
+  return [
+    feature,
+    session.username ?? "unknown-user",
+    session.instituteid ?? "default-institute",
+    ...parts.map((part) => part ?? "default"),
+  ]
+    .map((part) => encodeURIComponent(String(part)))
+    .join(":");
+}
+
 export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null } {
   if (!key) return { data: null, updatedAt: null };
   try {

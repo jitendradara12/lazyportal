@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
   CollapsibleCard,
@@ -37,14 +37,14 @@ export function ExamsSection({ session }: SectionProps) {
     run: () => features.getExamSemesters(client, session),
     deps: [session],
     enabled: card.hasExpanded,
-    cacheKey: `exams.sems:${session.username}`,
+    cacheKey: sessionCacheKey("exams.sems", session),
   });
-  const [examSemId, setExamSemId, examSem] = useSemester("exams", examSems.data);
+  const [examSemId, setExamSemId, examSem] = useSemester(sessionCacheKey("semester", session, "exams"), examSems.data);
   const examEvents = useFeature<ExamEvent[]>({
     run: () => features.getExamEvents(client, session, { registrationid: examSemId }),
     deps: [session, examSemId],
     enabled: card.hasExpanded && examSemId !== null,
-    cacheKey: examSemId ? `exams.events:${session.username}:${examSemId}` : undefined,
+    cacheKey: examSemId ? sessionCacheKey("exams.events", session, examSemId) : undefined,
   });
   const [examEventId, setExamEventId] = useState<string | null>(null);
 
@@ -65,7 +65,7 @@ export function ExamsSection({ session }: SectionProps) {
       features.getExamSchedule(client, session, { registrationid: examSemId, exameventid: examEventId }),
     deps: [session, examSemId, examEventId],
     enabled: card.hasExpanded && examSemId !== null && examEventId !== null,
-    cacheKey: examSemId && examEventId ? `exams.rows:${session.username}:${examSemId}:${examEventId}` : undefined,
+    cacheKey: examSemId && examEventId ? sessionCacheKey("exams.rows", session, examSemId, examEventId) : undefined,
   });
 
   const loading = examSems.loading || examEvents.loading || examRows.loading;

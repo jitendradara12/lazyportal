@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, STALE_MS, setCached } from "../hooks/useFeature";
+import { useFeature, STALE_MS, setCached, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
@@ -66,7 +66,7 @@ export function AttendancePage({
 
   const att = useAttendanceInitial(session);
   const initial = att.data;
-  const [semId, setSemId, sem] = useSemester("attendance", initial?.semesters);
+  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
 
   const detail = useFeature<{ rows: AttRow[] }>({
@@ -78,7 +78,7 @@ export function AttendancePage({
       }),
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
-    cacheKey: semId ? `att.detail:${session.username}:${semId}` : undefined,
+    cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
@@ -109,7 +109,7 @@ export function AttendancePage({
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
     const map: Record<string, Record<string, unknown>> = {};
     for (const r of rows) {
-      const cached = getCachedSubjectDetail(session.username, semId, r);
+      const cached = getCachedSubjectDetail(session.username, semId, r, session.instituteid);
       if (cached) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
         map[subId] = cached;
@@ -138,7 +138,7 @@ export function AttendancePage({
 
     for (const r of rows) {
       const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-      const entry = getCachedSubjectDetailEntry(session.username, semId, r);
+      const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
       if (entry.data) {
         currentMap[subId] = entry.data;
       }
@@ -172,7 +172,7 @@ export function AttendancePage({
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
             if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
-              const key = getSubjectCacheKey(session.username, semId, r);
+              const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
               try {
                 localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
               } catch {}
@@ -269,13 +269,13 @@ export function AttendancePage({
         const freshAtt = await features.getAttendance(client, session);
         if (freshAtt?.rows) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
-          setCached(`att.initial:${session.username}`, freshAtt);
+          setCached(sessionCacheKey("att.initial", session), freshAtt);
         }
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
         if (freshDetail?.rows) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
-          setCached(`att.detail:${session.username}:${semId}`, freshDetail);
+          setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
         }
       }
 
@@ -289,7 +289,7 @@ export function AttendancePage({
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-        const entry = getCachedSubjectDetailEntry(session.username, semId, r);
+        const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
         if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt)) {
           toFetch.push(r as AttRow & Record<string, unknown>);
         }
@@ -318,7 +318,7 @@ export function AttendancePage({
             try {
               const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
               if (data && !isAborted && getSessionStatus() !== "expired") {
-                const key = getSubjectCacheKey(session.username, semId, r);
+                const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
                 try {
                   localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
                 } catch {}
