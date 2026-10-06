@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
 import { useFeature, STALE_MS, setCached } from "../hooks/useFeature";
@@ -33,6 +33,8 @@ export function AttendancePage({
   onRequestRenew?: () => void;
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshInProgress = useRef(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
@@ -83,8 +85,6 @@ export function AttendancePage({
   const semesters = initial?.semesters ?? [];
 
   const loading = att.loading || detail.loading;
-  const error = att.error ?? detail.error;
-  const retry = att.error ? att.retry : detail.retry;
 
   function doesSubjectNeedDeepFetch(
     r: AttRow & Record<string, unknown>,
@@ -245,17 +245,20 @@ export function AttendancePage({
   });
 
   const handleRefresh = async () => {
-    if (isSyncing || isExpired) return;
+    if (refreshInProgress.current || isSyncing || isExpired) return;
     if (shouldThrottleRefresh()) {
       setIsRefreshing(true);
       setTimeout(() => setIsRefreshing(false), 600);
       return;
     }
+    refreshInProgress.current = true;
+    recordRefreshAttempt();
+    setRefreshError(null);
     setIsRefreshing(true);
 
     try {
       // 1. Fetch fresh base overview first
-      let freshRows: (AttRow & Record<string, unknown>)[] = [];
+      let freshRows: (AttRow & Record<string, unknown>)[] | null = null;
       const basePayload = {
         stynumber: initial?.header?.stynumber,
         registrationid: sem?.registrationid,
@@ -280,7 +283,9 @@ export function AttendancePage({
       window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
 
       // 2. Fetch fresh detail only for subjects whose total classes changed or lack detail
-      const activeRows = freshRows.length > 0 ? freshRows : rows;
+      // An empty response is a valid refresh result; only fall back when the
+      // base request did not return a new rows array at all.
+      const activeRows = freshRows ?? rows;
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
@@ -303,6 +308,7 @@ export function AttendancePage({
         const concurrency = 2;
         let isAborted = false;
         let successCount = 0;
+        let detailRefreshError: string | null = null;
         const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
           while (queue.length > 0 && !isAborted && getSessionStatus() !== "expired") {
             const r = queue.shift();
@@ -329,6 +335,9 @@ export function AttendancePage({
                 setSyncProgress({ done: 0, total: 0 });
                 break;
               }
+              if (!detailRefreshError) {
+                detailRefreshError = err instanceof Error ? err.message : String(err);
+              }
             } finally {
               setSyncingIds((prev) => {
                 const next = new Set(prev);
@@ -341,27 +350,38 @@ export function AttendancePage({
         });
 
         await Promise.all(workers);
+        if (detailRefreshError && getSessionStatus() !== "expired") {
+          setRefreshError(detailRefreshError);
+        }
 
         if (!isAborted && successCount > 0 && getSessionStatus() !== "expired") {
           try {
-            recordRefreshAttempt();
             localStorage.setItem("juet.portal.last_sync", String(Date.now()));
             window.dispatchEvent(new CustomEvent("juet:sync"));
           } catch {}
         }
       } else if (getSessionStatus() !== "expired" && !att.error && !detail.error) {
         try {
-          recordRefreshAttempt();
           localStorage.setItem("juet.portal.last_sync", String(Date.now()));
           window.dispatchEvent(new CustomEvent("juet:sync"));
         } catch {}
       }
+    } catch (err: unknown) {
+      // Session expiry has its own reconnect UI; report ordinary refresh errors
+      // here instead of leaking an unhandled rejection from the click handler.
+      if (getSessionStatus() !== "expired") {
+        setRefreshError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
+      refreshInProgress.current = false;
       setIsRefreshing(false);
       setSyncingIds(new Set());
       setSyncProgress({ done: 0, total: 0 });
     }
   };
+
+  const error = refreshError ?? att.error ?? detail.error;
+  const retry = refreshError ? handleRefresh : att.error ? att.retry : detail.retry;
 
   return (
     <main className="dash att-page dash-view-enter">
