@@ -252,9 +252,9 @@ export function AttendancePage({
     return true;
   });
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (bypassThrottle = false) => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
-    if (shouldThrottleRefresh()) {
+    if (!bypassThrottle && shouldThrottleRefresh()) {
       setIsRefreshing(true);
       setTimeout(() => setIsRefreshing(false), 600);
       return;
@@ -423,7 +423,7 @@ export function AttendancePage({
   };
 
   const error = refreshError ?? att.error ?? detail.error;
-  const retry = refreshError ? handleRefresh : att.error ? att.retry : detail.retry;
+  const retry = refreshError ? () => handleRefresh(true) : att.error ? att.retry : detail.retry;
 
   return (
     <main className="dash att-page dash-view-enter">
