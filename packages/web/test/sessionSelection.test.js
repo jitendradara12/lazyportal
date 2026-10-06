@@ -28,7 +28,12 @@ test("a fresh login retains the currently selected institute", () => {
 });
 
 test("a current institute name is a fallback when its label is missing", () => {
-  const fresh = { token: "new-token", instituteid: "campus-one", institutename: "Campus One" };
+  const fresh = {
+    token: "new-token",
+    instituteid: "campus-one",
+    institutename: "Campus One",
+    institutelist: [{ value: "campus-two" }],
+  };
   const current = { instituteid: "campus-two", institutename: "Saved Campus Name" };
 
   assert.deepEqual(preserveSelectedInstitute(fresh, current), {
@@ -36,6 +41,22 @@ test("a current institute name is a fallback when its label is missing", () => {
     instituteid: "campus-two",
     institutename: "Saved Campus Name",
   });
+});
+
+test("falls back to the fresh default when the selected institute is no longer available", () => {
+  const fresh = {
+    token: "new-token",
+    instituteid: "campus-one",
+    institutename: "Campus One",
+    institutelist: [{ value: "campus-one", label: "Campus One" }],
+  };
+  const current = {
+    instituteid: "campus-two",
+    institutename: "Campus Two",
+    institutelist: [{ value: "campus-two", label: "Campus Two" }],
+  };
+
+  assert.deepEqual(preserveSelectedInstitute(fresh, current), fresh);
 });
 
 test("use the newly logged-in default when no institute had previously been selected", () => {
