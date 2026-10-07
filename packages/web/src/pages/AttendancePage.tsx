@@ -275,7 +275,7 @@ export function AttendancePage({
     if (!isErrorRetry) {
       if (isDefault && !quota.canRefresh) {
         if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setQuotaNotice("Up to date with portal • Refresh resets at 2:00 AM IST");
+        setQuotaNotice("Up to date with portal");
         noticeTimer.current = setTimeout(() => {
           if (pageIsLive.current) setQuotaNotice(null);
         }, 2500);
@@ -283,7 +283,7 @@ export function AttendancePage({
       }
       if (shouldThrottleRefresh()) {
         if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setQuotaNotice("Please wait 2 minutes between refreshes");
+        setQuotaNotice("already up to date bro");
         noticeTimer.current = setTimeout(() => {
           if (pageIsLive.current) setQuotaNotice(null);
         }, 2000);
