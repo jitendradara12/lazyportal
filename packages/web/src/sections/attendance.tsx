@@ -4,6 +4,13 @@ import { client } from "../lib/portal";
 import { useFeature, STALE_MS, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
+  isCurrentPortalDay,
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
+} from "../lib/portalSchedule";
+
+export { computeSubjectRowChecksum, doesSubjectNeedDeepFetch };
+import {
   CollapsibleCard,
   SectionError,
   useCardState,
@@ -329,26 +336,33 @@ export function getSubjectCacheKey(
   return sessionCacheKey("att.subject", { username, instituteid }, registrationid ?? "default", subId);
 }
 
+export interface SubjectDetailCacheEntry {
+  data: Record<string, Record<string, unknown>> | null;
+  updatedAt: number | null;
+  checksum?: string | null;
+}
+
 export function getCachedSubjectDetailEntry(
   username: string,
   registrationid: string | undefined | null,
   row: AttRow & Record<string, unknown>,
   instituteid?: string | null,
-): { data: Record<string, Record<string, unknown>> | null; updatedAt: number | null } {
+): SubjectDetailCacheEntry {
   const key = getSubjectCacheKey(username, registrationid, row, instituteid);
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
-    if (!raw) return { data: null, updatedAt: null };
+    if (!raw) return { data: null, updatedAt: null, checksum: null };
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "data" in parsed) {
       return {
         data: parsed.data as Record<string, Record<string, unknown>>,
         updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : null,
+        checksum: typeof parsed.checksum === "string" ? parsed.checksum : null,
       };
     }
-    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null };
+    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null, checksum: null };
   } catch {
-    return { data: null, updatedAt: null };
+    return { data: null, updatedAt: null, checksum: null };
   }
 }
 
@@ -506,6 +520,7 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
     run: () => features.getAttendance(client, session),
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
+    isFresh: (updatedAt) => isCurrentPortalDay(updatedAt),
     scope: "all",
   });
 }
@@ -540,6 +555,7 @@ export function AttendanceSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
+    isFresh: (updatedAt) => isCurrentPortalDay(updatedAt),
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);

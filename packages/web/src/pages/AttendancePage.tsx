@@ -1,10 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
 import { useFeature, STALE_MS, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
+import {
+  getManualRefreshQuota,
+  recordSuccessfulManualRefresh,
+  formatQuotaStatus,
+  isCurrentPortalDay,
+  type RefreshQuotaState,
+} from "../lib/portalSchedule";
 import type { Session } from "../types";
 import {
   type AttRow,
@@ -14,6 +21,8 @@ import {
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
   getSubjectCacheKey,
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
   useAttendanceInitial,
 } from "../sections/attendance";
 
@@ -72,6 +81,20 @@ export function AttendancePage({
     };
   }, []);
 
+  const [refreshQuota, setRefreshQuota] = useState<RefreshQuotaState>(() => getManualRefreshQuota(session));
+
+  useEffect(() => {
+    const updateQuota = () => {
+      setRefreshQuota(getManualRefreshQuota(session));
+    };
+    window.addEventListener("juet:quota-changed", updateQuota);
+    window.addEventListener("storage", updateQuota);
+    return () => {
+      window.removeEventListener("juet:quota-changed", updateQuota);
+      window.removeEventListener("storage", updateQuota);
+    };
+  }, [session]);
+
   const att = useAttendanceInitial(session);
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
@@ -87,31 +110,13 @@ export function AttendancePage({
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
+    isFresh: (updatedAt) => isCurrentPortalDay(updatedAt),
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
   const semesters = initial?.semesters ?? [];
 
   const loading = att.loading || detail.loading;
-
-  function doesSubjectNeedDeepFetch(
-    r: AttRow & Record<string, unknown>,
-    cached: Record<string, Record<string, unknown>> | null,
-    cachedUpdatedAt: number | null
-  ): boolean {
-    if (!cached || Object.keys(cached).length === 0) return true;
-    const rowStats = combinedAttendance(r);
-    if (rowStats.totalClasses > 0) {
-      const cachedStats = combinedAttendance(r, cached);
-      return rowStats.totalClasses !== cachedStats.totalClasses;
-    }
-    // For rows lacking total class counts (e.g. percentage-only rows or 0 classes),
-    // revalidate if cache timestamp is missing or older than 2h.
-    if (!cachedUpdatedAt || Date.now() - cachedUpdatedAt > STALE_MS) {
-      return true;
-    }
-    return false;
-  }
 
   // Cache-backed map of subject details for accurate L+T aggregation
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
@@ -150,7 +155,7 @@ export function AttendancePage({
       if (entry.data) {
         currentMap[subId] = entry.data;
       }
-      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt)) {
+      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
         toFetch.push(r as AttRow & Record<string, unknown>);
       }
     }
@@ -181,8 +186,9 @@ export function AttendancePage({
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
             if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
               const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
+              const checksum = computeSubjectRowChecksum(r);
               try {
-                localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
+                localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now(), checksum }));
               } catch {}
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
               successCount++;
@@ -239,28 +245,47 @@ export function AttendancePage({
 
   const isSyncing = !isExpired && (isRefreshing || loading || syncingIds.size > 0);
 
-  const shortsCount = rows.filter((r) => {
-    const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-    return combinedAttendance(r, detailsMap[subId]).isShort;
-  }).length;
-
-  const filteredRows = rows.filter((r) => {
-    if (filter === "short") {
+  // Memoize counts and filtering in a single O(N) pass to preserve smooth CPU/memory on mobile
+  const { shortsCount, filteredRows } = useMemo(() => {
+    let count = 0;
+    const filtered: (AttRow & Record<string, unknown>)[] = [];
+    for (const r of rows) {
       const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-      return combinedAttendance(r, detailsMap[subId]).isShort;
+      const isShort = combinedAttendance(r, detailsMap[subId]).isShort;
+      if (isShort) count++;
+      if (filter === "all" || isShort) {
+        filtered.push(r as AttRow & Record<string, unknown>);
+      }
     }
-    return true;
-  });
+    return { shortsCount: count, filteredRows: filtered };
+  }, [rows, detailsMap, filter]);
 
   const handleRefresh = async (bypassThrottle = false) => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
-    if (!bypassThrottle && shouldThrottleRefresh()) {
-      setIsRefreshing(true);
-      setTimeout(() => {
-        if (pageIsLive.current) setIsRefreshing(false);
-      }, 600);
-      return;
+
+    const hasActiveError = Boolean(refreshError || att.error || detail.error);
+    const isErrorRetry = bypassThrottle || hasActiveError;
+
+    // Normal manual refresh checks daily quota and rapid-click throttle.
+    // Retrying an error bypasses quota checks (never lock out a user on network drop).
+    if (!isErrorRetry) {
+      const quota = getManualRefreshQuota(session);
+      if (!quota.canRefresh) {
+        setIsRefreshing(true);
+        setTimeout(() => {
+          if (pageIsLive.current) setIsRefreshing(false);
+        }, 400);
+        return;
+      }
+      if (shouldThrottleRefresh()) {
+        setIsRefreshing(true);
+        setTimeout(() => {
+          if (pageIsLive.current) setIsRefreshing(false);
+        }, 600);
+        return;
+      }
     }
+
     const requestGeneration = getCacheGeneration();
     refreshInProgress.current = true;
     recordRefreshAttempt();
@@ -282,6 +307,8 @@ export function AttendancePage({
         if (freshAtt?.rows) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.initial", session), freshAtt);
+        } else {
+          throw new Error("Portal returned no attendance data");
         }
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
@@ -289,23 +316,29 @@ export function AttendancePage({
         if (freshDetail?.rows) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
+        } else {
+          throw new Error("Portal returned no attendance data");
         }
       }
 
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
+      // Base request succeeded with actual data! Deduct quota only on verified success
+      if (!isErrorRetry) {
+        recordSuccessfulManualRefresh(session);
+        setRefreshQuota(getManualRefreshQuota(session));
+      }
+
       // Tell hooks to update from fresh cache
       window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
 
-      // 2. Fetch fresh detail only for subjects whose total classes changed or lack detail
-      // An empty response is a valid refresh result; only fall back when the
-      // base request did not return a new rows array at all.
+      // 2. Fetch fresh detail only for subjects whose checksum changed or lack detail
       const activeRows = freshRows ?? rows;
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
         const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
-        if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt)) {
+        if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt, entry.checksum)) {
           toFetch.push(r as AttRow & Record<string, unknown>);
         }
       }
@@ -346,8 +379,9 @@ export function AttendancePage({
                 getSessionStatus() !== "expired"
               ) {
                 const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
+                const checksum = computeSubjectRowChecksum(r);
                 try {
-                  localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
+                  localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now(), checksum }));
                 } catch {}
                 setDetailsMap((prev) => ({ ...prev, [subId]: data }));
                 successCount++;
@@ -499,11 +533,13 @@ export function AttendancePage({
             title={
               isSyncing
                 ? "Refreshing attendance…"
+                : !refreshQuota.canRefresh && !error
+                ? formatQuotaStatus(refreshQuota)
                 : shouldThrottleRefresh() && lastSync
                 ? `Up to date (synced ${formatLastSync(lastSync)})`
                 : "Refresh attendance"
             }
-            disabled={isSyncing}
+            disabled={isSyncing || (!refreshQuota.canRefresh && !error)}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="23 4 23 10 17 10" />

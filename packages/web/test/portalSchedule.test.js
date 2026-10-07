@@ -1,0 +1,193 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+const values = new Map();
+let dispatchedEvents = [];
+
+globalThis.window = {
+  dispatchEvent(event) {
+    dispatchedEvents.push(event.type);
+    return true;
+  },
+  addEventListener() {},
+  removeEventListener() {},
+};
+
+globalThis.localStorage = {
+  getItem(key) {
+    return values.get(key) ?? null;
+  },
+  setItem(key, value) {
+    values.set(key, String(value));
+  },
+  removeItem(key) {
+    values.delete(key);
+  },
+  clear() {
+    values.clear();
+  },
+};
+
+globalThis.CustomEvent = class CustomEvent {
+  constructor(type, init) {
+    this.type = type;
+    this.detail = init?.detail;
+  }
+};
+
+const {
+  getPortalDayKey,
+  isCurrentPortalDay,
+  getNextPortalResetTimestamp,
+  getMsUntilNextPortalDay,
+  formatTimeUntilReset,
+  getManualRefreshQuota,
+  recordSuccessfulManualRefresh,
+  DAILY_MANUAL_REFRESH_LIMIT,
+  PORTAL_DAY_CUTOFF_HOUR_IST,
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
+} = await import("../src/lib/portalSchedule.ts");
+
+test("portal day cutoff is 2:00 AM IST", () => {
+  assert.equal(PORTAL_DAY_CUTOFF_HOUR_IST, 2);
+  assert.equal(DAILY_MANUAL_REFRESH_LIMIT, 1);
+});
+
+test("01:59:59 IST belongs to previous portal day, 02:00:00 IST starts new portal day", () => {
+  // 2026-10-07 01:59:59 IST is UTC 2026-10-06 20:29:59
+  const beforeCutoff = Date.UTC(2026, 9, 6, 20, 29, 59);
+  // 2026-10-07 02:00:00 IST is UTC 2026-10-06 20:30:00
+  const atCutoff = Date.UTC(2026, 9, 6, 20, 30, 0);
+  // 2026-10-07 14:00:00 IST is UTC 2026-10-07 08:30:00
+  const midDay = Date.UTC(2026, 9, 7, 8, 30, 0);
+
+  assert.equal(getPortalDayKey(beforeCutoff), "2026-10-06");
+  assert.equal(getPortalDayKey(atCutoff), "2026-10-07");
+  assert.equal(getPortalDayKey(midDay), "2026-10-07");
+});
+
+test("isCurrentPortalDay correctly identifies timestamps in same portal day", () => {
+  const morning = Date.UTC(2026, 9, 7, 3, 30, 0); // 09:00 AM IST
+  const evening = Date.UTC(2026, 9, 7, 14, 30, 0); // 08:00 PM IST
+  const nextNight = Date.UTC(2026, 9, 7, 19, 30, 0); // 01:00 AM IST next day (Oct 8)
+  const afterReset = Date.UTC(2026, 9, 7, 20, 35, 0); // 02:05 AM IST next day (Oct 8)
+
+  assert.equal(isCurrentPortalDay(morning, evening), true);
+  assert.equal(isCurrentPortalDay(morning, nextNight), true);
+  assert.equal(isCurrentPortalDay(morning, afterReset), false);
+  assert.equal(isCurrentPortalDay(null, evening), false);
+  assert.equal(isCurrentPortalDay(undefined, evening), false);
+  assert.equal(isCurrentPortalDay(0, evening), false);
+});
+
+test("getNextPortalResetTimestamp returns exact upcoming 02:00 AM IST", () => {
+  const midDay = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST on Oct 7
+  const nextReset = getNextPortalResetTimestamp(midDay);
+  // Upcoming reset should be Oct 8 02:00 AM IST = UTC Oct 7 20:30:00
+  assert.equal(nextReset, Date.UTC(2026, 9, 7, 20, 30, 0));
+  assert.equal(getMsUntilNextPortalDay(midDay), 12 * 3600 * 1000);
+});
+
+test("formatTimeUntilReset formats hours and minutes correctly", () => {
+  assert.equal(formatTimeUntilReset(0), "shortly");
+  assert.equal(formatTimeUntilReset(45 * 60 * 1000), "45m");
+  assert.equal(formatTimeUntilReset((2 * 3600 + 15 * 60) * 1000), "2h 15m");
+});
+
+test("manual refresh quota enforces daily limit and resets automatically on new portal day", () => {
+  values.clear();
+  dispatchedEvents = [];
+  const session = { username: "student123", instituteid: "juet" };
+  const day1Time = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST Oct 7
+  const day2Time = Date.UTC(2026, 9, 7, 21, 0, 0); // 02:30 IST Oct 8 (new portal day)
+
+  // Initially full quota
+  const initial = getManualRefreshQuota(session, day1Time);
+  assert.equal(initial.used, 0);
+  assert.equal(initial.remaining, 1);
+  assert.equal(initial.canRefresh, true);
+
+  // Record 1 successful manual refresh
+  const after1 = recordSuccessfulManualRefresh(session, day1Time);
+  assert.equal(after1.used, 1);
+  assert.equal(after1.remaining, 0);
+  assert.equal(after1.canRefresh, false);
+  assert.ok(dispatchedEvents.includes("juet:quota-changed"));
+
+  // Checking quota on same day reports exhausted
+  const checkSameDay = getManualRefreshQuota(session, day1Time);
+  assert.equal(checkSameDay.used, 1);
+  assert.equal(checkSameDay.remaining, 0);
+  assert.equal(checkSameDay.canRefresh, false);
+
+  // On day 2 (after 2 AM IST), quota automatically resets!
+  const day2Check = getManualRefreshQuota(session, day2Time);
+  assert.equal(day2Check.used, 0);
+  assert.equal(day2Check.remaining, 1);
+  assert.equal(day2Check.canRefresh, true);
+});
+
+test("quota is isolated between different students and institutes", () => {
+  values.clear();
+  const time = Date.UTC(2026, 9, 7, 8, 30, 0);
+  const s1 = { username: "student1", instituteid: "juet" };
+  const s2 = { username: "student2", instituteid: "juet" };
+
+  recordSuccessfulManualRefresh(s1, time);
+  assert.equal(getManualRefreshQuota(s1, time).canRefresh, false);
+  assert.equal(getManualRefreshQuota(s2, time).canRefresh, true);
+});
+
+test("computeSubjectRowChecksum produces deterministic signature of subject row", () => {
+  const rowA = {
+    subjectcode: "CS101",
+    totalclass: 20,
+    totalpresent: 18,
+    Ltotalclass: 15,
+    Ltotalpresent: 14,
+    Lpercentage: "93.3",
+    Ttotalclass: 5,
+    Ttotalpresent: 4,
+    Tpercentage: "80.0",
+  };
+  const chkA = computeSubjectRowChecksum(rowA);
+  assert.equal(chkA, computeSubjectRowChecksum({ ...rowA }));
+
+  // Changing present count alters checksum (detecting attendance corrections)
+  const rowCorrection = { ...rowA, totalpresent: 19, Ltotalpresent: 15 };
+  const chkCorr = computeSubjectRowChecksum(rowCorrection);
+  assert.notEqual(chkA, chkCorr);
+
+  // Changing class count alters checksum
+  const rowNewClass = { ...rowA, totalclass: 21, totalpresent: 19 };
+  const chkNew = computeSubjectRowChecksum(rowNewClass);
+  assert.notEqual(chkA, chkNew);
+});
+
+test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () => {
+  const row = {
+    subjectcode: "CS101",
+    totalclass: 20,
+    totalpresent: 18,
+    Ltotalclass: 20,
+    Ltotalpresent: 18,
+  };
+  const checksum = computeSubjectRowChecksum(row);
+  const dummyDetail = { L: { totalclass: 20, totalpresent: 18 } };
+
+  // 1. Missing detail -> needs fetch
+  assert.equal(doesSubjectNeedDeepFetch(row, null, Date.now(), checksum), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, {}, Date.now(), checksum), true);
+
+  // 2. Matching checksum -> SKIPS fetch (saves network call and memory)
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, Date.now(), checksum), false);
+
+  // 3. Different checksum (e.g. teacher gave attendance for 1 more lecture) -> needs fetch
+  const updatedRow = { ...row, totalclass: 21, totalpresent: 19 };
+  assert.equal(doesSubjectNeedDeepFetch(updatedRow, dummyDetail, Date.now(), checksum), true);
+
+  // 4. Attendance correction (total classes stayed 20, but present changed from 18 to 19) -> needs fetch!
+  const correctedRow = { ...row, totalpresent: 19 };
+  assert.equal(doesSubjectNeedDeepFetch(correctedRow, dummyDetail, Date.now(), checksum), true);
+});

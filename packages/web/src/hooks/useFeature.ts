@@ -10,6 +10,8 @@ interface UseFeatureOptions<T> {
   cacheKey?: string;
   /** Skip network when cache is fresher than this (default 2h). */
   staleTimeMs?: number;
+  /** Custom freshness check (e.g. portal day schedule). Overrides staleTimeMs when provided. */
+  isFresh?: (updatedAt: number | null) => boolean;
   scope?: "dashboard" | "attendance" | "all";
 }
 
@@ -123,7 +125,7 @@ export function setCached<T>(key: string | undefined, data: T): number {
 
 export const STALE_MS = 2 * 60 * 60 * 1000;
 
-export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS, scope }: UseFeatureOptions<T>) {
+export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS, isFresh, scope }: UseFeatureOptions<T>) {
   const targetScope = scope ?? (
     cacheKey?.startsWith("att.subject") || cacheKey?.startsWith("att.detail")
       ? "attendance"
@@ -198,7 +200,10 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     forceRef.current = false;
     const cached = getCached<T>(cacheKey);
     const isVeryFresh = cached.data && cached.updatedAt && Date.now() - cached.updatedAt < 15_000;
-    if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs) {
+    const isFreshEntry = isFresh
+      ? isFresh(cached.updatedAt)
+      : Boolean(cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs);
+    if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && isFreshEntry) {
       setStateForKey(cacheKey, {
         data: cached.data,
         updatedAt: cached.updatedAt,

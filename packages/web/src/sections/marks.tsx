@@ -29,6 +29,8 @@ interface MarksLatest extends MarksDetail {
   registrationcode?: string | null;
 }
 
+export const MARKS_STALE_MS = 12 * 60 * 60 * 1000; // 12 hours
+
 export function MarksSection({ session }: SectionProps) {
   const card = useCardState("marks", false);
   const lov = useFeature<MarksLatest>({
@@ -36,6 +38,7 @@ export function MarksSection({ session }: SectionProps) {
     deps: [session],
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("marks.latest", session),
+    staleTimeMs: MARKS_STALE_MS,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
@@ -44,6 +47,7 @@ export function MarksSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: card.hasExpanded && sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("marks.detail", session, semId) : undefined,
+    staleTimeMs: MARKS_STALE_MS,
   });
 
   const rawRows = isDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);
