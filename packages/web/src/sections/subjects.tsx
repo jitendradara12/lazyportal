@@ -1,6 +1,7 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
+import { FEATURE_TTL } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -30,6 +31,7 @@ export function SubjectsSection({ session }: SectionProps) {
     deps: [session],
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("subjects.latest", session),
+    staleTimeMs: FEATURE_TTL.subjects,
   });
 
   const rows = latest.data?.rows ?? [];

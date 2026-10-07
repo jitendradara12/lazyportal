@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { getSessionStatus } from "../lib/portal";
 import { titleCase, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
+import { subscribePortalDayRollover } from "../lib/portalSchedule";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { useAttendanceSummary } from "../sections/attendance";
@@ -30,6 +31,15 @@ export function DashboardPage({
 }) {
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const isMounted = useRef(true);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const spinBriefly = () => {
+    setIsRefreshing(true);
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      if (isMounted.current) setIsRefreshing(false);
+    }, 600);
+  };
 
   // Silent recovery takes priority over the manual form. Hide it while a
   // background attempt is active, and after the session is authenticated.
@@ -48,18 +58,30 @@ export function DashboardPage({
     }
   });
 
+  const [, setPortalDayTick] = useState(0);
+
   useEffect(() => {
+    isMounted.current = true;
+    const unsubRollover = subscribePortalDayRollover(() => {
+      if (isMounted.current) {
+        setPortalDayTick((t) => t + 1);
+      }
+    });
+
     const update = () => {
       try {
         const raw = localStorage.getItem("juet.portal.last_sync");
         if (raw) setLastSync(Number(raw));
       } catch {}
-      setIsRefreshing(false);
+      if (isMounted.current) setIsRefreshing(false);
     };
     window.addEventListener("storage", update);
     window.addEventListener("juet:sync", update);
     const interval = setInterval(update, 30000);
     return () => {
+      isMounted.current = false;
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      unsubRollover();
       window.removeEventListener("storage", update);
       window.removeEventListener("juet:sync", update);
       clearInterval(interval);
@@ -70,19 +92,14 @@ export function DashboardPage({
   const isSpinning = isRefreshing || attSummary.loading;
 
   const handleRefresh = async () => {
+    // Quota is attendance-manual-refresh only by design; dashboard just revalidates section caches.
     if (isSpinning) return;
     if (shouldThrottleRefresh()) {
-      setIsRefreshing(true);
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 600);
+      spinBriefly();
       return;
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setIsRefreshing(true);
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 600);
+      spinBriefly();
       return;
     }
 
@@ -93,9 +110,7 @@ export function DashboardPage({
         recordRefreshAttempt();
       }
     } finally {
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 600);
+      spinBriefly();
     }
   };
 
@@ -188,7 +203,7 @@ export function DashboardPage({
                   <span className="sync-pulse-dot" aria-hidden="true" /> Refreshing…
                 </>
               ) : lastSync ? (
-                `Refreshed ${formatLastSync(lastSync)}`
+                formatLastSync(lastSync)
               ) : (
                 "Live"
               )}
@@ -227,7 +242,13 @@ export function DashboardPage({
             onClick={handleRefresh}
             className={`dash-refresh-btn ${isSpinning ? "is-spinning" : ""}`}
             aria-label="Refresh portal data"
-            title={isSpinning ? "Refreshing portal data…" : "Refresh portal data"}
+            title={
+              isSpinning
+                ? "Refreshing portal data…"
+                : shouldThrottleRefresh() && lastSync
+                ? formatLastSync(lastSync)
+                : "Refresh portal data"
+            }
             disabled={isSpinning}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

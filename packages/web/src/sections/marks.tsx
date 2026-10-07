@@ -2,6 +2,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
+import { FEATURE_TTL } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -36,6 +37,7 @@ export function MarksSection({ session }: SectionProps) {
     deps: [session],
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("marks.latest", session),
+    staleTimeMs: FEATURE_TTL.marks,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
@@ -44,6 +46,7 @@ export function MarksSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: card.hasExpanded && sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("marks.detail", session, semId) : undefined,
+    staleTimeMs: FEATURE_TTL.marks,
   });
 
   const rawRows = isDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);

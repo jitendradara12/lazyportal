@@ -1,8 +1,15 @@
 import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, STALE_MS, sessionCacheKey } from "../hooks/useFeature";
+import { useFeature, setCached, getCached, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
+import {
+  isCurrentPortalDay,
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
+  FEATURE_TTL,
+  type SessionRef,
+} from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -234,7 +241,12 @@ export function SubjectDetail({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey: getSubjectCacheKey(session.username, registrationid, row, session.instituteid),
-    staleTimeMs: STALE_MS,
+    staleTimeMs: FEATURE_TTL.subjects,
+    isFresh: (updatedAt) => {
+      const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
+      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
+    },
+    writeExtra: () => ({ checksum: computeSubjectRowChecksum(row) }),
   });
 
   if (detail.loading && !detail.data) return <p className="muted">Loading class breakdown…</p>;
@@ -329,27 +341,25 @@ export function getSubjectCacheKey(
   return sessionCacheKey("att.subject", { username, instituteid }, registrationid ?? "default", subId);
 }
 
+export interface SubjectDetailCacheEntry {
+  data: Record<string, Record<string, unknown>> | null;
+  updatedAt: number | null;
+  checksum?: string | null;
+}
+
 export function getCachedSubjectDetailEntry(
   username: string,
   registrationid: string | undefined | null,
   row: AttRow & Record<string, unknown>,
   instituteid?: string | null,
-): { data: Record<string, Record<string, unknown>> | null; updatedAt: number | null } {
+): SubjectDetailCacheEntry {
   const key = getSubjectCacheKey(username, registrationid, row, instituteid);
-  try {
-    const raw = localStorage.getItem(`juet.cache.${key}`);
-    if (!raw) return { data: null, updatedAt: null };
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && "data" in parsed) {
-      return {
-        data: parsed.data as Record<string, Record<string, unknown>>,
-        updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : null,
-      };
-    }
-    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null };
-  } catch {
-    return { data: null, updatedAt: null };
-  }
+  const cached = getCached<Record<string, Record<string, unknown>>>(key);
+  return {
+    data: cached.data,
+    updatedAt: cached.updatedAt,
+    checksum: typeof cached.checksum === "string" ? cached.checksum : null,
+  };
 }
 
 export function getCachedSubjectDetail(
@@ -359,6 +369,22 @@ export function getCachedSubjectDetail(
   instituteid?: string | null,
 ): Record<string, Record<string, unknown>> | null {
   return getCachedSubjectDetailEntry(username, registrationid, row, instituteid).data;
+}
+
+export function setCachedSubjectDetail(
+  session: SessionRef,
+  registrationid: string | undefined | null,
+  row: AttRow & Record<string, unknown>,
+  data: Record<string, Record<string, unknown>>,
+): number {
+  const key = getSubjectCacheKey(
+    session.username ? String(session.username) : undefined,
+    registrationid,
+    row,
+    session.instituteid ? String(session.instituteid) : undefined,
+  );
+  const checksum = computeSubjectRowChecksum(row);
+  return setCached(key, data, { checksum });
 }
 
 export function combinedAttendance(
@@ -506,7 +532,8 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
     run: () => features.getAttendance(client, session),
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
-    scope: "all",
+    isFresh: isCurrentPortalDay,
+    scope: "attendance",
   });
 }
 
@@ -540,6 +567,7 @@ export function AttendanceSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
+    staleTimeMs: FEATURE_TTL.pastDetail,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);

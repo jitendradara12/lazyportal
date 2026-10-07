@@ -1073,6 +1073,7 @@ tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offse
 .att-header-title { margin: 0; font-size: var(--fs-xl); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
 .att-sync-pill { font-size: var(--fs-xs); color: var(--onSurfaceVariant); white-space: nowrap; }
 .att-sync-pill.is-syncing { display: inline-flex; align-items: center; gap: 6px; }
+.att-sync-pill.att-sync-notice { color: var(--primary); font-weight: 500; }
 .att-sync-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); animation: syncPulse 1s ease-in-out infinite; }
 .att-top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 

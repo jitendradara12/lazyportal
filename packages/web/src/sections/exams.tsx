@@ -3,6 +3,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
+import { FEATURE_TTL } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -38,6 +39,7 @@ export function ExamsSection({ session }: SectionProps) {
     deps: [session],
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("exams.sems", session),
+    staleTimeMs: FEATURE_TTL.exams,
   });
   const [examSemId, setExamSemId, examSem] = useSemester(sessionCacheKey("semester", session, "exams"), examSems.data);
   const examEvents = useFeature<ExamEvent[]>({
@@ -45,6 +47,7 @@ export function ExamsSection({ session }: SectionProps) {
     deps: [session, examSemId],
     enabled: card.hasExpanded && examSemId !== null,
     cacheKey: examSemId ? sessionCacheKey("exams.events", session, examSemId) : undefined,
+    staleTimeMs: FEATURE_TTL.exams,
   });
   const [examEventId, setExamEventId] = useState<string | null>(null);
 
@@ -66,6 +69,7 @@ export function ExamsSection({ session }: SectionProps) {
     deps: [session, examSemId, examEventId],
     enabled: card.hasExpanded && examSemId !== null && examEventId !== null,
     cacheKey: examSemId && examEventId ? sessionCacheKey("exams.rows", session, examSemId, examEventId) : undefined,
+    staleTimeMs: FEATURE_TTL.exams,
   });
 
   const loading = examSems.loading || examEvents.loading || examRows.loading;

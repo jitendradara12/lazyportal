@@ -1,10 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, STALE_MS, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
+import { useFeature, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
+import {
+  getManualRefreshQuota,
+  recordSuccessfulManualRefresh,
+  doesSubjectNeedDeepFetch,
+  subscribePortalDayRollover,
+  FEATURE_TTL,
+  type RefreshQuotaState,
+} from "../lib/portalSchedule";
 import type { Session } from "../types";
 import {
   type AttRow,
@@ -14,6 +22,7 @@ import {
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
   getSubjectCacheKey,
+  setCachedSubjectDetail,
   useAttendanceInitial,
 } from "../sections/attendance";
 
@@ -34,7 +43,17 @@ export function AttendancePage({
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotice = (msg: string, ms: number) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setQuotaNotice(msg);
+    noticeTimer.current = setTimeout(() => {
+      if (pageIsLive.current) setQuotaNotice(null);
+    }, ms);
+  };
   const refreshInProgress = useRef(false);
+  const lastErrorRetryAt = useRef(0);
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -72,6 +91,23 @@ export function AttendancePage({
     };
   }, []);
 
+  const [refreshQuota, setRefreshQuota] = useState<RefreshQuotaState>(() => getManualRefreshQuota(session));
+
+  useEffect(() => {
+    const updateQuota = () => {
+      setRefreshQuota(getManualRefreshQuota(session));
+    };
+    window.addEventListener("juet:quota-changed", updateQuota);
+    window.addEventListener("storage", updateQuota);
+    const unsubscribeRollover = subscribePortalDayRollover(updateQuota);
+    return () => {
+      window.removeEventListener("juet:quota-changed", updateQuota);
+      window.removeEventListener("storage", updateQuota);
+      unsubscribeRollover();
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
+  }, [session]);
+
   const att = useAttendanceInitial(session);
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
@@ -87,31 +123,13 @@ export function AttendancePage({
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
+    staleTimeMs: FEATURE_TTL.pastDetail,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
   const semesters = initial?.semesters ?? [];
 
   const loading = att.loading || detail.loading;
-
-  function doesSubjectNeedDeepFetch(
-    r: AttRow & Record<string, unknown>,
-    cached: Record<string, Record<string, unknown>> | null,
-    cachedUpdatedAt: number | null
-  ): boolean {
-    if (!cached || Object.keys(cached).length === 0) return true;
-    const rowStats = combinedAttendance(r);
-    if (rowStats.totalClasses > 0) {
-      const cachedStats = combinedAttendance(r, cached);
-      return rowStats.totalClasses !== cachedStats.totalClasses;
-    }
-    // For rows lacking total class counts (e.g. percentage-only rows or 0 classes),
-    // revalidate if cache timestamp is missing or older than 2h.
-    if (!cachedUpdatedAt || Date.now() - cachedUpdatedAt > STALE_MS) {
-      return true;
-    }
-    return false;
-  }
 
   // Cache-backed map of subject details for accurate L+T aggregation
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
@@ -136,7 +154,7 @@ export function AttendancePage({
 
   // Re-sync cached details when rows or semester change, and prefetch uncached/changed in background
   useEffect(() => {
-    if (!rows.length || isExpired) return;
+    if (!rows.length || isExpired || !isDefault) return;
 
     let isLive = true;
     let isAborted = false;
@@ -150,7 +168,7 @@ export function AttendancePage({
       if (entry.data) {
         currentMap[subId] = entry.data;
       }
-      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt)) {
+      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
         toFetch.push(r as AttRow & Record<string, unknown>);
       }
     }
@@ -180,10 +198,8 @@ export function AttendancePage({
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
             if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
-              const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
-              try {
-                localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
-              } catch {}
+              const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+              setCachedSubjectDetail(session, semId, r, data);
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
               successCount++;
             }
@@ -239,32 +255,55 @@ export function AttendancePage({
 
   const isSyncing = !isExpired && (isRefreshing || loading || syncingIds.size > 0);
 
-  const shortsCount = rows.filter((r) => {
-    const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-    return combinedAttendance(r, detailsMap[subId]).isShort;
-  }).length;
-
-  const filteredRows = rows.filter((r) => {
-    if (filter === "short") {
+  // Single-pass short-count + filter for cheap mobile renders.
+  const { shortsCount, filteredRows } = useMemo(() => {
+    let count = 0;
+    const filtered: (AttRow & Record<string, unknown>)[] = [];
+    for (const r of rows) {
       const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-      return combinedAttendance(r, detailsMap[subId]).isShort;
+      const isShort = combinedAttendance(r, detailsMap[subId]).isShort;
+      if (isShort) count++;
+      if (filter === "all" || isShort) {
+        filtered.push(r as AttRow & Record<string, unknown>);
+      }
     }
-    return true;
-  });
+    return { shortsCount: count, filteredRows: filtered };
+  }, [rows, detailsMap, filter]);
 
   const handleRefresh = async (bypassThrottle = false) => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
-    if (!bypassThrottle && shouldThrottleRefresh()) {
-      setIsRefreshing(true);
-      setTimeout(() => {
-        if (pageIsLive.current) setIsRefreshing(false);
-      }, 600);
+
+    if (!isDefault) {
+      showNotice("Only current semester updates", 2000);
       return;
     }
+
+    // Error retries have a 5-second cooldown to avoid rapid spam; normal refreshes check daily quota then rapid-click throttle.
+    const isErrorRetry = Boolean(bypassThrottle);
+    if (isErrorRetry) {
+      const now = Date.now();
+      if (now - lastErrorRetryAt.current < 5000) {
+        showNotice("Wait a few seconds to retry", 2000);
+        return;
+      }
+      lastErrorRetryAt.current = now;
+    } else {
+      const quota = getManualRefreshQuota(session);
+      if (!quota.canRefresh) {
+        showNotice("Up to date with portal", 2500);
+        return;
+      }
+      if (shouldThrottleRefresh()) {
+        showNotice("already up to date bro", 2000);
+        return;
+      }
+    }
+
     const requestGeneration = getCacheGeneration();
     refreshInProgress.current = true;
     recordRefreshAttempt();
     setRefreshError(null);
+    setQuotaNotice(null);
     setIsRefreshing(true);
 
     try {
@@ -279,36 +318,40 @@ export function AttendancePage({
       if (isDefault) {
         const freshAtt = await features.getAttendance(client, session);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (freshAtt?.rows) {
+        if (freshAtt && Array.isArray(freshAtt.rows)) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.initial", session), freshAtt);
+        } else {
+          throw new Error("Portal returned no attendance data");
         }
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (freshDetail?.rows) {
+        if (freshDetail && Array.isArray(freshDetail.rows)) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
+        } else {
+          throw new Error("Portal returned no attendance data");
         }
       }
 
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
-      // Tell hooks to update from fresh cache
+      // Revalidate hooks from fresh cache, then deep-fetch only changed subjects.
       window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
 
-      // 2. Fetch fresh detail only for subjects whose total classes changed or lack detail
-      // An empty response is a valid refresh result; only fall back when the
-      // base request did not return a new rows array at all.
       const activeRows = freshRows ?? rows;
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
         const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
         const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
-        if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt)) {
+        if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt, entry.checksum)) {
           toFetch.push(r as AttRow & Record<string, unknown>);
         }
       }
+
+      let isAborted = false;
+      let detailRefreshError: string | null = null;
 
       if (toFetch.length > 0 && getSessionStatus() !== "expired") {
         setSyncProgress({ done: 0, total: toFetch.length });
@@ -321,9 +364,7 @@ export function AttendancePage({
 
         const queue = [...toFetch];
         const concurrency = 2;
-        let isAborted = false;
         let successCount = 0;
-        let detailRefreshError: string | null = null;
         const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
           while (
             queue.length > 0 &&
@@ -345,10 +386,7 @@ export function AttendancePage({
                 isCacheGenerationCurrent(requestGeneration) &&
                 getSessionStatus() !== "expired"
               ) {
-                const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
-                try {
-                  localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now() }));
-                } catch {}
+                setCachedSubjectDetail(session, semId, r, data);
                 setDetailsMap((prev) => ({ ...prev, [subId]: data }));
                 successCount++;
               }
@@ -408,9 +446,25 @@ export function AttendancePage({
           window.dispatchEvent(new CustomEvent("juet:sync"));
         } catch {}
       }
+
+      // Deduct quota only after a clean full refresh: current semester, real rows, no retry.
+      const latestQuota = getManualRefreshQuota(session);
+      if (
+        !isErrorRetry &&
+        !detailRefreshError &&
+        !isAborted &&
+        isDefault &&
+        latestQuota.canRefresh &&
+        freshRows &&
+        freshRows.length > 0 &&
+        pageIsLive.current &&
+        isCacheGenerationCurrent(requestGeneration) &&
+        getSessionStatus() !== "expired"
+      ) {
+        recordSuccessfulManualRefresh(session);
+        setRefreshQuota(getManualRefreshQuota(session));
+      }
     } catch (err: unknown) {
-      // Session expiry has its own reconnect UI; report ordinary refresh errors
-      // here instead of leaking an unhandled rejection from the click handler.
       if (pageIsLive.current && getSessionStatus() !== "expired") {
         setRefreshError(err instanceof Error ? err.message : String(err));
       }
@@ -455,9 +509,13 @@ export function AttendancePage({
                     : "Refreshing…"}
                 </span>
               </span>
+            ) : quotaNotice ? (
+              <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">
+                {quotaNotice}
+              </span>
             ) : lastSync ? (
               <span className="att-sync-pill">
-                Refreshed {formatLastSync(lastSync)}
+                {formatLastSync(lastSync)}
               </span>
             ) : null}
           </div>
@@ -499,8 +557,10 @@ export function AttendancePage({
             title={
               isSyncing
                 ? "Refreshing attendance…"
+                : isDefault && !refreshQuota.canRefresh && !error
+                ? "Up to date with portal"
                 : shouldThrottleRefresh() && lastSync
-                ? `Up to date (synced ${formatLastSync(lastSync)})`
+                ? formatLastSync(lastSync)
                 : "Refresh attendance"
             }
             disabled={isSyncing}

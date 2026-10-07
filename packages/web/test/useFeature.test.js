@@ -132,6 +132,17 @@ test("setCached for att.* keys records portal last_sync and dispatches juet:sync
   assert.ok(dispatchedEvents.includes("juet:sync"));
 });
 
+test("setCached stores data, timestamp, and optional extra metadata like checksum", () => {
+  const key = "att.subject:student1:cs101";
+  const data = { L: { total: 11 } };
+  const time = setCached(key, data, { checksum: "CS101|11|9|81.8%|L11:9:81.8" });
+
+  const raw = JSON.parse(globalThis.localStorage.getItem(`juet.cache.${key}`));
+  assert.deepEqual(raw.data, data);
+  assert.equal(raw.updatedAt, time);
+  assert.equal(raw.checksum, "CS101|11|9|81.8%|L11:9:81.8");
+});
+
 test("STALE_MS is configured to 2 hours", () => {
   assert.equal(STALE_MS, 2 * 60 * 60 * 1000);
 });

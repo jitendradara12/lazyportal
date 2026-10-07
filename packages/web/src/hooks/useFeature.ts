@@ -10,7 +10,11 @@ interface UseFeatureOptions<T> {
   cacheKey?: string;
   /** Skip network when cache is fresher than this (default 2h). */
   staleTimeMs?: number;
+  /** Custom freshness check (e.g. portal day schedule). Overrides staleTimeMs when provided. */
+  isFresh?: (updatedAt: number | null) => boolean;
   scope?: "dashboard" | "attendance" | "all";
+  /** Optional extra metadata to persist in the cache entry (e.g. checksum). */
+  writeExtra?: Record<string, unknown> | (() => Record<string, unknown>);
 }
 
 function isUnauthorized(e: unknown): boolean {
@@ -27,6 +31,8 @@ function toMessage(e: unknown): string {
 interface CacheEntry<T> {
   data: T;
   updatedAt: number;
+  checksum?: string | null;
+  [key: string]: unknown;
 }
 
 export interface FeatureState<T> {
@@ -92,14 +98,15 @@ export function sessionCacheKey(
     .join(":");
 }
 
-export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null } {
+export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> {
   if (!key) return { data: null, updatedAt: null };
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
     if (!raw) return { data: null, updatedAt: null };
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "updatedAt" in parsed && "data" in parsed) {
-      return { data: parsed.data as T, updatedAt: parsed.updatedAt as number };
+      const { data, updatedAt, ...rest } = parsed as { data: T; updatedAt: number } & Record<string, unknown>;
+      return { ...rest, data: data as T, updatedAt: updatedAt as number };
     }
     return { data: parsed as T, updatedAt: null };
   } catch {
@@ -107,11 +114,15 @@ export function getCached<T>(key?: string): { data: T | null; updatedAt: number 
   }
 }
 
-export function setCached<T>(key: string | undefined, data: T): number {
+export function setCached<T>(key: string | undefined, data: T, extra?: Record<string, unknown>): number {
   const now = Date.now();
   if (!key || data == null) return now;
   try {
-    const entry: CacheEntry<T> = { data, updatedAt: now };
+    const entry: Record<string, unknown> = {
+      data,
+      updatedAt: now,
+      ...(extra ?? {}),
+    };
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
     if (key.startsWith("att.")) {
       localStorage.setItem("juet.portal.last_sync", String(now));
@@ -123,12 +134,19 @@ export function setCached<T>(key: string | undefined, data: T): number {
 
 export const STALE_MS = 2 * 60 * 60 * 1000;
 
-export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS, scope }: UseFeatureOptions<T>) {
+export function useFeature<T>({
+  run,
+  deps = [],
+  enabled = true,
+  cacheKey,
+  staleTimeMs = STALE_MS,
+  isFresh,
+  scope,
+  writeExtra,
+}: UseFeatureOptions<T>) {
   const targetScope = scope ?? (
-    cacheKey?.startsWith("att.subject") || cacheKey?.startsWith("att.detail")
+    cacheKey?.startsWith("att.")
       ? "attendance"
-      : cacheKey?.startsWith("att.")
-      ? "all"
       : "dashboard"
   );
   const [state, setState] = useState<FeatureState<T>>(() => createFeatureState<T>(cacheKey, enabled));
@@ -139,6 +157,8 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
   const forceRef = useRef(false);
   const runRef = useRef(run);
   runRef.current = run;
+  const writeExtraRef = useRef(writeExtra);
+  writeExtraRef.current = writeExtra;
 
   const setStateForKey = useCallback((key: string | undefined, update: Partial<FeatureState<T>>) => {
     setState((previous) => {
@@ -198,7 +218,10 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
     forceRef.current = false;
     const cached = getCached<T>(cacheKey);
     const isVeryFresh = cached.data && cached.updatedAt && Date.now() - cached.updatedAt < 15_000;
-    if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs) {
+    const isFreshEntry = isFresh
+      ? isFresh(cached.updatedAt)
+      : Boolean(cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs);
+    if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && isFreshEntry) {
       setStateForKey(cacheKey, {
         data: cached.data,
         updatedAt: cached.updatedAt,
@@ -221,7 +244,12 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
         .then(() => runRef.current())
         .then((d) => {
           const time = Date.now();
-          if (isCacheGenerationCurrent(generation)) setCached(cacheKey, d);
+          if (isCacheGenerationCurrent(generation)) {
+            const extra = typeof writeExtraRef.current === "function"
+              ? writeExtraRef.current()
+              : writeExtraRef.current;
+            setCached(cacheKey, d, extra);
+          }
           return { data: d, updatedAt: time };
         })
         .finally(() => {
