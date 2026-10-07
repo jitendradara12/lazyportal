@@ -232,7 +232,17 @@ export function SubjectDetail({
 }) {
   const base = { registrationid, registrationcode };
   const detail = useFeature<Record<string, Record<string, unknown>>>({
-    run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
+    run: async () => {
+      const data = await features.getSubjectAttendanceAll(client, session, row, base, "current");
+      if (data && typeof data === "object") {
+        const key = getSubjectCacheKey(session.username, registrationid, row, session.instituteid);
+        const checksum = computeSubjectRowChecksum(row);
+        try {
+          localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now(), checksum }));
+        } catch {}
+      }
+      return data;
+    },
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey: getSubjectCacheKey(session.username, registrationid, row, session.instituteid),
     staleTimeMs: STALE_MS,
@@ -348,14 +358,13 @@ export function getCachedSubjectDetailEntry(
     if (!raw) return { data: null, updatedAt: null, checksum: null };
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "data" in parsed) {
-      const storedChecksum = typeof parsed.checksum === "string" ? parsed.checksum : null;
       return {
         data: parsed.data as Record<string, Record<string, unknown>>,
         updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : null,
-        checksum: storedChecksum ?? computeSubjectRowChecksum(row),
+        checksum: typeof parsed.checksum === "string" ? parsed.checksum : null,
       };
     }
-    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null, checksum: computeSubjectRowChecksum(row) };
+    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null, checksum: null };
   } catch {
     return { data: null, updatedAt: null, checksum: null };
   }

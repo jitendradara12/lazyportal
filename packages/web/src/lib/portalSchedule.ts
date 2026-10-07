@@ -229,7 +229,10 @@ export function doesSubjectNeedDeepFetch(
   if (!cached || Object.keys(cached).length === 0) return true;
   const currentChecksum = computeSubjectRowChecksum(row);
   if (cachedChecksum) {
-    return cachedChecksum !== currentChecksum;
+    if (cachedChecksum !== currentChecksum) return true;
+    // Bounded max TTL: even if checksum matches, entries older than 7 days allow a periodic refresh
+    if (cachedUpdatedAt && Date.now() - cachedUpdatedAt > 7 * 24 * 60 * 60 * 1000) return true;
+    return false;
   }
   // Backward compatibility when checksum was not yet stored in cache
   const rowTotal = Number(pick(row, "totalclass", "totalclasses", "Totalclass") || 0);

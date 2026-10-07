@@ -206,6 +206,15 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   // 4. Attendance correction (total classes stayed 20, but present changed from 18 to 19) -> needs fetch!
   const correctedRow = { ...row, totalpresent: 19 };
   assert.equal(doesSubjectNeedDeepFetch(correctedRow, dummyDetail, Date.now(), checksum), true);
+
+  // 5. Matching checksum older than 7 days allows periodic refresh
+  const eightDaysAgo = Date.now() - 8 * 24 * 3600 * 1000;
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum), true);
+
+  // 6. Legacy cache without stored checksum falls back to class total check
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, Date.now(), null), false);
+  const classAddedRow = { ...row, totalclass: 21 };
+  assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, Date.now(), null), true);
 });
 
 test("isPortalDayFresh returns true for timestamps today, false for null or past days", () => {

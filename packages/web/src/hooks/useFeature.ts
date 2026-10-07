@@ -113,20 +113,9 @@ export function setCached<T>(key: string | undefined, data: T, extra?: Record<st
   const now = Date.now();
   if (!key || data == null) return now;
   try {
-    let existingChecksum: unknown;
-    try {
-      const raw = localStorage.getItem(`juet.cache.${key}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && "checksum" in parsed) {
-          existingChecksum = parsed.checksum;
-        }
-      }
-    } catch {}
     const entry: Record<string, unknown> = {
       data,
       updatedAt: now,
-      ...(existingChecksum !== undefined ? { checksum: existingChecksum } : {}),
       ...(extra ?? {}),
     };
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));

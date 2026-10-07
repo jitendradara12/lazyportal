@@ -1,17 +1,11 @@
 import { useState, useEffect } from "react";
-import { auth, features } from "@juet/core";
-import { client, getSessionStatus } from "../lib/portal";
+import { auth } from "@juet/core";
+import { getSessionStatus } from "../lib/portal";
 import { titleCase, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { useAttendanceSummary } from "../sections/attendance";
 import { ReconnectModal } from "../components/ReconnectModal";
-import {
-  getManualRefreshQuota,
-  recordSuccessfulManualRefresh,
-  subscribePortalDayRollover,
-} from "../lib/portalSchedule";
-import { setCached, sessionCacheKey } from "../hooks/useFeature";
 import type { Session } from "../types";
 
 interface InstituteOption {
@@ -95,17 +89,6 @@ export function DashboardPage({
     setIsRefreshing(true);
     try {
       window.dispatchEvent(new CustomEvent("juet:refresh-dashboard"));
-      const currentQuota = getManualRefreshQuota(session);
-      if (currentQuota.canRefresh && getSessionStatus() !== "expired") {
-        try {
-          const freshAtt = await features.getAttendance(client, session);
-          if (Array.isArray(freshAtt?.rows) && freshAtt.rows.length > 0) {
-            setCached(sessionCacheKey("att.initial", session), freshAtt);
-            recordSuccessfulManualRefresh(session);
-            window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
-          }
-        } catch {}
-      }
       if (getSessionStatus() !== "expired") {
         recordRefreshAttempt();
       }

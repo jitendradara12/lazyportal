@@ -269,12 +269,10 @@ export function AttendancePage({
   const handleRefresh = async (bypassThrottle = false) => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
 
-    const hasActiveError = Boolean(refreshError || att.error || detail.error);
-    const isErrorRetry = bypassThrottle || hasActiveError;
-
+    // Retrying an error explicitly passes bypassThrottle = true.
     // Normal manual refresh checks daily quota and rapid-click throttle.
     // Daily quota applies ONLY to the active current semester (isDefault).
-    // Retrying an error bypasses quota checks (never lock out a user on network drop).
+    const isErrorRetry = Boolean(bypassThrottle);
     const quota = getManualRefreshQuota(session);
     if (!isErrorRetry) {
       if (isDefault && !quota.canRefresh) {
@@ -314,7 +312,7 @@ export function AttendancePage({
       if (isDefault) {
         const freshAtt = await features.getAttendance(client, session);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (Array.isArray(freshAtt?.rows) && freshAtt.rows.length > 0) {
+        if (freshAtt && Array.isArray(freshAtt.rows)) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.initial", session), freshAtt);
         } else {
@@ -323,7 +321,7 @@ export function AttendancePage({
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (Array.isArray(freshDetail?.rows) && freshDetail.rows.length > 0) {
+        if (freshDetail && Array.isArray(freshDetail.rows)) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
         } else {
@@ -449,12 +447,14 @@ export function AttendancePage({
       }
 
       // Deduct quota ONLY after BOTH Step 1 and Step 2 completed without error,
-      // and ONLY for the active current semester (isDefault).
+      // and ONLY for the active current semester (isDefault) with valid rows.
       if (
         !detailRefreshError &&
         !isAborted &&
         isDefault &&
         quota.canRefresh &&
+        freshRows &&
+        freshRows.length > 0 &&
         pageIsLive.current &&
         isCacheGenerationCurrent(requestGeneration) &&
         getSessionStatus() !== "expired"
