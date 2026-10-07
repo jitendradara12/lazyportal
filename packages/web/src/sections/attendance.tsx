@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, setCached, sessionCacheKey } from "../hooks/useFeature";
+import { useFeature, setCached, getCached, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
-  isPortalDayFresh,
+  isCurrentPortalDay,
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
   FEATURE_TTL,
@@ -354,21 +354,12 @@ export function getCachedSubjectDetailEntry(
   instituteid?: string | null,
 ): SubjectDetailCacheEntry {
   const key = getSubjectCacheKey(username, registrationid, row, instituteid);
-  try {
-    const raw = localStorage.getItem(`juet.cache.${key}`);
-    if (!raw) return { data: null, updatedAt: null, checksum: null };
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && "data" in parsed) {
-      return {
-        data: parsed.data as Record<string, Record<string, unknown>>,
-        updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : null,
-        checksum: typeof parsed.checksum === "string" ? parsed.checksum : null,
-      };
-    }
-    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null, checksum: null };
-  } catch {
-    return { data: null, updatedAt: null, checksum: null };
-  }
+  const cached = getCached<Record<string, Record<string, unknown>>>(key);
+  return {
+    data: cached.data,
+    updatedAt: cached.updatedAt,
+    checksum: typeof cached.checksum === "string" ? cached.checksum : null,
+  };
 }
 
 export function getCachedSubjectDetail(
@@ -541,7 +532,7 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
     run: () => features.getAttendance(client, session),
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
-    isFresh: isPortalDayFresh,
+    isFresh: isCurrentPortalDay,
     scope: "attendance",
   });
 }

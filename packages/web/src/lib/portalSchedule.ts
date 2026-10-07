@@ -35,7 +35,6 @@ export const FEATURE_TTL = {
   faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
   subjects: 7 * 24 * 60 * 60 * 1000, // 7 days (static course catalog)
   pastDetail: 30 * 24 * 60 * 60 * 1000, // 30 days (immutable past-semester history)
-  default: 2 * 60 * 60 * 1000, // 2 hours default
 } as const;
 
 /**
@@ -62,10 +61,6 @@ export function isCurrentPortalDay(timestamp?: number | null, now?: Date | numbe
   }
   return getPortalDayKey(timestamp) === getPortalDayKey(now);
 }
-
-/** Reusable freshness predicate for useFeature hooks */
-export const isPortalDayFresh = (updatedAt: number | null, now?: Date | number): boolean =>
-  isCurrentPortalDay(updatedAt, now);
 
 /**
  * Calculate the exact timestamp when the next portal day begins (upcoming 02:00 AM IST).
@@ -224,11 +219,6 @@ export function doesSubjectNeedDeepFetch(
     return true;
   }
   return false;
-}
-
-/** Quota pill / tooltip copy: exhausted just reads as up to date. */
-export function formatQuotaStatus(): string {
-  return "Up to date with portal";
 }
 
 /**

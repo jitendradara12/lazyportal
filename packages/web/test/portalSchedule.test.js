@@ -50,10 +50,8 @@ globalThis.CustomEvent = class CustomEvent {
 const {
   getPortalDayKey,
   isCurrentPortalDay,
-  isPortalDayFresh,
   getNextPortalResetTimestamp,
   getMsUntilNextPortalDay,
-  formatQuotaStatus,
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
   getQuotaStorageKey,
@@ -103,10 +101,6 @@ test("getNextPortalResetTimestamp returns exact upcoming 02:00 AM IST", () => {
   // Upcoming reset should be Oct 8 02:00 AM IST = UTC Oct 7 20:30:00
   assert.equal(nextReset, Date.UTC(2026, 9, 7, 20, 30, 0));
   assert.equal(getMsUntilNextPortalDay(midDay), 12 * 3600 * 1000);
-});
-
-test("formatQuotaStatus always says up to date", () => {
-  assert.equal(formatQuotaStatus(), "Up to date with portal");
 });
 
 test("manual refresh quota enforces daily limit and resets automatically on new portal day", () => {
@@ -225,14 +219,14 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, Date.now(), null), true);
 });
 
-test("isPortalDayFresh returns true for timestamps today, false for null or past days", () => {
+test("isCurrentPortalDay defaults to now for single-arg freshness checks", () => {
   const now = Date.now();
-  assert.equal(isPortalDayFresh(now), true);
-  assert.equal(isPortalDayFresh(null), false);
-  assert.equal(isPortalDayFresh(undefined), false);
+  assert.equal(isCurrentPortalDay(now), true);
+  assert.equal(isCurrentPortalDay(null), false);
+  assert.equal(isCurrentPortalDay(undefined), false);
 
   const yesterday = now - 24 * 3600 * 1000 * 2;
-  assert.equal(isPortalDayFresh(yesterday), false);
+  assert.equal(isCurrentPortalDay(yesterday), false);
 });
 
 test("FEATURE_TTL defines tiered stale times for different data velocities", () => {
@@ -240,7 +234,7 @@ test("FEATURE_TTL defines tiered stale times for different data velocities", () 
   assert.equal(FEATURE_TTL.exams, 24 * 60 * 60 * 1000);
   assert.equal(FEATURE_TTL.faculty, 7 * 24 * 60 * 60 * 1000);
   assert.equal(FEATURE_TTL.subjects, 7 * 24 * 60 * 60 * 1000);
-  assert.equal(FEATURE_TTL.default, 2 * 60 * 60 * 1000);
+  assert.equal(FEATURE_TTL.pastDetail, 30 * 24 * 60 * 60 * 1000);
 });
 
 test("subscribePortalDayRollover returns an unsubscribe cleanup function", () => {

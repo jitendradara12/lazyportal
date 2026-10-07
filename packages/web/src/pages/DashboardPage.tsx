@@ -92,6 +92,7 @@ export function DashboardPage({
   const isSpinning = isRefreshing || attSummary.loading;
 
   const handleRefresh = async () => {
+    // Quota is attendance-manual-refresh only by design; dashboard just revalidates section caches.
     if (isSpinning) return;
     if (shouldThrottleRefresh()) {
       spinBriefly();

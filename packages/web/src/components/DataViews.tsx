@@ -34,10 +34,10 @@ export function formatSemester(code: string | undefined | null): string {
   return `${type} ${m[1]}`;
 }
 
-/** Humanize timestamp: "Up to date with portal" when synced today, or "Synced Oct 5" for past days */
+/** Humanize timestamp: "Synced today" when synced today, or "Synced Oct 5" for past days */
 export function formatLastSync(ts: number | null): string {
   if (!ts) return "";
-  if (isCurrentPortalDay(ts)) return "Up to date with portal";
+  if (isCurrentPortalDay(ts)) return "Synced today";
   const d = new Date(ts);
   return `Synced ${d.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 }

@@ -8,7 +8,6 @@ import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import {
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
-  formatQuotaStatus,
   doesSubjectNeedDeepFetch,
   subscribePortalDayRollover,
   FEATURE_TTL,
@@ -278,7 +277,7 @@ export function AttendancePage({
     const quota = getManualRefreshQuota(session);
     if (!isErrorRetry) {
       if (isDefault && !quota.canRefresh) {
-        showNotice(formatQuotaStatus(), 2500);
+        showNotice("Up to date with portal", 2500);
         return;
       }
       if (shouldThrottleRefresh()) {
@@ -546,7 +545,7 @@ export function AttendancePage({
               isSyncing
                 ? "Refreshing attendance…"
                 : isDefault && !refreshQuota.canRefresh && !error
-                ? formatQuotaStatus()
+                ? "Up to date with portal"
                 : shouldThrottleRefresh() && lastSync
                 ? formatLastSync(lastSync)
                 : "Refresh attendance"
