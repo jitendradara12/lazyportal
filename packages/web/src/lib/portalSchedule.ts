@@ -10,7 +10,7 @@
 /**
  * Daily manual refresh quota per student per portal day.
  * Auto-sync on the first app open of the day is free (does not consume this quota).
- * Set to 1 by default (1 auto + 1 manual refresh). Easily adjustable via this flag.
+ * Set to 1 by default (1 auto + 1 manual refresh). Easily adjustable via this constant.
  */
 export const DAILY_MANUAL_REFRESH_LIMIT = 1;
 
@@ -22,6 +22,22 @@ export const PORTAL_DAY_CUTOFF_HOUR_IST = 2;
 
 // IST offset is +05:30. Shifting by (5.5 - 2) = +3.5 hours converts IST cutoff to UTC midnight.
 const IST_EFFECTIVE_OFFSET_MS = (5.5 - PORTAL_DAY_CUTOFF_HOUR_IST) * 3600 * 1000; // 12,600,000 ms
+
+/** Shared session reference structure for quota and cache keys */
+export interface SessionRef {
+  username?: unknown;
+  instituteid?: unknown;
+}
+
+/** Centralized TTL policies across features to avoid shotgun updates */
+export const FEATURE_TTL = {
+  attendance: "portal-day",
+  marks: 12 * 60 * 60 * 1000, // 12 hours (entered in bursts post-exam)
+  exams: 24 * 60 * 60 * 1000, // 24 hours (published days before exams)
+  faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
+  subjects: 7 * 24 * 60 * 60 * 1000, // 7 days (static course catalog)
+  default: 2 * 60 * 60 * 1000, // 2 hours default
+} as const;
 
 /**
  * Get the portal day key (e.g. "2026-10-07") for a timestamp or Date in IST.
@@ -47,6 +63,9 @@ export function isCurrentPortalDay(timestamp?: number | null, now?: Date | numbe
   }
   return getPortalDayKey(timestamp) === getPortalDayKey(now);
 }
+
+/** Reusable freshness predicate for useFeature hooks */
+export const isPortalDayFresh = (updatedAt: number | null): boolean => isCurrentPortalDay(updatedAt);
 
 /**
  * Calculate the exact timestamp when the next portal day begins (upcoming 02:00 AM IST).
@@ -75,7 +94,8 @@ export function formatTimeUntilReset(ms: number): string {
   if (ms <= 0) return "shortly";
   const hours = Math.floor(ms / (3600 * 1000));
   const minutes = Math.floor((ms % (3600 * 1000)) / (60 * 1000));
-  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
   return `${minutes}m`;
 }
 
@@ -88,7 +108,7 @@ export interface RefreshQuotaState {
   portalDay: string;
 }
 
-export function getQuotaStorageKey(session: { username?: unknown; instituteid?: unknown }): string {
+export function getQuotaStorageKey(session: SessionRef): string {
   const user = session.username ? encodeURIComponent(String(session.username)) : "anonymous";
   const inst = session.instituteid ? encodeURIComponent(String(session.instituteid)) : "default";
   return `juet.portal.refresh_quota.${user}:${inst}`;
@@ -97,11 +117,7 @@ export function getQuotaStorageKey(session: { username?: unknown; instituteid?: 
 /**
  * Query the remaining manual refresh quota for the current portal day.
  */
-export function getManualRefreshQuota(
-  session: { username?: unknown; instituteid?: unknown },
-  now = Date.now(),
-  limit = DAILY_MANUAL_REFRESH_LIMIT
-): RefreshQuotaState {
+export function getManualRefreshQuota(session: SessionRef, now = Date.now()): RefreshQuotaState {
   const portalDay = getPortalDayKey(now);
   const resetsInMs = getMsUntilNextPortalDay(now);
   const key = getQuotaStorageKey(session);
@@ -112,10 +128,10 @@ export function getManualRefreshQuota(
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object" && parsed.day === portalDay) {
         const used = Math.max(0, Number(parsed.count) || 0);
-        const remaining = Math.max(0, limit - used);
+        const remaining = Math.max(0, DAILY_MANUAL_REFRESH_LIMIT - used);
         return {
           used,
-          total: limit,
+          total: DAILY_MANUAL_REFRESH_LIMIT,
           remaining,
           canRefresh: remaining > 0,
           resetsInMs,
@@ -127,8 +143,8 @@ export function getManualRefreshQuota(
 
   return {
     used: 0,
-    total: limit,
-    remaining: limit,
+    total: DAILY_MANUAL_REFRESH_LIMIT,
+    remaining: DAILY_MANUAL_REFRESH_LIMIT,
     canRefresh: true,
     resetsInMs,
     portalDay,
@@ -140,19 +156,15 @@ export function getManualRefreshQuota(
  * Must ONLY be called upon successful 200 response with non-empty rows.
  * Failed, aborted, or offline attempts MUST NOT call this.
  */
-export function recordSuccessfulManualRefresh(
-  session: { username?: unknown; instituteid?: unknown },
-  now = Date.now(),
-  limit = DAILY_MANUAL_REFRESH_LIMIT
-): RefreshQuotaState {
-  const current = getManualRefreshQuota(session, now, limit);
+export function recordSuccessfulManualRefresh(session: SessionRef, now = Date.now()): RefreshQuotaState {
+  const current = getManualRefreshQuota(session, now);
   const nextUsed = current.used + 1;
   const key = getQuotaStorageKey(session);
   const nextState: RefreshQuotaState = {
     used: nextUsed,
-    total: limit,
-    remaining: Math.max(0, limit - nextUsed),
-    canRefresh: nextUsed < limit,
+    total: DAILY_MANUAL_REFRESH_LIMIT,
+    remaining: Math.max(0, DAILY_MANUAL_REFRESH_LIMIT - nextUsed),
+    canRefresh: nextUsed < DAILY_MANUAL_REFRESH_LIMIT,
     resetsInMs: current.resetsInMs,
     portalDay: current.portalDay,
   };
@@ -169,66 +181,66 @@ export function recordSuccessfulManualRefresh(
   return nextState;
 }
 
-export const STALE_MS = 2 * 60 * 60 * 1000;
+/** Helper to extract the first non-empty string among potential key names */
+function pick(row: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const v = row[k];
+    if (v !== undefined && v !== null && v !== "") return String(v);
+  }
+  return "";
+}
 
 /**
  * Fast composite row checksum to determine if attendance breakdown has changed.
  * Captures all component counts, totals, and percentages.
  */
-export function computeSubjectRowChecksum(r: Record<string, unknown>): string {
-  const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? "");
-  const Ltot = String(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? "");
-  const Lpres = String(r.Ltotalpresent ?? r.LTotalpresent ?? r.ltotalpresent ?? "");
-  const Lpct = String(r.Lpercentage ?? "");
-  const Ttot = String(r.Ttotalclass ?? r.TTotalclass ?? r.ttotalclass ?? "");
-  const Tpres = String(r.Ttotalpresent ?? r.TTotalpresent ?? r.ttotalpresent ?? "");
-  const Tpct = String(r.Tpercentage ?? "");
-  const Ptot = String(r.Ptotalclass ?? r.PTotalclass ?? r.ptotalclass ?? "");
-  const Ppres = String(r.Ptotalpresent ?? r.PTotalpresent ?? r.ptotalpresent ?? "");
-  const Ppct = String(r.Ppercentage ?? "");
-  const tot = String(r.totalclass ?? r.totalclasses ?? r.Totalclass ?? "");
-  const pres = String(r.totalpresent ?? r.Totalpresent ?? "");
-  return `${subId}|${tot}|${pres}|${Ltot}:${Lpres}:${Lpct}|${Ttot}:${Tpres}:${Tpct}|${Ptot}:${Ppres}:${Ppct}`;
+export function computeSubjectRowChecksum(row: Record<string, unknown>): string {
+  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
+  const overall = pick(row, "overallattendance", "percentage", "attendance");
+  const Ltot = pick(row, "Ltotalclass", "LTotalclass", "ltotalclass");
+  const Lpres = pick(row, "Ltotalpresent", "LTotalpresent", "ltotalpresent");
+  const Lpct = pick(row, "Lpercentage");
+  const Ttot = pick(row, "Ttotalclass", "TTotalclass", "ttotalclass");
+  const Tpres = pick(row, "Ttotalpresent", "TTotalpresent", "ttotalpresent");
+  const Tpct = pick(row, "Tpercentage");
+  const Ptot = pick(row, "Ptotalclass", "PTotalclass", "ptotalclass");
+  const Ppres = pick(row, "Ptotalpresent", "PTotalpresent", "ptotalpresent");
+  const Ppct = pick(row, "Ppercentage");
+  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
+  const pres = pick(row, "totalpresent", "Totalpresent");
+  return `${subId}|${tot}|${pres}|${overall}|${Ltot}:${Lpres}:${Lpct}|${Ttot}:${Tpres}:${Tpct}|${Ptot}:${Ppres}:${Ppct}`;
+}
+
+function getComponentTotal(comp: unknown): number {
+  if (!comp || typeof comp !== "object") return 0;
+  if (Array.isArray(comp)) return comp.length;
+  const rec = comp as Record<string, unknown>;
+  const list = rec.student_attdsummarylist ?? rec.attdsummarylist ?? rec.rows;
+  if (Array.isArray(list)) return list.length;
+  return Number(rec.totalclass ?? rec.totalclasses ?? rec.Totalclass ?? 0);
 }
 
 export function doesSubjectNeedDeepFetch(
-  r: Record<string, unknown>,
+  row: Record<string, unknown>,
   cached: Record<string, Record<string, unknown>> | null,
   cachedUpdatedAt: number | null,
   cachedChecksum?: string | null
 ): boolean {
   if (!cached || Object.keys(cached).length === 0) return true;
-  const currentChecksum = computeSubjectRowChecksum(r);
+  const currentChecksum = computeSubjectRowChecksum(row);
   if (cachedChecksum) {
     return cachedChecksum !== currentChecksum;
   }
   // Backward compatibility when checksum was not yet stored in cache
-  const rowTotal = Number(r.totalclass ?? r.totalclasses ?? r.Totalclass ?? 0);
+  const rowTotal = Number(pick(row, "totalclass", "totalclasses", "Totalclass") || 0);
   if (rowTotal > 0) {
     let cachedTotal = 0;
     for (const comp of Object.values(cached)) {
-      if (comp && typeof comp === "object") {
-        if (Array.isArray(comp)) {
-          cachedTotal += comp.length;
-        } else {
-          const list = (comp as Record<string, unknown>).student_attdsummarylist ??
-            (comp as Record<string, unknown>).attdsummarylist ??
-            (comp as Record<string, unknown>).rows;
-          if (Array.isArray(list)) {
-            cachedTotal += list.length;
-          } else {
-            cachedTotal += Number(
-              (comp as Record<string, unknown>).totalclass ??
-              (comp as Record<string, unknown>).totalclasses ??
-              (comp as Record<string, unknown>).Totalclass ?? 0
-            );
-          }
-        }
-      }
+      cachedTotal += getComponentTotal(comp);
     }
     if (cachedTotal > 0 && rowTotal !== cachedTotal) return true;
   }
-  if (!cachedUpdatedAt || Date.now() - cachedUpdatedAt > STALE_MS) {
+  if (!cachedUpdatedAt || Date.now() - cachedUpdatedAt > FEATURE_TTL.default) {
     return true;
   }
   return false;
@@ -245,4 +257,35 @@ export function formatQuotaStatus(quota: RefreshQuotaState): string {
     return `${quota.remaining}/${quota.total} refreshes remaining today`;
   }
   return `Daily refresh limit used (resets in ${formatTimeUntilReset(quota.resetsInMs)} at 2:00 AM IST)`;
+}
+
+/**
+ * Automatically roll over quota and trigger revalidation when a tab is kept open overnight across 02:00 AM IST.
+ */
+export function subscribePortalDayRollover(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const schedule = () => {
+    const ms = getMsUntilNextPortalDay() + 500;
+    timer = setTimeout(() => {
+      callback();
+      window.dispatchEvent(new CustomEvent("juet:quota-changed"));
+      schedule();
+    }, ms);
+  };
+  schedule();
+  const handleVisibility = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      callback();
+    }
+  };
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibility);
+  }
+  return () => {
+    if (timer) clearTimeout(timer);
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", handleVisibility);
+    }
+  };
 }

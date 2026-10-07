@@ -188,7 +188,7 @@ export function DashboardPage({
                   <span className="sync-pulse-dot" aria-hidden="true" /> Refreshing…
                 </>
               ) : lastSync ? (
-                `Refreshed ${formatLastSync(lastSync)}`
+                formatLastSync(lastSync)
               ) : (
                 "Live"
               )}

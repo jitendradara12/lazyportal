@@ -1,6 +1,7 @@
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
+import { FEATURE_TTL } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -23,8 +24,6 @@ interface SubjectsLatest {
   rows: SubjectRow[];
 }
 
-export const SUBJECTS_STALE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
 export function SubjectsSection({ session }: SectionProps) {
   const card = useCardState("subjects", false);
   const latest = useFeature<SubjectsLatest>({
@@ -32,7 +31,7 @@ export function SubjectsSection({ session }: SectionProps) {
     deps: [session],
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("subjects.latest", session),
-    staleTimeMs: SUBJECTS_STALE_MS,
+    staleTimeMs: FEATURE_TTL.subjects,
   });
 
   const rows = latest.data?.rows ?? [];

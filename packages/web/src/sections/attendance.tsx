@@ -3,13 +3,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, STALE_MS, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import {
-  isCurrentPortalDay,
-  computeSubjectRowChecksum,
-  doesSubjectNeedDeepFetch,
-} from "../lib/portalSchedule";
-
-export { computeSubjectRowChecksum, doesSubjectNeedDeepFetch };
+import { isPortalDayFresh } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -520,7 +514,7 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
     run: () => features.getAttendance(client, session),
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
-    isFresh: (updatedAt) => isCurrentPortalDay(updatedAt),
+    isFresh: isPortalDayFresh,
     scope: "all",
   });
 }
@@ -555,7 +549,7 @@ export function AttendanceSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    isFresh: (updatedAt) => isCurrentPortalDay(updatedAt),
+    isFresh: isPortalDayFresh,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);

@@ -13,6 +13,12 @@ globalThis.window = {
   removeEventListener() {},
 };
 
+globalThis.document = {
+  addEventListener() {},
+  removeEventListener() {},
+  visibilityState: "visible",
+};
+
 globalThis.localStorage = {
   getItem(key) {
     return values.get(key) ?? null;
@@ -38,13 +44,17 @@ globalThis.CustomEvent = class CustomEvent {
 const {
   getPortalDayKey,
   isCurrentPortalDay,
+  isPortalDayFresh,
   getNextPortalResetTimestamp,
   getMsUntilNextPortalDay,
   formatTimeUntilReset,
+  formatQuotaStatus,
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
+  subscribePortalDayRollover,
   DAILY_MANUAL_REFRESH_LIMIT,
   PORTAL_DAY_CUTOFF_HOUR_IST,
+  FEATURE_TTL,
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
 } = await import("../src/lib/portalSchedule.ts");
@@ -190,4 +200,47 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   // 4. Attendance correction (total classes stayed 20, but present changed from 18 to 19) -> needs fetch!
   const correctedRow = { ...row, totalpresent: 19 };
   assert.equal(doesSubjectNeedDeepFetch(correctedRow, dummyDetail, Date.now(), checksum), true);
+});
+
+test("isPortalDayFresh returns true for timestamps today, false for null or past days", () => {
+  const now = Date.now();
+  assert.equal(isPortalDayFresh(now), true);
+  assert.equal(isPortalDayFresh(null), false);
+  assert.equal(isPortalDayFresh(undefined), false);
+
+  const yesterday = now - 24 * 3600 * 1000 * 2;
+  assert.equal(isPortalDayFresh(yesterday), false);
+});
+
+test("formatQuotaStatus formats remaining and exhausted states with reset countdown", () => {
+  assert.equal(
+    formatQuotaStatus({ total: 1, used: 0, remaining: 1, canRefresh: true, resetsInMs: 3600000 }),
+    "1 refresh available today",
+  );
+  assert.equal(
+    formatQuotaStatus({ total: 2, used: 1, remaining: 1, canRefresh: true, resetsInMs: 3600000 }),
+    "1/2 refreshes remaining today",
+  );
+  assert.equal(
+    formatQuotaStatus({ total: 1, used: 1, remaining: 0, canRefresh: false, resetsInMs: 7200000 }),
+    "Daily refresh limit used (resets in 2h at 2:00 AM IST)",
+  );
+});
+
+test("FEATURE_TTL defines tiered stale times for different data velocities", () => {
+  assert.equal(FEATURE_TTL.marks, 12 * 60 * 60 * 1000);
+  assert.equal(FEATURE_TTL.exams, 24 * 60 * 60 * 1000);
+  assert.equal(FEATURE_TTL.faculty, 7 * 24 * 60 * 60 * 1000);
+  assert.equal(FEATURE_TTL.subjects, 7 * 24 * 60 * 60 * 1000);
+  assert.equal(FEATURE_TTL.default, 2 * 60 * 60 * 1000);
+});
+
+test("subscribePortalDayRollover returns an unsubscribe cleanup function", () => {
+  let called = false;
+  const unsubscribe = subscribePortalDayRollover(() => {
+    called = true;
+  });
+  assert.equal(typeof unsubscribe, "function");
+  unsubscribe();
+  assert.equal(called, false);
 });

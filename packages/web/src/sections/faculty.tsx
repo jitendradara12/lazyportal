@@ -2,6 +2,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
+import { FEATURE_TTL } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -18,8 +19,6 @@ interface FacultyRow {
   [key: string]: unknown;
 }
 
-export const FACULTY_STALE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
 export function FacultySection({ session }: SectionProps) {
   const card = useCardState("faculty", false);
   const lov = useFeature<Semester[]>({
@@ -27,7 +26,7 @@ export function FacultySection({ session }: SectionProps) {
     deps: [session],
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("faculty.lov", session),
-    staleTimeMs: FACULTY_STALE_MS,
+    staleTimeMs: FEATURE_TTL.faculty,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "faculty"), lov.data);
   const detail = useFeature<{ rows: FacultyRow[]; totalcreditpoints?: unknown }>({
@@ -35,7 +34,7 @@ export function FacultySection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: card.hasExpanded && sem !== null,
     cacheKey: semId ? sessionCacheKey("faculty.detail", session, semId) : undefined,
-    staleTimeMs: FACULTY_STALE_MS,
+    staleTimeMs: FEATURE_TTL.faculty,
   });
 
   const rows = detail.data?.rows ?? [];

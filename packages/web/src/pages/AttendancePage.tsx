@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, STALE_MS, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
+import { useFeature, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
@@ -9,7 +9,10 @@ import {
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
   formatQuotaStatus,
-  isCurrentPortalDay,
+  isPortalDayFresh,
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
+  subscribePortalDayRollover,
   type RefreshQuotaState,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
@@ -21,8 +24,6 @@ import {
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
   getSubjectCacheKey,
-  computeSubjectRowChecksum,
-  doesSubjectNeedDeepFetch,
   useAttendanceInitial,
 } from "../sections/attendance";
 
@@ -43,6 +44,8 @@ export function AttendancePage({
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshInProgress = useRef(false);
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -89,9 +92,12 @@ export function AttendancePage({
     };
     window.addEventListener("juet:quota-changed", updateQuota);
     window.addEventListener("storage", updateQuota);
+    const unsubscribeRollover = subscribePortalDayRollover(updateQuota);
     return () => {
       window.removeEventListener("juet:quota-changed", updateQuota);
       window.removeEventListener("storage", updateQuota);
+      unsubscribeRollover();
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
   }, [session]);
 
@@ -110,7 +116,7 @@ export function AttendancePage({
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    isFresh: (updatedAt) => isCurrentPortalDay(updatedAt),
+    isFresh: isPortalDayFresh,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
@@ -268,20 +274,22 @@ export function AttendancePage({
 
     // Normal manual refresh checks daily quota and rapid-click throttle.
     // Retrying an error bypasses quota checks (never lock out a user on network drop).
+    const quota = getManualRefreshQuota(session);
     if (!isErrorRetry) {
-      const quota = getManualRefreshQuota(session);
       if (!quota.canRefresh) {
-        setIsRefreshing(true);
-        setTimeout(() => {
-          if (pageIsLive.current) setIsRefreshing(false);
-        }, 400);
+        if (noticeTimer.current) clearTimeout(noticeTimer.current);
+        setQuotaNotice("Up to date with portal • Refresh resets at 2:00 AM IST");
+        noticeTimer.current = setTimeout(() => {
+          if (pageIsLive.current) setQuotaNotice(null);
+        }, 2500);
         return;
       }
       if (shouldThrottleRefresh()) {
-        setIsRefreshing(true);
-        setTimeout(() => {
-          if (pageIsLive.current) setIsRefreshing(false);
-        }, 600);
+        if (noticeTimer.current) clearTimeout(noticeTimer.current);
+        setQuotaNotice("Up to date with portal • Refresh resets at 2:00 AM IST");
+        noticeTimer.current = setTimeout(() => {
+          if (pageIsLive.current) setQuotaNotice(null);
+        }, 2000);
         return;
       }
     }
@@ -290,6 +298,7 @@ export function AttendancePage({
     refreshInProgress.current = true;
     recordRefreshAttempt();
     setRefreshError(null);
+    setQuotaNotice(null);
     setIsRefreshing(true);
 
     try {
@@ -324,7 +333,7 @@ export function AttendancePage({
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
       // Base request succeeded with actual data! Deduct quota only on verified success
-      if (!isErrorRetry) {
+      if (quota.canRefresh) {
         recordSuccessfulManualRefresh(session);
         setRefreshQuota(getManualRefreshQuota(session));
       }
@@ -489,9 +498,13 @@ export function AttendancePage({
                     : "Refreshing…"}
                 </span>
               </span>
+            ) : quotaNotice ? (
+              <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">
+                {quotaNotice}
+              </span>
             ) : lastSync ? (
               <span className="att-sync-pill">
-                Refreshed {formatLastSync(lastSync)}
+                {formatLastSync(lastSync)}
               </span>
             ) : null}
           </div>
@@ -536,10 +549,10 @@ export function AttendancePage({
                 : !refreshQuota.canRefresh && !error
                 ? formatQuotaStatus(refreshQuota)
                 : shouldThrottleRefresh() && lastSync
-                ? `Up to date (synced ${formatLastSync(lastSync)})`
+                ? `Up to date (${formatLastSync(lastSync)})`
                 : "Refresh attendance"
             }
-            disabled={isSyncing || (!refreshQuota.canRefresh && !error)}
+            disabled={isSyncing}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="23 4 23 10 17 10" />
