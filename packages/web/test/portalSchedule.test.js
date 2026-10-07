@@ -57,6 +57,7 @@ const {
   formatQuotaStatus,
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
+  getQuotaStorageKey,
   subscribePortalDayRollover,
   DAILY_MANUAL_REFRESH_LIMIT,
   PORTAL_DAY_CUTOFF_HOUR_IST,
@@ -211,7 +212,17 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   const eightDaysAgo = Date.now() - 8 * 24 * 3600 * 1000;
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum), true);
 
-  // 6. Legacy cache without stored checksum falls back to class total check
+  // 6. Matching checksum with null/missing updatedAt triggers refresh (fixes null-timestamp hole)
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, null, checksum), true);
+
+  // 7. Testing with explicit deterministic clock parameter
+  const fixedNow = 1760000000000;
+  const recentTime = fixedNow - 3600 * 1000;
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, recentTime, checksum, fixedNow), false);
+  const oldTime = fixedNow - 8 * 24 * 3600 * 1000;
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, oldTime, checksum, fixedNow), true);
+
+  // 8. Legacy cache without stored checksum falls back to class total check
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, Date.now(), null), false);
   const classAddedRow = { ...row, totalclass: 21 };
   assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, Date.now(), null), true);
@@ -271,4 +282,34 @@ test("subscribePortalDayRollover triggers callback and reschedules on visibility
   for (const cb of listeners) cb();
   assert.equal(callCount, 1);
   unsub();
+});
+
+test("getManualRefreshQuota sanitizes corrupt localStorage counts and clamps limits", () => {
+  const session = { username: "student_corrupt", instituteid: "1" };
+  const key = getQuotaStorageKey(session);
+  const now = Date.now();
+  const day = getPortalDayKey(now);
+
+  // 1. Infinity string or value
+  globalThis.localStorage.setItem(key, JSON.stringify({ day, count: "Infinity" }));
+  let q = getManualRefreshQuota(session, now);
+  assert.equal(q.used, 0);
+  assert.equal(q.canRefresh, true);
+
+  // 2. Negative count
+  globalThis.localStorage.setItem(key, JSON.stringify({ day, count: -3 }));
+  q = getManualRefreshQuota(session, now);
+  assert.equal(q.used, 0);
+  assert.equal(q.canRefresh, true);
+
+  // 3. Count exceeding DAILY_MANUAL_REFRESH_LIMIT
+  globalThis.localStorage.setItem(key, JSON.stringify({ day, count: 999 }));
+  q = getManualRefreshQuota(session, now);
+  assert.equal(q.used, DAILY_MANUAL_REFRESH_LIMIT);
+  assert.equal(q.canRefresh, false);
+
+  // 4. Over-limit calls to recordSuccessfulManualRefresh never exceed DAILY_MANUAL_REFRESH_LIMIT
+  const updated = recordSuccessfulManualRefresh(session, now);
+  assert.equal(updated.used, DAILY_MANUAL_REFRESH_LIMIT);
+  assert.equal(updated.canRefresh, false);
 });

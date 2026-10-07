@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { getSessionStatus } from "../lib/portal";
 import { titleCase, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
+import { subscribePortalDayRollover } from "../lib/portalSchedule";
 import { SECTIONS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { useAttendanceSummary } from "../sections/attendance";
@@ -30,6 +31,8 @@ export function DashboardPage({
 }) {
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const isMounted = useRef(true);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Silent recovery takes priority over the manual form. Hide it while a
   // background attempt is active, and after the session is authenticated.
@@ -48,18 +51,30 @@ export function DashboardPage({
     }
   });
 
+  const [, setPortalDayTick] = useState(0);
+
   useEffect(() => {
+    isMounted.current = true;
+    const unsubRollover = subscribePortalDayRollover(() => {
+      if (isMounted.current) {
+        setPortalDayTick((t) => t + 1);
+      }
+    });
+
     const update = () => {
       try {
         const raw = localStorage.getItem("juet.portal.last_sync");
         if (raw) setLastSync(Number(raw));
       } catch {}
-      setIsRefreshing(false);
+      if (isMounted.current) setIsRefreshing(false);
     };
     window.addEventListener("storage", update);
     window.addEventListener("juet:sync", update);
     const interval = setInterval(update, 30000);
     return () => {
+      isMounted.current = false;
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      unsubRollover();
       window.removeEventListener("storage", update);
       window.removeEventListener("juet:sync", update);
       clearInterval(interval);
@@ -73,15 +88,17 @@ export function DashboardPage({
     if (isSpinning) return;
     if (shouldThrottleRefresh()) {
       setIsRefreshing(true);
-      setTimeout(() => {
-        setIsRefreshing(false);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        if (isMounted.current) setIsRefreshing(false);
       }, 600);
       return;
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setIsRefreshing(true);
-      setTimeout(() => {
-        setIsRefreshing(false);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        if (isMounted.current) setIsRefreshing(false);
       }, 600);
       return;
     }
@@ -93,8 +110,9 @@ export function DashboardPage({
         recordRefreshAttempt();
       }
     } finally {
-      setTimeout(() => {
-        setIsRefreshing(false);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => {
+        if (isMounted.current) setIsRefreshing(false);
       }, 600);
     }
   };

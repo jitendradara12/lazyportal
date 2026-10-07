@@ -1,9 +1,15 @@
 import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, STALE_MS, sessionCacheKey } from "../hooks/useFeature";
+import { useFeature, STALE_MS, setCached, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { isPortalDayFresh, computeSubjectRowChecksum } from "../lib/portalSchedule";
+import {
+  isPortalDayFresh,
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
+  FEATURE_TTL,
+  type SessionRef,
+} from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -231,21 +237,14 @@ export function SubjectDetail({
   onLogout: () => void;
 }) {
   const base = { registrationid, registrationcode };
+  const cachedEntry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
   const detail = useFeature<Record<string, Record<string, unknown>>>({
-    run: async () => {
-      const data = await features.getSubjectAttendanceAll(client, session, row, base, "current");
-      if (data && typeof data === "object") {
-        const key = getSubjectCacheKey(session.username, registrationid, row, session.instituteid);
-        const checksum = computeSubjectRowChecksum(row);
-        try {
-          localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now(), checksum }));
-        } catch {}
-      }
-      return data;
-    },
+    run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey: getSubjectCacheKey(session.username, registrationid, row, session.instituteid),
-    staleTimeMs: STALE_MS,
+    staleTimeMs: FEATURE_TTL.subjects,
+    isFresh: (updatedAt) => !doesSubjectNeedDeepFetch(row, cachedEntry.data, updatedAt, cachedEntry.checksum),
+    writeExtra: () => ({ checksum: computeSubjectRowChecksum(row) }),
   });
 
   if (detail.loading && !detail.data) return <p className="muted">Loading class breakdown…</p>;
@@ -377,6 +376,22 @@ export function getCachedSubjectDetail(
   instituteid?: string | null,
 ): Record<string, Record<string, unknown>> | null {
   return getCachedSubjectDetailEntry(username, registrationid, row, instituteid).data;
+}
+
+export function setCachedSubjectDetail(
+  session: SessionRef,
+  registrationid: string | undefined | null,
+  row: AttRow & Record<string, unknown>,
+  data: Record<string, Record<string, unknown>>,
+): number {
+  const key = getSubjectCacheKey(
+    session.username ? String(session.username) : undefined,
+    registrationid,
+    row,
+    session.instituteid ? String(session.instituteid) : undefined,
+  );
+  const checksum = computeSubjectRowChecksum(row);
+  return setCached(key, data, { checksum });
 }
 
 export function combinedAttendance(

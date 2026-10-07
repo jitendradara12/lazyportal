@@ -24,6 +24,7 @@ import {
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
   getSubjectCacheKey,
+  setCachedSubjectDetail,
   useAttendanceInitial,
 } from "../sections/attendance";
 
@@ -191,11 +192,8 @@ export function AttendancePage({
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
             if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
-              const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
-              const checksum = computeSubjectRowChecksum(r);
-              try {
-                localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now(), checksum }));
-              } catch {}
+              const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+              setCachedSubjectDetail(session, semId, r, data);
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
               successCount++;
             }
@@ -381,11 +379,7 @@ export function AttendancePage({
                 isCacheGenerationCurrent(requestGeneration) &&
                 getSessionStatus() !== "expired"
               ) {
-                const key = getSubjectCacheKey(session.username, semId, r, session.instituteid);
-                const checksum = computeSubjectRowChecksum(r);
-                try {
-                  localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt: Date.now(), checksum }));
-                } catch {}
+                setCachedSubjectDetail(session, semId, r, data);
                 setDetailsMap((prev) => ({ ...prev, [subId]: data }));
                 successCount++;
               }
@@ -447,12 +441,16 @@ export function AttendancePage({
       }
 
       // Deduct quota ONLY after BOTH Step 1 and Step 2 completed without error,
-      // and ONLY for the active current semester (isDefault) with valid rows.
+      // ONLY for the active current semester (isDefault) with valid rows,
+      // and NEVER for error retries (retrying failed operations must remain free).
+      // Re-read fresh quota at deduction time to prevent cross-tab / rollover TOCTOU races.
+      const latestQuota = getManualRefreshQuota(session);
       if (
+        !isErrorRetry &&
         !detailRefreshError &&
         !isAborted &&
         isDefault &&
-        quota.canRefresh &&
+        latestQuota.canRefresh &&
         freshRows &&
         freshRows.length > 0 &&
         pageIsLive.current &&

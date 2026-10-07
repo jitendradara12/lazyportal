@@ -10,9 +10,17 @@
 /**
  * Daily manual refresh quota per student per portal day.
  * Auto-sync on the first app open of the day is free (does not consume this quota).
- * Set to 1 by default (1 auto + 1 manual refresh). Easily adjustable via this constant.
+ * Set to 1 by default (1 auto + 1 manual refresh). Easily adjustable via this constant or env.
  */
-export const DAILY_MANUAL_REFRESH_LIMIT = 1;
+const envLimit =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_DAILY_MANUAL_REFRESH_LIMIT
+    ? Number(import.meta.env.VITE_DAILY_MANUAL_REFRESH_LIMIT)
+    : typeof process !== "undefined" && process.env?.DAILY_MANUAL_REFRESH_LIMIT
+    ? Number(process.env.DAILY_MANUAL_REFRESH_LIMIT)
+    : NaN;
+
+export const DAILY_MANUAL_REFRESH_LIMIT =
+  Number.isFinite(envLimit) && envLimit >= 0 ? Math.floor(envLimit) : 1;
 
 /**
  * Cutoff hour in Indian Standard Time (IST, UTC+05:30).
@@ -108,16 +116,16 @@ export interface RefreshQuotaState {
   portalDay: string;
 }
 
-export function getQuotaStorageKey(session: SessionRef): string {
-  const user = session.username ? encodeURIComponent(String(session.username)) : "anonymous";
-  const inst = session.instituteid ? encodeURIComponent(String(session.instituteid)) : "default";
+export function getQuotaStorageKey(session?: SessionRef | null): string {
+  const user = session?.username ? encodeURIComponent(String(session.username).trim().toUpperCase()) : "anonymous";
+  const inst = session?.instituteid != null ? encodeURIComponent(String(session.instituteid)) : "default";
   return `juet.portal.refresh_quota.${user}:${inst}`;
 }
 
 /**
  * Query the remaining manual refresh quota for the current portal day.
  */
-export function getManualRefreshQuota(session: SessionRef, now = Date.now()): RefreshQuotaState {
+export function getManualRefreshQuota(session?: SessionRef | null, now = Date.now()): RefreshQuotaState {
   const portalDay = getPortalDayKey(now);
   const resetsInMs = getMsUntilNextPortalDay(now);
   const key = getQuotaStorageKey(session);
@@ -127,7 +135,10 @@ export function getManualRefreshQuota(session: SessionRef, now = Date.now()): Re
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object" && parsed.day === portalDay) {
-        const used = Math.max(0, Number(parsed.count) || 0);
+        const countNum = Number(parsed.count);
+        const used = Number.isFinite(countNum)
+          ? Math.min(Math.max(0, Math.floor(countNum)), DAILY_MANUAL_REFRESH_LIMIT)
+          : 0;
         const remaining = Math.max(0, DAILY_MANUAL_REFRESH_LIMIT - used);
         return {
           used,
@@ -145,7 +156,7 @@ export function getManualRefreshQuota(session: SessionRef, now = Date.now()): Re
     used: 0,
     total: DAILY_MANUAL_REFRESH_LIMIT,
     remaining: DAILY_MANUAL_REFRESH_LIMIT,
-    canRefresh: true,
+    canRefresh: DAILY_MANUAL_REFRESH_LIMIT > 0,
     resetsInMs,
     portalDay,
   };
@@ -156,9 +167,9 @@ export function getManualRefreshQuota(session: SessionRef, now = Date.now()): Re
  * Must ONLY be called upon successful 200 response with non-empty rows.
  * Failed, aborted, or offline attempts MUST NOT call this.
  */
-export function recordSuccessfulManualRefresh(session: SessionRef, now = Date.now()): RefreshQuotaState {
+export function recordSuccessfulManualRefresh(session?: SessionRef | null, now = Date.now()): RefreshQuotaState {
   const current = getManualRefreshQuota(session, now);
-  const nextUsed = current.used + 1;
+  const nextUsed = Math.min(DAILY_MANUAL_REFRESH_LIMIT, current.used + 1);
   const key = getQuotaStorageKey(session);
   const nextState: RefreshQuotaState = {
     used: nextUsed,
@@ -190,6 +201,13 @@ function pick(row: Record<string, unknown>, ...keys: string[]): string {
   return "";
 }
 
+function pickComponent(row: Record<string, unknown>, prefix: string): string {
+  const tot = pick(row, `${prefix}totalclass`, `${prefix}Totalclass`, `${prefix.toLowerCase()}totalclass`);
+  const pres = pick(row, `${prefix}totalpresent`, `${prefix}Totalpresent`, `${prefix.toLowerCase()}totalpresent`);
+  const pct = pick(row, `${prefix}percentage`);
+  return `${tot}:${pres}:${pct}`;
+}
+
 /**
  * Fast composite row checksum to determine if attendance breakdown has changed.
  * Captures all component counts, totals, and percentages.
@@ -197,18 +215,12 @@ function pick(row: Record<string, unknown>, ...keys: string[]): string {
 export function computeSubjectRowChecksum(row: Record<string, unknown>): string {
   const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
   const overall = pick(row, "overallattendance", "percentage", "attendance");
-  const Ltot = pick(row, "Ltotalclass", "LTotalclass", "ltotalclass");
-  const Lpres = pick(row, "Ltotalpresent", "LTotalpresent", "ltotalpresent");
-  const Lpct = pick(row, "Lpercentage");
-  const Ttot = pick(row, "Ttotalclass", "TTotalclass", "ttotalclass");
-  const Tpres = pick(row, "Ttotalpresent", "TTotalpresent", "ttotalpresent");
-  const Tpct = pick(row, "Tpercentage");
-  const Ptot = pick(row, "Ptotalclass", "PTotalclass", "ptotalclass");
-  const Ppres = pick(row, "Ptotalpresent", "PTotalpresent", "ptotalpresent");
-  const Ppct = pick(row, "Ppercentage");
   const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
   const pres = pick(row, "totalpresent", "Totalpresent");
-  return `${subId}|${tot}|${pres}|${overall}|${Ltot}:${Lpres}:${Lpct}|${Ttot}:${Tpres}:${Tpct}|${Ptot}:${Ppres}:${Ppct}`;
+  const L = pickComponent(row, "L");
+  const T = pickComponent(row, "T");
+  const P = pickComponent(row, "P");
+  return `${subId}|${tot}|${pres}|${overall}|${L}|${T}|${P}`;
 }
 
 function getComponentTotal(comp: unknown): number {
@@ -224,14 +236,15 @@ export function doesSubjectNeedDeepFetch(
   row: Record<string, unknown>,
   cached: Record<string, Record<string, unknown>> | null,
   cachedUpdatedAt: number | null,
-  cachedChecksum?: string | null
+  cachedChecksum?: string | null,
+  now = Date.now()
 ): boolean {
   if (!cached || Object.keys(cached).length === 0) return true;
   const currentChecksum = computeSubjectRowChecksum(row);
   if (cachedChecksum) {
     if (cachedChecksum !== currentChecksum) return true;
-    // Bounded max TTL: even if checksum matches, entries older than 7 days allow a periodic refresh
-    if (cachedUpdatedAt && Date.now() - cachedUpdatedAt > 7 * 24 * 60 * 60 * 1000) return true;
+    // Bounded max TTL: even if checksum matches, entries older than 7 days (or missing timestamp) allow a periodic refresh
+    if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.subjects) return true;
     return false;
   }
   // Backward compatibility when checksum was not yet stored in cache
@@ -243,7 +256,7 @@ export function doesSubjectNeedDeepFetch(
     }
     if (cachedTotal > 0 && rowTotal !== cachedTotal) return true;
   }
-  if (!cachedUpdatedAt || Date.now() - cachedUpdatedAt > FEATURE_TTL.default) {
+  if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.subjects) {
     return true;
   }
   return false;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-interface UseFeatureOptions<T> {
+export interface UseFeatureOptions<T> {
   run: () => Promise<T>;
   /** Extra deps that retrigger the fetch (e.g. selected semester id). */
   deps?: unknown[];
@@ -13,6 +13,8 @@ interface UseFeatureOptions<T> {
   /** Custom freshness check (e.g. portal day schedule). Overrides staleTimeMs when provided. */
   isFresh?: (updatedAt: number | null) => boolean;
   scope?: "dashboard" | "attendance" | "all";
+  /** Optional extra metadata to persist in the cache entry (e.g. checksum). */
+  writeExtra?: Record<string, unknown> | (() => Record<string, unknown>);
 }
 
 function isUnauthorized(e: unknown): boolean {
@@ -129,7 +131,16 @@ export function setCached<T>(key: string | undefined, data: T, extra?: Record<st
 
 export const STALE_MS = 2 * 60 * 60 * 1000;
 
-export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS, isFresh, scope }: UseFeatureOptions<T>) {
+export function useFeature<T>({
+  run,
+  deps = [],
+  enabled = true,
+  cacheKey,
+  staleTimeMs = STALE_MS,
+  isFresh,
+  scope,
+  writeExtra,
+}: UseFeatureOptions<T>) {
   const targetScope = scope ?? (
     cacheKey?.startsWith("att.")
       ? "attendance"
@@ -143,6 +154,8 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
   const forceRef = useRef(false);
   const runRef = useRef(run);
   runRef.current = run;
+  const writeExtraRef = useRef(writeExtra);
+  writeExtraRef.current = writeExtra;
 
   const setStateForKey = useCallback((key: string | undefined, update: Partial<FeatureState<T>>) => {
     setState((previous) => {
@@ -228,7 +241,12 @@ export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleT
         .then(() => runRef.current())
         .then((d) => {
           const time = Date.now();
-          if (isCacheGenerationCurrent(generation)) setCached(cacheKey, d);
+          if (isCacheGenerationCurrent(generation)) {
+            const extra = typeof writeExtraRef.current === "function"
+              ? writeExtraRef.current()
+              : writeExtraRef.current;
+            setCached(cacheKey, d, extra);
+          }
           return { data: d, updatedAt: time };
         })
         .finally(() => {
