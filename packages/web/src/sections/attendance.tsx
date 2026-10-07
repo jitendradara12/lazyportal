@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, STALE_MS, setCached, sessionCacheKey } from "../hooks/useFeature";
+import { useFeature, setCached, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import {
   isPortalDayFresh,

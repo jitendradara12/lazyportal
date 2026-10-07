@@ -53,7 +53,6 @@ const {
   isPortalDayFresh,
   getNextPortalResetTimestamp,
   getMsUntilNextPortalDay,
-  formatTimeUntilReset,
   formatQuotaStatus,
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
@@ -106,10 +105,8 @@ test("getNextPortalResetTimestamp returns exact upcoming 02:00 AM IST", () => {
   assert.equal(getMsUntilNextPortalDay(midDay), 12 * 3600 * 1000);
 });
 
-test("formatTimeUntilReset formats hours and minutes correctly", () => {
-  assert.equal(formatTimeUntilReset(0), "shortly");
-  assert.equal(formatTimeUntilReset(45 * 60 * 1000), "45m");
-  assert.equal(formatTimeUntilReset((2 * 3600 + 15 * 60) * 1000), "2h 15m");
+test("formatQuotaStatus always says up to date", () => {
+  assert.equal(formatQuotaStatus(), "Up to date with portal");
 });
 
 test("manual refresh quota enforces daily limit and resets automatically on new portal day", () => {
@@ -236,17 +233,6 @@ test("isPortalDayFresh returns true for timestamps today, false for null or past
 
   const yesterday = now - 24 * 3600 * 1000 * 2;
   assert.equal(isPortalDayFresh(yesterday), false);
-});
-
-test("formatQuotaStatus always says up to date", () => {
-  assert.equal(
-    formatQuotaStatus({ total: 1, used: 0, remaining: 1, canRefresh: true, resetsInMs: 3600000 }),
-    "Up to date with portal",
-  );
-  assert.equal(
-    formatQuotaStatus({ total: 1, used: 1, remaining: 0, canRefresh: false, resetsInMs: 7200000 }),
-    "Up to date with portal",
-  );
 });
 
 test("FEATURE_TTL defines tiered stale times for different data velocities", () => {

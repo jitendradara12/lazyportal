@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface UseFeatureOptions<T> {
+interface UseFeatureOptions<T> {
   run: () => Promise<T>;
   /** Extra deps that retrigger the fetch (e.g. selected semester id). */
   deps?: unknown[];

@@ -10,17 +10,8 @@
 /**
  * Daily manual refresh quota per student per portal day.
  * Auto-sync on the first app open of the day is free (does not consume this quota).
- * Set to 1 by default (1 auto + 1 manual refresh). Easily adjustable via this constant or env.
  */
-const envLimit =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_DAILY_MANUAL_REFRESH_LIMIT
-    ? Number(import.meta.env.VITE_DAILY_MANUAL_REFRESH_LIMIT)
-    : typeof process !== "undefined" && process.env?.DAILY_MANUAL_REFRESH_LIMIT
-    ? Number(process.env.DAILY_MANUAL_REFRESH_LIMIT)
-    : NaN;
-
-export const DAILY_MANUAL_REFRESH_LIMIT =
-  Number.isFinite(envLimit) && envLimit >= 0 ? Math.floor(envLimit) : 1;
+export const DAILY_MANUAL_REFRESH_LIMIT = 1;
 
 /**
  * Cutoff hour in Indian Standard Time (IST, UTC+05:30).
@@ -39,7 +30,6 @@ export interface SessionRef {
 
 /** Centralized TTL policies across features to avoid shotgun updates */
 export const FEATURE_TTL = {
-  attendance: "portal-day",
   marks: 12 * 60 * 60 * 1000, // 12 hours (entered in bursts post-exam)
   exams: 24 * 60 * 60 * 1000, // 24 hours (published days before exams)
   faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
@@ -97,18 +87,6 @@ export function getMsUntilNextPortalDay(now?: Date | number): number {
   return Math.max(0, nextReset - nowMs);
 }
 
-/**
- * Format milliseconds remaining into human-readable text (e.g. "3h 15m" or "45m").
- */
-export function formatTimeUntilReset(ms: number): string {
-  if (ms <= 0) return "shortly";
-  const hours = Math.floor(ms / (3600 * 1000));
-  const minutes = Math.floor((ms % (3600 * 1000)) / (60 * 1000));
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
-}
-
 export interface RefreshQuotaState {
   used: number;
   total: number;
@@ -131,37 +109,21 @@ export function getManualRefreshQuota(session?: SessionRef | null, now = Date.no
   const portalDay = getPortalDayKey(now);
   const resetsInMs = getMsUntilNextPortalDay(now);
   const key = getQuotaStorageKey(session);
-
+  let used = 0;
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object" && parsed.day === portalDay) {
         const countNum = Number(parsed.count);
-        const used = Number.isFinite(countNum)
+        used = Number.isFinite(countNum)
           ? Math.min(Math.max(0, Math.floor(countNum)), DAILY_MANUAL_REFRESH_LIMIT)
           : 0;
-        const remaining = Math.max(0, DAILY_MANUAL_REFRESH_LIMIT - used);
-        return {
-          used,
-          total: DAILY_MANUAL_REFRESH_LIMIT,
-          remaining,
-          canRefresh: remaining > 0,
-          resetsInMs,
-          portalDay,
-        };
       }
     }
   } catch {}
-
-  return {
-    used: 0,
-    total: DAILY_MANUAL_REFRESH_LIMIT,
-    remaining: DAILY_MANUAL_REFRESH_LIMIT,
-    canRefresh: DAILY_MANUAL_REFRESH_LIMIT > 0,
-    resetsInMs,
-    portalDay,
-  };
+  const remaining = Math.max(0, DAILY_MANUAL_REFRESH_LIMIT - used);
+  return { used, total: DAILY_MANUAL_REFRESH_LIMIT, remaining, canRefresh: remaining > 0, resetsInMs, portalDay };
 }
 
 /**
@@ -264,10 +226,8 @@ export function doesSubjectNeedDeepFetch(
   return false;
 }
 
-/**
- * Format the user-facing quota tooltip or banner.
- */
-export function formatQuotaStatus(_quota: RefreshQuotaState): string {
+/** Quota pill / tooltip copy: exhausted just reads as up to date. */
+export function formatQuotaStatus(): string {
   return "Up to date with portal";
 }
 

@@ -9,8 +9,6 @@ import {
   getManualRefreshQuota,
   recordSuccessfulManualRefresh,
   formatQuotaStatus,
-  isPortalDayFresh,
-  computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
   subscribePortalDayRollover,
   FEATURE_TTL,
@@ -48,6 +46,13 @@ export function AttendancePage({
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotice = (msg: string, ms: number) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setQuotaNotice(msg);
+    noticeTimer.current = setTimeout(() => {
+      if (pageIsLive.current) setQuotaNotice(null);
+    }, ms);
+  };
   const refreshInProgress = useRef(false);
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -250,7 +255,7 @@ export function AttendancePage({
 
   const isSyncing = !isExpired && (isRefreshing || loading || syncingIds.size > 0);
 
-  // Memoize counts and filtering in a single O(N) pass to preserve smooth CPU/memory on mobile
+  // Single-pass short-count + filter for cheap mobile renders.
   const { shortsCount, filteredRows } = useMemo(() => {
     let count = 0;
     const filtered: (AttRow & Record<string, unknown>)[] = [];
@@ -268,26 +273,16 @@ export function AttendancePage({
   const handleRefresh = async (bypassThrottle = false) => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
 
-    // Retrying an error explicitly passes bypassThrottle = true.
-    // Normal manual refresh checks daily quota and rapid-click throttle.
-    // Daily quota applies ONLY to the active current semester (isDefault).
+    // Error retries are free; normal refreshes check daily quota then rapid-click throttle.
     const isErrorRetry = Boolean(bypassThrottle);
     const quota = getManualRefreshQuota(session);
     if (!isErrorRetry) {
       if (isDefault && !quota.canRefresh) {
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setQuotaNotice(formatQuotaStatus(quota));
-        noticeTimer.current = setTimeout(() => {
-          if (pageIsLive.current) setQuotaNotice(null);
-        }, 2500);
+        showNotice(formatQuotaStatus(), 2500);
         return;
       }
       if (shouldThrottleRefresh()) {
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setQuotaNotice("already up to date bro");
-        noticeTimer.current = setTimeout(() => {
-          if (pageIsLive.current) setQuotaNotice(null);
-        }, 2000);
+        showNotice("already up to date bro", 2000);
         return;
       }
     }
@@ -330,10 +325,9 @@ export function AttendancePage({
 
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
-      // Tell hooks to update from fresh cache
+      // Revalidate hooks from fresh cache, then deep-fetch only changed subjects.
       window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
 
-      // 2. Fetch fresh detail only for subjects whose checksum changed or lack detail
       const activeRows = freshRows ?? rows;
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
@@ -441,10 +435,7 @@ export function AttendancePage({
         } catch {}
       }
 
-      // Deduct quota ONLY after BOTH Step 1 and Step 2 completed without error,
-      // ONLY for the active current semester (isDefault) with valid rows,
-      // and NEVER for error retries (retrying failed operations must remain free).
-      // Re-read fresh quota at deduction time to prevent cross-tab / rollover TOCTOU races.
+      // Deduct quota only after a clean full refresh: current semester, real rows, no retry.
       const latestQuota = getManualRefreshQuota(session);
       if (
         !isErrorRetry &&
@@ -462,8 +453,6 @@ export function AttendancePage({
         setRefreshQuota(getManualRefreshQuota(session));
       }
     } catch (err: unknown) {
-      // Session expiry has its own reconnect UI; report ordinary refresh errors
-      // here instead of leaking an unhandled rejection from the click handler.
       if (pageIsLive.current && getSessionStatus() !== "expired") {
         setRefreshError(err instanceof Error ? err.message : String(err));
       }
@@ -557,7 +546,7 @@ export function AttendancePage({
               isSyncing
                 ? "Refreshing attendance…"
                 : isDefault && !refreshQuota.canRefresh && !error
-                ? formatQuotaStatus(refreshQuota)
+                ? formatQuotaStatus()
                 : shouldThrottleRefresh() && lastSync
                 ? formatLastSync(lastSync)
                 : "Refresh attendance"

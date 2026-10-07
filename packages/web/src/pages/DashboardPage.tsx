@@ -33,6 +33,13 @@ export function DashboardPage({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const isMounted = useRef(true);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const spinBriefly = () => {
+    setIsRefreshing(true);
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      if (isMounted.current) setIsRefreshing(false);
+    }, 600);
+  };
 
   // Silent recovery takes priority over the manual form. Hide it while a
   // background attempt is active, and after the session is authenticated.
@@ -87,19 +94,11 @@ export function DashboardPage({
   const handleRefresh = async () => {
     if (isSpinning) return;
     if (shouldThrottleRefresh()) {
-      setIsRefreshing(true);
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(() => {
-        if (isMounted.current) setIsRefreshing(false);
-      }, 600);
+      spinBriefly();
       return;
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setIsRefreshing(true);
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(() => {
-        if (isMounted.current) setIsRefreshing(false);
-      }, 600);
+      spinBriefly();
       return;
     }
 
@@ -110,10 +109,7 @@ export function DashboardPage({
         recordRefreshAttempt();
       }
     } finally {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(() => {
-        if (isMounted.current) setIsRefreshing(false);
-      }, 600);
+      spinBriefly();
     }
   };
 
