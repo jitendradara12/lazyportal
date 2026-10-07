@@ -53,6 +53,7 @@ export function AttendancePage({
     }, ms);
   };
   const refreshInProgress = useRef(false);
+  const lastErrorRetryAt = useRef(0);
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -153,7 +154,7 @@ export function AttendancePage({
 
   // Re-sync cached details when rows or semester change, and prefetch uncached/changed in background
   useEffect(() => {
-    if (!rows.length || isExpired) return;
+    if (!rows.length || isExpired || !isDefault) return;
 
     let isLive = true;
     let isAborted = false;
@@ -272,11 +273,23 @@ export function AttendancePage({
   const handleRefresh = async (bypassThrottle = false) => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
 
-    // Error retries are free; normal refreshes check daily quota then rapid-click throttle.
+    if (!isDefault) {
+      showNotice("Only current semester updates", 2000);
+      return;
+    }
+
+    // Error retries have a 5-second cooldown to avoid rapid spam; normal refreshes check daily quota then rapid-click throttle.
     const isErrorRetry = Boolean(bypassThrottle);
-    const quota = getManualRefreshQuota(session);
-    if (!isErrorRetry) {
-      if (isDefault && !quota.canRefresh) {
+    if (isErrorRetry) {
+      const now = Date.now();
+      if (now - lastErrorRetryAt.current < 5000) {
+        showNotice("Wait a few seconds to retry", 2000);
+        return;
+      }
+      lastErrorRetryAt.current = now;
+    } else {
+      const quota = getManualRefreshQuota(session);
+      if (!quota.canRefresh) {
         showNotice("Up to date with portal", 2500);
         return;
       }

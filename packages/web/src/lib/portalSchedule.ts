@@ -14,13 +14,17 @@
 export const DAILY_MANUAL_REFRESH_LIMIT = 1;
 
 /**
- * Cutoff hour in Indian Standard Time (IST, UTC+05:30).
- * Set to 2 (02:00 AM IST).
+ * Cutoff time in Indian Standard Time (IST, UTC+05:30).
+ * Set to 00:28 AM IST to align with JUET's single midnight batch commit.
  */
-export const PORTAL_DAY_CUTOFF_HOUR_IST = 2;
+export const PORTAL_DAY_CUTOFF_HOUR_IST = 0;
+export const PORTAL_DAY_CUTOFF_MINUTE_IST = 28;
 
-// IST offset is +05:30. Shifting by (5.5 - 2) = +3.5 hours converts IST cutoff to UTC midnight.
-const IST_EFFECTIVE_OFFSET_MS = (5.5 - PORTAL_DAY_CUTOFF_HOUR_IST) * 3600 * 1000; // 12,600,000 ms
+// IST offset is UTC+05:30 (330 minutes).
+// Shifting by (330 - cutoff_minutes) converts the IST cutoff point to UTC midnight.
+const IST_OFFSET_MINUTES = 5 * 60 + 30; // 330 min
+const CUTOFF_MINUTES_IST = PORTAL_DAY_CUTOFF_HOUR_IST * 60 + PORTAL_DAY_CUTOFF_MINUTE_IST; // 28 min
+const IST_EFFECTIVE_OFFSET_MS = (IST_OFFSET_MINUTES - CUTOFF_MINUTES_IST) * 60 * 1000; // 18,120,000 ms
 
 /** Shared session reference structure for quota and cache keys */
 export interface SessionRef {
@@ -39,8 +43,8 @@ export const FEATURE_TTL = {
 
 /**
  * Get the portal day key (e.g. "2026-10-07") for a timestamp or Date in IST.
- * 01:59 AM IST on Oct 7 belongs to portal day 2026-10-06.
- * 02:00 AM IST on Oct 7 starts portal day 2026-10-07.
+ * 00:27 AM IST on Oct 7 belongs to portal day 2026-10-06.
+ * 00:28 AM IST on Oct 7 starts portal day 2026-10-07.
  */
 export function getPortalDayKey(date?: Date | number): string {
   const ts = typeof date === "number" ? date : (date instanceof Date ? date.getTime() : Date.now());
@@ -63,7 +67,7 @@ export function isCurrentPortalDay(timestamp?: number | null, now?: Date | numbe
 }
 
 /**
- * Calculate the exact timestamp when the next portal day begins (upcoming 02:00 AM IST).
+ * Calculate the exact timestamp when the next portal day begins (upcoming 00:28 AM IST).
  */
 export function getNextPortalResetTimestamp(now?: Date | number): number {
   const nowMs = typeof now === "number" ? now : (now instanceof Date ? now.getTime() : Date.now());
@@ -74,7 +78,7 @@ export function getNextPortalResetTimestamp(now?: Date | number): number {
 }
 
 /**
- * Milliseconds remaining until the next 02:00 AM IST portal reset.
+ * Milliseconds remaining until the next 00:28 AM IST portal reset.
  */
 export function getMsUntilNextPortalDay(now?: Date | number): number {
   const nowMs = typeof now === "number" ? now : (now instanceof Date ? now.getTime() : Date.now());
@@ -222,15 +226,17 @@ export function doesSubjectNeedDeepFetch(
 }
 
 /**
- * Automatically roll over quota and trigger revalidation when a tab is kept open overnight across 02:00 AM IST.
+ * Automatically roll over quota and trigger revalidation when a tab is kept open overnight across 00:28 AM IST.
  */
 export function subscribePortalDayRollover(callback: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastDay = getPortalDayKey();
   const schedule = () => {
     if (timer) clearTimeout(timer);
     const ms = getMsUntilNextPortalDay() + 500;
     timer = setTimeout(() => {
+      lastDay = getPortalDayKey();
       callback();
       window.dispatchEvent(new CustomEvent("juet:quota-changed"));
       schedule();
@@ -239,7 +245,12 @@ export function subscribePortalDayRollover(callback: () => void): () => void {
   schedule();
   const handleVisibility = () => {
     if (typeof document !== "undefined" && document.visibilityState === "visible") {
-      callback();
+      const currentDay = getPortalDayKey();
+      if (currentDay !== lastDay) {
+        lastDay = currentDay;
+        callback();
+        window.dispatchEvent(new CustomEvent("juet:quota-changed"));
+      }
       if (timer) clearTimeout(timer);
       schedule();
     }

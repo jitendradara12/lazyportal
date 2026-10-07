@@ -58,21 +58,23 @@ const {
   subscribePortalDayRollover,
   DAILY_MANUAL_REFRESH_LIMIT,
   PORTAL_DAY_CUTOFF_HOUR_IST,
+  PORTAL_DAY_CUTOFF_MINUTE_IST,
   FEATURE_TTL,
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
 } = await import("../src/lib/portalSchedule.ts");
 
-test("portal day cutoff is 2:00 AM IST", () => {
-  assert.equal(PORTAL_DAY_CUTOFF_HOUR_IST, 2);
+test("portal day cutoff is 00:28 AM IST", () => {
+  assert.equal(PORTAL_DAY_CUTOFF_HOUR_IST, 0);
+  assert.equal(PORTAL_DAY_CUTOFF_MINUTE_IST, 28);
   assert.equal(DAILY_MANUAL_REFRESH_LIMIT, 1);
 });
 
-test("01:59:59 IST belongs to previous portal day, 02:00:00 IST starts new portal day", () => {
-  // 2026-10-07 01:59:59 IST is UTC 2026-10-06 20:29:59
-  const beforeCutoff = Date.UTC(2026, 9, 6, 20, 29, 59);
-  // 2026-10-07 02:00:00 IST is UTC 2026-10-06 20:30:00
-  const atCutoff = Date.UTC(2026, 9, 6, 20, 30, 0);
+test("00:27:59 IST belongs to previous portal day, 00:28:00 IST starts new portal day", () => {
+  // 2026-10-07 00:27:59 IST is UTC 2026-10-06 18:57:59
+  const beforeCutoff = Date.UTC(2026, 9, 6, 18, 57, 59);
+  // 2026-10-07 00:28:00 IST is UTC 2026-10-06 18:58:00
+  const atCutoff = Date.UTC(2026, 9, 6, 18, 58, 0);
   // 2026-10-07 14:00:00 IST is UTC 2026-10-07 08:30:00
   const midDay = Date.UTC(2026, 9, 7, 8, 30, 0);
 
@@ -84,23 +86,23 @@ test("01:59:59 IST belongs to previous portal day, 02:00:00 IST starts new porta
 test("isCurrentPortalDay correctly identifies timestamps in same portal day", () => {
   const morning = Date.UTC(2026, 9, 7, 3, 30, 0); // 09:00 AM IST
   const evening = Date.UTC(2026, 9, 7, 14, 30, 0); // 08:00 PM IST
-  const nextNight = Date.UTC(2026, 9, 7, 19, 30, 0); // 01:00 AM IST next day (Oct 8)
-  const afterReset = Date.UTC(2026, 9, 7, 20, 35, 0); // 02:05 AM IST next day (Oct 8)
+  const lateNight = Date.UTC(2026, 9, 7, 18, 50, 0); // 00:20 AM IST next day (Oct 8)
+  const afterReset = Date.UTC(2026, 9, 7, 19, 0, 0); // 00:30 AM IST next day (Oct 8)
 
   assert.equal(isCurrentPortalDay(morning, evening), true);
-  assert.equal(isCurrentPortalDay(morning, nextNight), true);
+  assert.equal(isCurrentPortalDay(morning, lateNight), true);
   assert.equal(isCurrentPortalDay(morning, afterReset), false);
   assert.equal(isCurrentPortalDay(null, evening), false);
   assert.equal(isCurrentPortalDay(undefined, evening), false);
   assert.equal(isCurrentPortalDay(0, evening), false);
 });
 
-test("getNextPortalResetTimestamp returns exact upcoming 02:00 AM IST", () => {
+test("getNextPortalResetTimestamp returns exact upcoming 00:28 AM IST", () => {
   const midDay = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST on Oct 7
   const nextReset = getNextPortalResetTimestamp(midDay);
-  // Upcoming reset should be Oct 8 02:00 AM IST = UTC Oct 7 20:30:00
-  assert.equal(nextReset, Date.UTC(2026, 9, 7, 20, 30, 0));
-  assert.equal(getMsUntilNextPortalDay(midDay), 12 * 3600 * 1000);
+  // Upcoming reset should be Oct 8 00:28 AM IST = UTC Oct 7 18:58:00
+  assert.equal(nextReset, Date.UTC(2026, 9, 7, 18, 58, 0));
+  assert.equal(getMsUntilNextPortalDay(midDay), (10 * 3600 + 28 * 60) * 1000);
 });
 
 test("manual refresh quota enforces daily limit and resets automatically on new portal day", () => {
@@ -108,7 +110,7 @@ test("manual refresh quota enforces daily limit and resets automatically on new 
   dispatchedEvents = [];
   const session = { username: "student123", instituteid: "juet" };
   const day1Time = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST Oct 7
-  const day2Time = Date.UTC(2026, 9, 7, 21, 0, 0); // 02:30 IST Oct 8 (new portal day)
+  const day2Time = Date.UTC(2026, 9, 7, 19, 0, 0); // 00:30 IST Oct 8 (new portal day)
 
   // Initially full quota
   const initial = getManualRefreshQuota(session, day1Time);
@@ -247,7 +249,7 @@ test("subscribePortalDayRollover returns an unsubscribe cleanup function", () =>
   assert.equal(called, false);
 });
 
-test("subscribePortalDayRollover triggers callback and reschedules on visibilitychange", () => {
+test("subscribePortalDayRollover triggers callback on visibilitychange only when portal day rolled over", () => {
   let callCount = 0;
   const unsub = subscribePortalDayRollover(() => {
     callCount++;
@@ -255,8 +257,21 @@ test("subscribePortalDayRollover triggers callback and reschedules on visibility
   globalThis.document.visibilityState = "visible";
   const listeners = docListeners.get("visibilitychange");
   assert.ok(listeners && listeners.size > 0);
+
+  // 1. Same portal day: does not spuriously trigger callback
   for (const cb of listeners) cb();
-  assert.equal(callCount, 1);
+  assert.equal(callCount, 0);
+
+  // 2. Advance to next portal day: visibility change triggers rollover callback
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 24 * 3600 * 1000;
+    for (const cb of listeners) cb();
+    assert.equal(callCount, 1);
+  } finally {
+    Date.now = realNow;
+  }
+
   unsub();
 });
 

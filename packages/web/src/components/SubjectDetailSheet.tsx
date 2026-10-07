@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, STALE_MS } from "../hooks/useFeature";
+import { useFeature } from "../hooks/useFeature";
 import { SectionError } from "./DataViews";
 import type { Session } from "../types";
 import {
@@ -11,8 +11,14 @@ import {
   computeBunkMargin,
   getColorClass,
   getSubjectCacheKey,
+  getCachedSubjectDetailEntry,
   CombinedClassLog,
 } from "../sections/attendance";
+import {
+  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
+  FEATURE_TTL,
+} from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
 
 export function SubjectDetailSheet({
@@ -43,7 +49,12 @@ export function SubjectDetailSheet({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey,
-    staleTimeMs: STALE_MS,
+    staleTimeMs: FEATURE_TTL.subjects,
+    isFresh: (updatedAt) => {
+      const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
+      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
+    },
+    writeExtra: () => ({ checksum: computeSubjectRowChecksum(row) }),
   });
 
   const attInfo = combinedAttendance(row, detail.data, target / 100);
