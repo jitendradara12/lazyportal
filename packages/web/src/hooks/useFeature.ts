@@ -31,6 +31,8 @@ function toMessage(e: unknown): string {
 interface CacheEntry<T> {
   data: T;
   updatedAt: number;
+  checksum?: string | null;
+  [key: string]: unknown;
 }
 
 export interface FeatureState<T> {
@@ -96,14 +98,15 @@ export function sessionCacheKey(
     .join(":");
 }
 
-export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null } {
+export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> {
   if (!key) return { data: null, updatedAt: null };
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
     if (!raw) return { data: null, updatedAt: null };
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "updatedAt" in parsed && "data" in parsed) {
-      return { data: parsed.data as T, updatedAt: parsed.updatedAt as number };
+      const { data, updatedAt, ...rest } = parsed as { data: T; updatedAt: number } & Record<string, unknown>;
+      return { ...rest, data: data as T, updatedAt: updatedAt as number };
     }
     return { data: parsed as T, updatedAt: null };
   } catch {

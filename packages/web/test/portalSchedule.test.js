@@ -238,18 +238,14 @@ test("isPortalDayFresh returns true for timestamps today, false for null or past
   assert.equal(isPortalDayFresh(yesterday), false);
 });
 
-test("formatQuotaStatus formats remaining and exhausted states with reset countdown", () => {
+test("formatQuotaStatus always says up to date", () => {
   assert.equal(
     formatQuotaStatus({ total: 1, used: 0, remaining: 1, canRefresh: true, resetsInMs: 3600000 }),
-    "1 refresh available today",
-  );
-  assert.equal(
-    formatQuotaStatus({ total: 2, used: 1, remaining: 1, canRefresh: true, resetsInMs: 3600000 }),
-    "1/2 refreshes remaining today",
+    "Up to date with portal",
   );
   assert.equal(
     formatQuotaStatus({ total: 1, used: 1, remaining: 0, canRefresh: false, resetsInMs: 7200000 }),
-    "Daily refresh limit used (resets in 2h at 2:00 AM IST)",
+    "Up to date with portal",
   );
 });
 

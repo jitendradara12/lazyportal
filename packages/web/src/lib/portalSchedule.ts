@@ -44,6 +44,7 @@ export const FEATURE_TTL = {
   exams: 24 * 60 * 60 * 1000, // 24 hours (published days before exams)
   faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
   subjects: 7 * 24 * 60 * 60 * 1000, // 7 days (static course catalog)
+  pastDetail: 30 * 24 * 60 * 60 * 1000, // 30 days (immutable past-semester history)
   default: 2 * 60 * 60 * 1000, // 2 hours default
 } as const;
 
@@ -73,7 +74,8 @@ export function isCurrentPortalDay(timestamp?: number | null, now?: Date | numbe
 }
 
 /** Reusable freshness predicate for useFeature hooks */
-export const isPortalDayFresh = (updatedAt: number | null): boolean => isCurrentPortalDay(updatedAt);
+export const isPortalDayFresh = (updatedAt: number | null, now?: Date | number): boolean =>
+  isCurrentPortalDay(updatedAt, now);
 
 /**
  * Calculate the exact timestamp when the next portal day begins (upcoming 02:00 AM IST).
@@ -265,14 +267,8 @@ export function doesSubjectNeedDeepFetch(
 /**
  * Format the user-facing quota tooltip or banner.
  */
-export function formatQuotaStatus(quota: RefreshQuotaState): string {
-  if (quota.canRefresh) {
-    if (quota.total === 1) {
-      return "1 refresh available today";
-    }
-    return `${quota.remaining}/${quota.total} refreshes remaining today`;
-  }
-  return `Daily refresh limit used (resets in ${formatTimeUntilReset(quota.resetsInMs)} at 2:00 AM IST)`;
+export function formatQuotaStatus(_quota: RefreshQuotaState): string {
+  return "Up to date with portal";
 }
 
 /**

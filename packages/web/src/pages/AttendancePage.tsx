@@ -13,6 +13,7 @@ import {
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
   subscribePortalDayRollover,
+  FEATURE_TTL,
   type RefreshQuotaState,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
@@ -117,7 +118,7 @@ export function AttendancePage({
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    staleTimeMs: 7 * 24 * 60 * 60 * 1000,
+    staleTimeMs: FEATURE_TTL.pastDetail,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
@@ -275,7 +276,7 @@ export function AttendancePage({
     if (!isErrorRetry) {
       if (isDefault && !quota.canRefresh) {
         if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setQuotaNotice("Up to date with portal");
+        setQuotaNotice(formatQuotaStatus(quota));
         noticeTimer.current = setTimeout(() => {
           if (pageIsLive.current) setQuotaNotice(null);
         }, 2500);

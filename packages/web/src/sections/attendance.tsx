@@ -237,13 +237,15 @@ export function SubjectDetail({
   onLogout: () => void;
 }) {
   const base = { registrationid, registrationcode };
-  const cachedEntry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
   const detail = useFeature<Record<string, Record<string, unknown>>>({
     run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
     deps: [session, registrationid, String(row.subjectid)],
     cacheKey: getSubjectCacheKey(session.username, registrationid, row, session.instituteid),
     staleTimeMs: FEATURE_TTL.subjects,
-    isFresh: (updatedAt) => !doesSubjectNeedDeepFetch(row, cachedEntry.data, updatedAt, cachedEntry.checksum),
+    isFresh: (updatedAt) => {
+      const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
+      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
+    },
     writeExtra: () => ({ checksum: computeSubjectRowChecksum(row) }),
   });
 
@@ -574,7 +576,7 @@ export function AttendanceSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    staleTimeMs: 7 * 24 * 60 * 60 * 1000,
+    staleTimeMs: FEATURE_TTL.pastDetail,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
