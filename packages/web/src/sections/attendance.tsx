@@ -3,7 +3,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, STALE_MS, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { isPortalDayFresh } from "../lib/portalSchedule";
+import { isPortalDayFresh, computeSubjectRowChecksum } from "../lib/portalSchedule";
 import {
   CollapsibleCard,
   SectionError,
@@ -348,13 +348,14 @@ export function getCachedSubjectDetailEntry(
     if (!raw) return { data: null, updatedAt: null, checksum: null };
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "data" in parsed) {
+      const storedChecksum = typeof parsed.checksum === "string" ? parsed.checksum : null;
       return {
         data: parsed.data as Record<string, Record<string, unknown>>,
         updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : null,
-        checksum: typeof parsed.checksum === "string" ? parsed.checksum : null,
+        checksum: storedChecksum ?? computeSubjectRowChecksum(row),
       };
     }
-    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null, checksum: null };
+    return { data: parsed as Record<string, Record<string, unknown>>, updatedAt: null, checksum: computeSubjectRowChecksum(row) };
   } catch {
     return { data: null, updatedAt: null, checksum: null };
   }
@@ -515,7 +516,7 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
     isFresh: isPortalDayFresh,
-    scope: "all",
+    scope: "attendance",
   });
 }
 
@@ -549,7 +550,7 @@ export function AttendanceSection({ session }: SectionProps) {
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    isFresh: isPortalDayFresh,
+    staleTimeMs: 7 * 24 * 60 * 60 * 1000,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);

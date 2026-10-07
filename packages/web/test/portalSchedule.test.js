@@ -13,9 +13,15 @@ globalThis.window = {
   removeEventListener() {},
 };
 
+const docListeners = new Map();
 globalThis.document = {
-  addEventListener() {},
-  removeEventListener() {},
+  addEventListener(type, cb) {
+    if (!docListeners.has(type)) docListeners.set(type, new Set());
+    docListeners.get(type).add(cb);
+  },
+  removeEventListener(type, cb) {
+    docListeners.get(type)?.delete(cb);
+  },
   visibilityState: "visible",
 };
 
@@ -243,4 +249,17 @@ test("subscribePortalDayRollover returns an unsubscribe cleanup function", () =>
   assert.equal(typeof unsubscribe, "function");
   unsubscribe();
   assert.equal(called, false);
+});
+
+test("subscribePortalDayRollover triggers callback and reschedules on visibilitychange", () => {
+  let callCount = 0;
+  const unsub = subscribePortalDayRollover(() => {
+    callCount++;
+  });
+  globalThis.document.visibilityState = "visible";
+  const listeners = docListeners.get("visibilitychange");
+  assert.ok(listeners && listeners.size > 0);
+  for (const cb of listeners) cb();
+  assert.equal(callCount, 1);
+  unsub();
 });

@@ -109,11 +109,26 @@ export function getCached<T>(key?: string): { data: T | null; updatedAt: number 
   }
 }
 
-export function setCached<T>(key: string | undefined, data: T): number {
+export function setCached<T>(key: string | undefined, data: T, extra?: Record<string, unknown>): number {
   const now = Date.now();
   if (!key || data == null) return now;
   try {
-    const entry: CacheEntry<T> = { data, updatedAt: now };
+    let existingChecksum: unknown;
+    try {
+      const raw = localStorage.getItem(`juet.cache.${key}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && "checksum" in parsed) {
+          existingChecksum = parsed.checksum;
+        }
+      }
+    } catch {}
+    const entry: Record<string, unknown> = {
+      data,
+      updatedAt: now,
+      ...(existingChecksum !== undefined ? { checksum: existingChecksum } : {}),
+      ...(extra ?? {}),
+    };
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
     if (key.startsWith("att.")) {
       localStorage.setItem("juet.portal.last_sync", String(now));
@@ -127,10 +142,8 @@ export const STALE_MS = 2 * 60 * 60 * 1000;
 
 export function useFeature<T>({ run, deps = [], enabled = true, cacheKey, staleTimeMs = STALE_MS, isFresh, scope }: UseFeatureOptions<T>) {
   const targetScope = scope ?? (
-    cacheKey?.startsWith("att.subject") || cacheKey?.startsWith("att.detail")
+    cacheKey?.startsWith("att.")
       ? "attendance"
-      : cacheKey?.startsWith("att.")
-      ? "all"
       : "dashboard"
   );
   const [state, setState] = useState<FeatureState<T>>(() => createFeatureState<T>(cacheKey, enabled));

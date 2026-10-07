@@ -266,6 +266,7 @@ export function subscribePortalDayRollover(callback: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   let timer: ReturnType<typeof setTimeout> | null = null;
   const schedule = () => {
+    if (timer) clearTimeout(timer);
     const ms = getMsUntilNextPortalDay() + 500;
     timer = setTimeout(() => {
       callback();
@@ -277,6 +278,8 @@ export function subscribePortalDayRollover(callback: () => void): () => void {
   const handleVisibility = () => {
     if (typeof document !== "undefined" && document.visibilityState === "visible") {
       callback();
+      if (timer) clearTimeout(timer);
+      schedule();
     }
   };
   if (typeof document !== "undefined") {

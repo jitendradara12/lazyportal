@@ -132,6 +132,23 @@ test("setCached for att.* keys records portal last_sync and dispatches juet:sync
   assert.ok(dispatchedEvents.includes("juet:sync"));
 });
 
+test("setCached preserves existing checksum property from cache entry", () => {
+  const key = "att.subject:student1:cs101";
+  globalThis.localStorage.setItem(`juet.cache.${key}`, JSON.stringify({
+    data: { L: { total: 10 } },
+    updatedAt: Date.now() - 5000,
+    checksum: "CS101|10|8|80%|L10:8:80",
+  }));
+
+  // Calling setCached updates data and updatedAt, but preserves checksum
+  const updatedData = { L: { total: 11 } };
+  setCached(key, updatedData);
+
+  const raw = JSON.parse(globalThis.localStorage.getItem(`juet.cache.${key}`));
+  assert.deepEqual(raw.data, updatedData);
+  assert.equal(raw.checksum, "CS101|10|8|80%|L10:8:80");
+});
+
 test("STALE_MS is configured to 2 hours", () => {
   assert.equal(STALE_MS, 2 * 60 * 60 * 1000);
 });

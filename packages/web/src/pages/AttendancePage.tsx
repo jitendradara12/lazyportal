@@ -116,7 +116,7 @@ export function AttendancePage({
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    isFresh: isPortalDayFresh,
+    staleTimeMs: 7 * 24 * 60 * 60 * 1000,
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
@@ -273,10 +273,11 @@ export function AttendancePage({
     const isErrorRetry = bypassThrottle || hasActiveError;
 
     // Normal manual refresh checks daily quota and rapid-click throttle.
+    // Daily quota applies ONLY to the active current semester (isDefault).
     // Retrying an error bypasses quota checks (never lock out a user on network drop).
     const quota = getManualRefreshQuota(session);
     if (!isErrorRetry) {
-      if (!quota.canRefresh) {
+      if (isDefault && !quota.canRefresh) {
         if (noticeTimer.current) clearTimeout(noticeTimer.current);
         setQuotaNotice("Up to date with portal • Refresh resets at 2:00 AM IST");
         noticeTimer.current = setTimeout(() => {
@@ -286,7 +287,7 @@ export function AttendancePage({
       }
       if (shouldThrottleRefresh()) {
         if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        setQuotaNotice("Up to date with portal • Refresh resets at 2:00 AM IST");
+        setQuotaNotice("Please wait 2 minutes between refreshes");
         noticeTimer.current = setTimeout(() => {
           if (pageIsLive.current) setQuotaNotice(null);
         }, 2000);
@@ -313,7 +314,7 @@ export function AttendancePage({
       if (isDefault) {
         const freshAtt = await features.getAttendance(client, session);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (freshAtt?.rows) {
+        if (Array.isArray(freshAtt?.rows) && freshAtt.rows.length > 0) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.initial", session), freshAtt);
         } else {
@@ -322,7 +323,7 @@ export function AttendancePage({
       } else if (sem?.registrationid) {
         const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (freshDetail?.rows) {
+        if (Array.isArray(freshDetail?.rows) && freshDetail.rows.length > 0) {
           freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
         } else {
@@ -331,12 +332,6 @@ export function AttendancePage({
       }
 
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-
-      // Base request succeeded with actual data! Deduct quota only on verified success
-      if (quota.canRefresh) {
-        recordSuccessfulManualRefresh(session);
-        setRefreshQuota(getManualRefreshQuota(session));
-      }
 
       // Tell hooks to update from fresh cache
       window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
@@ -352,6 +347,9 @@ export function AttendancePage({
         }
       }
 
+      let isAborted = false;
+      let detailRefreshError: string | null = null;
+
       if (toFetch.length > 0 && getSessionStatus() !== "expired") {
         setSyncProgress({ done: 0, total: toFetch.length });
 
@@ -363,9 +361,7 @@ export function AttendancePage({
 
         const queue = [...toFetch];
         const concurrency = 2;
-        let isAborted = false;
         let successCount = 0;
-        let detailRefreshError: string | null = null;
         const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
           while (
             queue.length > 0 &&
@@ -450,6 +446,21 @@ export function AttendancePage({
           localStorage.setItem("juet.portal.last_sync", String(Date.now()));
           window.dispatchEvent(new CustomEvent("juet:sync"));
         } catch {}
+      }
+
+      // Deduct quota ONLY after BOTH Step 1 and Step 2 completed without error,
+      // and ONLY for the active current semester (isDefault).
+      if (
+        !detailRefreshError &&
+        !isAborted &&
+        isDefault &&
+        quota.canRefresh &&
+        pageIsLive.current &&
+        isCacheGenerationCurrent(requestGeneration) &&
+        getSessionStatus() !== "expired"
+      ) {
+        recordSuccessfulManualRefresh(session);
+        setRefreshQuota(getManualRefreshQuota(session));
       }
     } catch (err: unknown) {
       // Session expiry has its own reconnect UI; report ordinary refresh errors
@@ -546,10 +557,10 @@ export function AttendancePage({
             title={
               isSyncing
                 ? "Refreshing attendance…"
-                : !refreshQuota.canRefresh && !error
+                : isDefault && !refreshQuota.canRefresh && !error
                 ? formatQuotaStatus(refreshQuota)
                 : shouldThrottleRefresh() && lastSync
-                ? `Up to date (${formatLastSync(lastSync)})`
+                ? formatLastSync(lastSync)
                 : "Refresh attendance"
             }
             disabled={isSyncing}
