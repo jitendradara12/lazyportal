@@ -201,24 +201,21 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   const correctedRow = { ...row, totalpresent: 19 };
   assert.equal(doesSubjectNeedDeepFetch(correctedRow, dummyDetail, Date.now(), checksum), true);
 
-  // 5. Matching checksum older than 7 days allows periodic refresh
-  const eightDaysAgo = Date.now() - 8 * 24 * 3600 * 1000;
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum), true);
-
-  // 6. Matching checksum with null/missing updatedAt triggers refresh (fixes null-timestamp hole)
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, null, checksum), true);
-
-  // 7. Testing with explicit deterministic clock parameter
+  // 5. A matching checksum stays fresh beyond the old seven-day fallback.
   const fixedNow = 1760000000000;
-  const recentTime = fixedNow - 3600 * 1000;
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, recentTime, checksum, fixedNow), false);
-  const oldTime = fixedNow - 8 * 24 * 3600 * 1000;
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, oldTime, checksum, fixedNow), true);
+  const eightDaysAgo = fixedNow - 8 * 24 * 3600 * 1000;
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum, fixedNow), false);
+  const yearAgo = fixedNow - 365 * 24 * 3600 * 1000;
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, yearAgo, checksum, fixedNow), false);
 
-  // 8. Legacy cache without stored checksum falls back to class total check
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, Date.now(), null), false);
+  // 6. Missing timestamps remain untrusted and are refreshed once.
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, null, checksum, fixedNow), true);
+
+  // 7. Legacy entries without checksums keep the bounded migration path.
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, fixedNow - 3600 * 1000, null, fixedNow), false);
   const classAddedRow = { ...row, totalclass: 21 };
-  assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, Date.now(), null), true);
+  assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, fixedNow, null, fixedNow), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, null, fixedNow), true);
 });
 
 test("isCurrentPortalDay defaults to now for single-arg freshness checks", () => {
@@ -231,8 +228,8 @@ test("isCurrentPortalDay defaults to now for single-arg freshness checks", () =>
   assert.equal(isCurrentPortalDay(yesterday), false);
 });
 
-test("FEATURE_TTL defines tiered stale times for different data velocities", () => {
-  assert.equal(FEATURE_TTL.marks, 12 * 60 * 60 * 1000);
+test("FEATURE_TTL keeps marks cached until explicit refresh", () => {
+  assert.equal(FEATURE_TTL.marks, Number.POSITIVE_INFINITY);
   assert.equal(FEATURE_TTL.exams, 24 * 60 * 60 * 1000);
   assert.equal(FEATURE_TTL.faculty, 7 * 24 * 60 * 60 * 1000);
   assert.equal(FEATURE_TTL.subjects, 7 * 24 * 60 * 60 * 1000);

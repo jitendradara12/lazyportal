@@ -34,7 +34,8 @@ export interface SessionRef {
 
 /** Centralized TTL policies across features to avoid shotgun updates */
 export const FEATURE_TTL = {
-  marks: 12 * 60 * 60 * 1000, // 12 hours (entered in bursts post-exam)
+  // Marks remain cached until the user explicitly refreshes the dashboard.
+  marks: Number.POSITIVE_INFINITY,
   exams: 24 * 60 * 60 * 1000, // 24 hours (published days before exams)
   faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
   subjects: 7 * 24 * 60 * 60 * 1000, // 7 days (static course catalog)
@@ -206,9 +207,9 @@ export function doesSubjectNeedDeepFetch(
   const currentChecksum = computeSubjectRowChecksum(row);
   if (cachedChecksum) {
     if (cachedChecksum !== currentChecksum) return true;
-    // Bounded max TTL: even if checksum matches, entries older than 7 days (or missing timestamp) allow a periodic refresh
-    if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.subjects) return true;
-    return false;
+    // A valid checksum is the freshness signal; age alone must not trigger a refetch.
+    // Keep requiring a timestamp so malformed/legacy cache envelopes get repaired once.
+    return !cachedUpdatedAt;
   }
   // Backward compatibility when checksum was not yet stored in cache
   const rowTotal = Number(pick(row, "totalclass", "totalclasses", "Totalclass") || 0);
@@ -219,6 +220,8 @@ export function doesSubjectNeedDeepFetch(
     }
     if (cachedTotal > 0 && rowTotal !== cachedTotal) return true;
   }
+  // Legacy detail entries have no checksum. Keep their age limit so they are
+  // eventually refreshed and rewritten with checksum metadata.
   if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.subjects) {
     return true;
   }
