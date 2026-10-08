@@ -28,16 +28,27 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
 }
 
 /** Daily attendance in one call: LOV -> latest registration -> detail rows. */
-export async function getAttendance(client, session) {
-  const { header, semesters } = await getAttendanceRegistrations(client, session);
-  const sem = semesters[0];
-  if (!sem) return { header, semesters, rows: [], currentSem: null };
-  const detail = await getAttendanceDetail(client, session, {
-    stynumber: header?.stynumber,
-    registrationid: sem.registrationid,
-    registrationcode: sem.registrationcode,
-  });
-  return { header, semesters, registrationcode: sem.registrationcode, ...detail };
+export async function getAttendance(client, session, cachedLov) {
+  let lov = cachedLov;
+  if (!lov?.semesters?.length) {
+    lov = await getAttendanceRegistrations(client, session);
+  }
+  const sem = lov.semesters[0];
+  if (!sem) return { header: lov.header ?? null, semesters: lov.semesters ?? [], rows: [], currentSem: null };
+  try {
+    const detail = await getAttendanceDetail(client, session, {
+      stynumber: lov.header?.stynumber,
+      registrationid: sem.registrationid,
+      registrationcode: sem.registrationcode,
+    });
+    return { header: lov.header ?? null, semesters: lov.semesters, registrationcode: sem.registrationcode, ...detail };
+  } catch (err) {
+    // ponytail: if cached LOV failed (e.g. stale registration), retry with fresh LOV
+    if (cachedLov) {
+      return getAttendance(client, session);
+    }
+    throw err;
+  }
 }
 
 /** Exam semesters. Encrypted {clientid, instituteid}. */

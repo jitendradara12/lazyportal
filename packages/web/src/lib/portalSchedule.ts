@@ -40,6 +40,7 @@ export const FEATURE_TTL = {
   faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
   subjects: 7 * 24 * 60 * 60 * 1000, // 7 days (static course catalog)
   pastDetail: 30 * 24 * 60 * 60 * 1000, // 30 days (immutable past-semester history)
+  lov: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration LOV)
 } as const;
 
 /**

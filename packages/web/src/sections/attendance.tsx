@@ -527,9 +527,29 @@ export function combinedAttendance(
   };
 }
 
+export interface AttLovData {
+  header: { stynumber?: string } | null;
+  semesters: Semester[];
+}
+
+export function getCachedLov(session: SectionProps["session"]): AttLovData | null {
+  const cached = getCached<AttLovData>(sessionCacheKey("att.lov", session));
+  if (cached.data?.semesters?.length && cached.updatedAt && Date.now() - cached.updatedAt < FEATURE_TTL.lov) {
+    return cached.data;
+  }
+  return null;
+}
+
 export function useAttendanceInitial(session: SectionProps["session"]) {
   return useFeature<AttData>({
-    run: () => features.getAttendance(client, session),
+    run: async () => {
+      const lov = getCachedLov(session);
+      const data = await features.getAttendance(client, session, lov ?? undefined);
+      if (data.header || data.semesters.length) {
+        setCached(sessionCacheKey("att.lov", session), { header: data.header, semesters: data.semesters });
+      }
+      return data;
+    },
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
     isFresh: isCurrentPortalDay,

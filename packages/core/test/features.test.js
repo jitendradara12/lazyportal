@@ -87,6 +87,53 @@ describe("features", () => {
     assert.deepEqual(rows, []);
   });
 
+  it("getAttendance reuses cachedLov without postRaw", async () => {
+    let postRawCalled = false;
+    const fake = {
+      async postRaw() {
+        postRawCalled = true;
+        throw new Error("should not call LOV when cachedLov provided");
+      },
+      async post() {
+        return { response: { studentattendancelist: [{ subjectcode: "S1" }], currentSem: "1" } };
+      },
+    };
+    const cachedLov = {
+      header: { stynumber: "4" },
+      semesters: [{ registrationid: "r1", registrationcode: "REG-1" }],
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" }, cachedLov);
+    assert.equal(postRawCalled, false);
+    assert.equal(res.rows.length, 1);
+  });
+
+  it("getAttendance falls back to fresh LOV if cachedLov detail fetch fails", async () => {
+    let attempts = 0;
+    const fake = {
+      async postRaw() {
+        return {
+          response: {
+            headerlist: [{ stynumber: "5" }],
+            semlist: [{ registrationid: "r2", registrationcode: "REG-2" }],
+          },
+        };
+      },
+      async post(endpoint, payload) {
+        attempts++;
+        if (payload.registrationid === "stale-r1") throw new Error("Stale registration");
+        return { response: { studentattendancelist: [{ subjectcode: "S2" }], currentSem: "2" } };
+      },
+    };
+    const staleLov = {
+      header: { stynumber: "4" },
+      semesters: [{ registrationid: "stale-r1", registrationcode: "REG-1" }],
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" }, staleLov);
+    assert.equal(attempts, 2);
+    assert.equal(res.registrationcode, "REG-2");
+    assert.equal(res.rows[0].subjectcode, "S2");
+  });
+
   it("getMarksSemesters posts encrypted instituteid and returns list", async () => {
     let seen;
     const fake = {

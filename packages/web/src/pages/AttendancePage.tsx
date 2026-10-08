@@ -321,6 +321,9 @@ export function AttendancePage({
         if (freshAtt && Array.isArray(freshAtt.rows)) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.initial", session), freshAtt);
+          if (freshAtt.header || freshAtt.semesters.length) {
+            setCached(sessionCacheKey("att.lov", session), { header: freshAtt.header, semesters: freshAtt.semesters });
+          }
         } else {
           throw new Error("Portal returned no attendance data");
         }
