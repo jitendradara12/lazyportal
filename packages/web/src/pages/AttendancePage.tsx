@@ -24,6 +24,7 @@ import {
   getSubjectCacheKey,
   setCachedSubjectDetail,
   useAttendanceInitial,
+  setCachedLov,
 } from "../sections/attendance";
 
 export function AttendancePage({
@@ -321,6 +322,7 @@ export function AttendancePage({
         if (freshAtt && Array.isArray(freshAtt.rows)) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
           setCached(sessionCacheKey("att.initial", session), freshAtt);
+          setCachedLov(session, freshAtt);
         } else {
           throw new Error("Portal returned no attendance data");
         }

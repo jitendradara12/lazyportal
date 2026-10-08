@@ -67,3 +67,16 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator && import.meta
   }
 }
 
+// Production-only Cloudflare Web Analytics (avoids dev/e2e test network and CORS failures)
+if (
+  typeof window !== "undefined" &&
+  import.meta.env.PROD &&
+  !["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)
+) {
+  const cf = document.createElement("script");
+  cf.defer = true;
+  cf.src = "https://static.cloudflareinsights.com/beacon.min.js";
+  cf.setAttribute("data-cf-beacon", '{"token": "5fccd3a60a2841158d9930b0680d958d"}');
+  document.head.appendChild(cf);
+}
+
