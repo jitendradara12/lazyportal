@@ -540,14 +540,24 @@ export function getCachedLov(session: SectionProps["session"]): AttLovData | nul
   return null;
 }
 
+export function setCachedLov(
+  session: SectionProps["session"],
+  lov?: { header?: { stynumber?: string } | null; semesters?: Semester[] } | null
+): void {
+  if (lov && (lov.header || lov.semesters?.length)) {
+    setCached(sessionCacheKey("att.lov", session), {
+      header: lov.header ?? null,
+      semesters: lov.semesters ?? [],
+    });
+  }
+}
+
 export function useAttendanceInitial(session: SectionProps["session"]) {
   return useFeature<AttData>({
     run: async () => {
       const lov = getCachedLov(session);
       const data = await features.getAttendance(client, session, lov ?? undefined);
-      if (data.header || data.semesters.length) {
-        setCached(sessionCacheKey("att.lov", session), { header: data.header, semesters: data.semesters });
-      }
+      setCachedLov(session, data);
       return data;
     },
     deps: [session],

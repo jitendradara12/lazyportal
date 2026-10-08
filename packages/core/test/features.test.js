@@ -134,6 +134,31 @@ describe("features", () => {
     assert.equal(res.rows[0].subjectcode, "S2");
   });
 
+  it("getAttendance does not retry LOV on fatal auth or network error", async () => {
+    let postRawCalled = false;
+    const fake = {
+      async postRaw() {
+        postRawCalled = true;
+        return { response: {} };
+      },
+      async post() {
+        const err = new Error("Session expired");
+        err.code = "SESSION_EXPIRED";
+        err.status = 401;
+        throw err;
+      },
+    };
+    const cachedLov = {
+      header: { stynumber: "4" },
+      semesters: [{ registrationid: "r1", registrationcode: "REG-1" }],
+    };
+    await assert.rejects(
+      () => getAttendance(fake, { instituteid: "i1" }, cachedLov),
+      { code: "SESSION_EXPIRED" }
+    );
+    assert.equal(postRawCalled, false);
+  });
+
   it("getMarksSemesters posts encrypted instituteid and returns list", async () => {
     let seen;
     const fake = {

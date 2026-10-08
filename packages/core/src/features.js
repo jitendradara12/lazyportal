@@ -43,8 +43,13 @@ export async function getAttendance(client, session, cachedLov) {
     });
     return { header: lov.header ?? null, semesters: lov.semesters, registrationcode: sem.registrationcode, ...detail };
   } catch (err) {
-    // ponytail: if cached LOV failed (e.g. stale registration), retry with fresh LOV
-    if (cachedLov) {
+    // retry with fresh LOV only on portal parameter/data errors; bubble auth/network immediately
+    const isFatal =
+      err?.code === "SESSION_EXPIRED" ||
+      err?.code === "NETWORK_ERROR" ||
+      err?.status === 401 ||
+      (typeof err?.status === "number" && err.status >= 500);
+    if (cachedLov && !isFatal) {
       return getAttendance(client, session);
     }
     throw err;
