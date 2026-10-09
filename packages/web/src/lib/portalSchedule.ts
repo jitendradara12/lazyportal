@@ -13,18 +13,57 @@
  */
 export const DAILY_MANUAL_REFRESH_LIMIT = 1;
 
+export const REFRESH_THROTTLE_MS = 20 * 1000; // 20s cooldown
+
+export function getThrottleKey(key = "attempt"): string {
+  if (key.startsWith("juet.portal.")) return key;
+  return `juet.portal.last_refresh_${key}`;
+}
+
+/** Check whether an explicit refresh should be throttled based on the last manual refresh attempt. */
+export function shouldThrottleRefresh(
+  keyOrMs: string | number = "attempt",
+  msOrKey: number | string = REFRESH_THROTTLE_MS
+): boolean {
+  let key = "attempt";
+  let throttleMs = REFRESH_THROTTLE_MS;
+
+  if (typeof keyOrMs === "number") {
+    throttleMs = keyOrMs;
+    if (typeof msOrKey === "string") key = msOrKey;
+  } else if (typeof keyOrMs === "string") {
+    key = keyOrMs;
+    if (typeof msOrKey === "number") throttleMs = msOrKey;
+  }
+
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(getThrottleKey(key)) : null;
+    return Boolean(raw && Date.now() - Number(raw) < throttleMs);
+  } catch {
+    return false;
+  }
+}
+
+export function recordRefreshAttempt(key = "attempt"): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(getThrottleKey(key), String(Date.now()));
+    }
+  } catch {}
+}
+
 /**
  * Cutoff time in Indian Standard Time (IST, UTC+05:30).
- * Set to 00:28 AM IST to align with JUET's single midnight batch commit.
+ * Set to 02:00 AM IST to align with when JUET's single midnight batch actually commits.
  */
-export const PORTAL_DAY_CUTOFF_HOUR_IST = 0;
-export const PORTAL_DAY_CUTOFF_MINUTE_IST = 28;
+export const PORTAL_DAY_CUTOFF_HOUR_IST = 2;
+export const PORTAL_DAY_CUTOFF_MINUTE_IST = 0;
 
 // IST offset is UTC+05:30 (330 minutes).
 // Shifting by (330 - cutoff_minutes) converts the IST cutoff point to UTC midnight.
 const IST_OFFSET_MINUTES = 5 * 60 + 30; // 330 min
-const CUTOFF_MINUTES_IST = PORTAL_DAY_CUTOFF_HOUR_IST * 60 + PORTAL_DAY_CUTOFF_MINUTE_IST; // 28 min
-const IST_EFFECTIVE_OFFSET_MS = (IST_OFFSET_MINUTES - CUTOFF_MINUTES_IST) * 60 * 1000; // 18,120,000 ms
+const CUTOFF_MINUTES_IST = PORTAL_DAY_CUTOFF_HOUR_IST * 60 + PORTAL_DAY_CUTOFF_MINUTE_IST; // 120 min
+const IST_EFFECTIVE_OFFSET_MS = (IST_OFFSET_MINUTES - CUTOFF_MINUTES_IST) * 60 * 1000; // 12,600,000 ms
 
 /** Shared session reference structure for quota and cache keys */
 export interface SessionRef {
@@ -45,8 +84,8 @@ export const FEATURE_TTL = {
 
 /**
  * Get the portal day key (e.g. "2026-10-07") for a timestamp or Date in IST.
- * 00:27 AM IST on Oct 7 belongs to portal day 2026-10-06.
- * 00:28 AM IST on Oct 7 starts portal day 2026-10-07.
+ * 01:59 AM IST on Oct 7 belongs to portal day 2026-10-06.
+ * 02:00 AM IST on Oct 7 starts portal day 2026-10-07.
  */
 export function getPortalDayKey(date?: Date | number): string {
   const ts = typeof date === "number" ? date : (date instanceof Date ? date.getTime() : Date.now());
@@ -69,7 +108,7 @@ export function isCurrentPortalDay(timestamp?: number | null, now?: Date | numbe
 }
 
 /**
- * Calculate the exact timestamp when the next portal day begins (upcoming 00:28 AM IST).
+ * Calculate the exact timestamp when the next portal day begins (upcoming 02:00 AM IST).
  */
 export function getNextPortalResetTimestamp(now?: Date | number): number {
   const nowMs = typeof now === "number" ? now : (now instanceof Date ? now.getTime() : Date.now());
@@ -80,7 +119,7 @@ export function getNextPortalResetTimestamp(now?: Date | number): number {
 }
 
 /**
- * Milliseconds remaining until the next 00:28 AM IST portal reset.
+ * Milliseconds remaining until the next 02:00 AM IST portal reset.
  */
 export function getMsUntilNextPortalDay(now?: Date | number): number {
   const nowMs = typeof now === "number" ? now : (now instanceof Date ? now.getTime() : Date.now());
@@ -131,9 +170,37 @@ export function getManualRefreshQuota(session?: SessionRef | null, now = Date.no
  * Record that a manual refresh successfully completed with real portal data.
  * Must ONLY be called upon successful 200 response with non-empty rows.
  * Failed, aborted, or offline attempts MUST NOT call this.
+ * Only deducts quota when attendance actually changed (or when new subject details were fetched / changed).
+ * If 0 subjects or rows changed (changed === false), does not burn the user's manual refresh quota.
  */
-export function recordSuccessfulManualRefresh(session?: SessionRef | null, now = Date.now()): RefreshQuotaState {
+export function recordSuccessfulManualRefresh(
+  session?: SessionRef | null,
+  nowOrOptions?: number | { changed?: boolean; now?: number } | boolean,
+  optionsOrNow?: { changed?: boolean } | number
+): RefreshQuotaState {
+  let now = Date.now();
+  let changed = true;
+
+  if (typeof nowOrOptions === "boolean") {
+    changed = nowOrOptions;
+    if (typeof optionsOrNow === "number") now = optionsOrNow;
+  } else if (typeof nowOrOptions === "number") {
+    now = nowOrOptions;
+    if (typeof optionsOrNow === "object" && optionsOrNow !== null) {
+      changed = optionsOrNow.changed ?? true;
+    } else if (typeof optionsOrNow === "boolean") {
+      changed = optionsOrNow;
+    }
+  } else if (typeof nowOrOptions === "object" && nowOrOptions !== null) {
+    if (typeof nowOrOptions.now === "number") now = nowOrOptions.now;
+    if (typeof nowOrOptions.changed === "boolean") changed = nowOrOptions.changed;
+  }
+
   const current = getManualRefreshQuota(session, now);
+  if (!changed) {
+    return current;
+  }
+
   const nextUsed = Math.min(DAILY_MANUAL_REFRESH_LIMIT, current.used + 1);
   const key = getQuotaStorageKey(session);
   const nextState: RefreshQuotaState = {
@@ -202,15 +269,24 @@ export function doesSubjectNeedDeepFetch(
   cached: Record<string, Record<string, unknown>> | null,
   cachedUpdatedAt: number | null,
   cachedChecksum?: string | null,
-  now = Date.now()
+  now = Date.now(),
+  options?: { allowFetchIfNotUpdatedToday?: boolean } | boolean
 ): boolean {
   if (!cached || Object.keys(cached).length === 0) return true;
   const currentChecksum = computeSubjectRowChecksum(row);
+  const allowIfNotUpdatedToday =
+    typeof options === "boolean" ? options : Boolean(options?.allowFetchIfNotUpdatedToday);
+
   if (cachedChecksum) {
     if (cachedChecksum !== currentChecksum) return true;
+    // Missing or corrupted timestamp
+    if (!cachedUpdatedAt) return true;
+    // When user explicitly views subject sheet, allow fetching if not yet updated in the current portal day
+    if (allowIfNotUpdatedToday && !isCurrentPortalDay(cachedUpdatedAt, now)) {
+      return true;
+    }
     // A valid checksum is the freshness signal; age alone must not trigger a refetch.
-    // Keep requiring a timestamp so malformed/legacy cache envelopes get repaired once.
-    return !cachedUpdatedAt;
+    return false;
   }
   // Backward compatibility when checksum was not yet stored in cache
   const rowTotal = Number(pick(row, "totalclass", "totalclasses", "Totalclass") || 0);
@@ -221,6 +297,9 @@ export function doesSubjectNeedDeepFetch(
     }
     if (cachedTotal > 0 && rowTotal !== cachedTotal) return true;
   }
+  if (allowIfNotUpdatedToday && !isCurrentPortalDay(cachedUpdatedAt, now)) {
+    return true;
+  }
   // Legacy detail entries have no checksum. Keep their age limit so they are
   // eventually refreshed and rewritten with checksum metadata.
   if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.subjects) {
@@ -230,7 +309,7 @@ export function doesSubjectNeedDeepFetch(
 }
 
 /**
- * Automatically roll over quota and trigger revalidation when a tab is kept open overnight across 00:28 AM IST.
+ * Automatically roll over quota and trigger revalidation when a tab is kept open overnight across 02:00 AM IST.
  */
 export function subscribePortalDayRollover(callback: () => void): () => void {
   if (typeof window === "undefined") return () => {};
@@ -243,6 +322,7 @@ export function subscribePortalDayRollover(callback: () => void): () => void {
       lastDay = getPortalDayKey();
       callback();
       window.dispatchEvent(new CustomEvent("juet:quota-changed"));
+      window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
       schedule();
     }, ms);
   };
@@ -254,6 +334,7 @@ export function subscribePortalDayRollover(callback: () => void): () => void {
         lastDay = currentDay;
         callback();
         window.dispatchEvent(new CustomEvent("juet:quota-changed"));
+        window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
       }
       if (timer) clearTimeout(timer);
       schedule();

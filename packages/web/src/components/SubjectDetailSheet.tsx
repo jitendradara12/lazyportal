@@ -52,7 +52,7 @@ export function SubjectDetailSheet({
     staleTimeMs: FEATURE_TTL.subjects,
     isFresh: (updatedAt) => {
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
-      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
+      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum, undefined, true);
     },
     writeExtra: () => ({ checksum: computeSubjectRowChecksum(row) }),
   });

@@ -62,19 +62,23 @@ const {
   FEATURE_TTL,
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
+  REFRESH_THROTTLE_MS,
+  shouldThrottleRefresh,
+  recordRefreshAttempt,
+  getThrottleKey,
 } = await import("../src/lib/portalSchedule.ts");
 
-test("portal day cutoff is 00:28 AM IST", () => {
-  assert.equal(PORTAL_DAY_CUTOFF_HOUR_IST, 0);
-  assert.equal(PORTAL_DAY_CUTOFF_MINUTE_IST, 28);
+test("portal day cutoff is 02:00 AM IST", () => {
+  assert.equal(PORTAL_DAY_CUTOFF_HOUR_IST, 2);
+  assert.equal(PORTAL_DAY_CUTOFF_MINUTE_IST, 0);
   assert.equal(DAILY_MANUAL_REFRESH_LIMIT, 1);
 });
 
-test("00:27:59 IST belongs to previous portal day, 00:28:00 IST starts new portal day", () => {
-  // 2026-10-07 00:27:59 IST is UTC 2026-10-06 18:57:59
-  const beforeCutoff = Date.UTC(2026, 9, 6, 18, 57, 59);
-  // 2026-10-07 00:28:00 IST is UTC 2026-10-06 18:58:00
-  const atCutoff = Date.UTC(2026, 9, 6, 18, 58, 0);
+test("01:59:59 IST belongs to previous portal day, 02:00:00 IST starts new portal day", () => {
+  // 2026-10-07 01:59:59 IST is UTC 2026-10-06 20:29:59
+  const beforeCutoff = Date.UTC(2026, 9, 6, 20, 29, 59);
+  // 2026-10-07 02:00:00 IST is UTC 2026-10-06 20:30:00
+  const atCutoff = Date.UTC(2026, 9, 6, 20, 30, 0);
   // 2026-10-07 14:00:00 IST is UTC 2026-10-07 08:30:00
   const midDay = Date.UTC(2026, 9, 7, 8, 30, 0);
 
@@ -86,8 +90,8 @@ test("00:27:59 IST belongs to previous portal day, 00:28:00 IST starts new porta
 test("isCurrentPortalDay correctly identifies timestamps in same portal day", () => {
   const morning = Date.UTC(2026, 9, 7, 3, 30, 0); // 09:00 AM IST
   const evening = Date.UTC(2026, 9, 7, 14, 30, 0); // 08:00 PM IST
-  const lateNight = Date.UTC(2026, 9, 7, 18, 50, 0); // 00:20 AM IST next day (Oct 8)
-  const afterReset = Date.UTC(2026, 9, 7, 19, 0, 0); // 00:30 AM IST next day (Oct 8)
+  const lateNight = Date.UTC(2026, 9, 7, 20, 20, 0); // 01:50 AM IST next day (Oct 8)
+  const afterReset = Date.UTC(2026, 9, 7, 20, 31, 0); // 02:01 AM IST next day (Oct 8)
 
   assert.equal(isCurrentPortalDay(morning, evening), true);
   assert.equal(isCurrentPortalDay(morning, lateNight), true);
@@ -97,12 +101,12 @@ test("isCurrentPortalDay correctly identifies timestamps in same portal day", ()
   assert.equal(isCurrentPortalDay(0, evening), false);
 });
 
-test("getNextPortalResetTimestamp returns exact upcoming 00:28 AM IST", () => {
+test("getNextPortalResetTimestamp returns exact upcoming 02:00 AM IST", () => {
   const midDay = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST on Oct 7
   const nextReset = getNextPortalResetTimestamp(midDay);
-  // Upcoming reset should be Oct 8 00:28 AM IST = UTC Oct 7 18:58:00
-  assert.equal(nextReset, Date.UTC(2026, 9, 7, 18, 58, 0));
-  assert.equal(getMsUntilNextPortalDay(midDay), (10 * 3600 + 28 * 60) * 1000);
+  // Upcoming reset should be Oct 8 02:00 AM IST = UTC Oct 7 20:30:00
+  assert.equal(nextReset, Date.UTC(2026, 9, 7, 20, 30, 0));
+  assert.equal(getMsUntilNextPortalDay(midDay), 12 * 3600 * 1000);
 });
 
 test("manual refresh quota enforces daily limit and resets automatically on new portal day", () => {
@@ -110,7 +114,7 @@ test("manual refresh quota enforces daily limit and resets automatically on new 
   dispatchedEvents = [];
   const session = { username: "student123", instituteid: "juet" };
   const day1Time = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST Oct 7
-  const day2Time = Date.UTC(2026, 9, 7, 19, 0, 0); // 00:30 IST Oct 8 (new portal day)
+  const day2Time = Date.UTC(2026, 9, 7, 20, 31, 0); // 02:01 IST Oct 8 (new portal day)
 
   // Initially full quota
   const initial = getManualRefreshQuota(session, day1Time);
@@ -118,7 +122,13 @@ test("manual refresh quota enforces daily limit and resets automatically on new 
   assert.equal(initial.remaining, 1);
   assert.equal(initial.canRefresh, true);
 
-  // Record 1 successful manual refresh
+  // Unchanged attendance does NOT burn quota
+  const noChange = recordSuccessfulManualRefresh(session, { changed: false, now: day1Time });
+  assert.equal(noChange.used, 0);
+  assert.equal(noChange.remaining, 1);
+  assert.equal(noChange.canRefresh, true);
+
+  // Record 1 successful manual refresh when attendance actually changed
   const after1 = recordSuccessfulManualRefresh(session, day1Time);
   assert.equal(after1.used, 1);
   assert.equal(after1.remaining, 0);
@@ -216,6 +226,10 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   const classAddedRow = { ...row, totalclass: 21 };
   assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, fixedNow, null, fixedNow), true);
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, null, fixedNow), true);
+
+  // 8. Explicit subject tap (SubjectDetailSheet) allows deep fetch if not updated today
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum, fixedNow, true), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, fixedNow, checksum, fixedNow, true), false);
 });
 
 test("isCurrentPortalDay defaults to now for single-arg freshness checks", () => {
@@ -265,6 +279,7 @@ test("subscribePortalDayRollover triggers callback on visibilitychange only when
     Date.now = () => realNow() + 24 * 3600 * 1000;
     for (const cb of listeners) cb();
     assert.equal(callCount, 1);
+    assert.ok(dispatchedEvents.includes("juet:refresh-attendance"));
   } finally {
     Date.now = realNow;
   }
@@ -300,4 +315,32 @@ test("getManualRefreshQuota sanitizes corrupt localStorage counts and clamps lim
   const updated = recordSuccessfulManualRefresh(session, now);
   assert.equal(updated.used, DAILY_MANUAL_REFRESH_LIMIT);
   assert.equal(updated.canRefresh, false);
+});
+
+test("refresh throttles are isolated between dashboard and attendance and enforce 20s cooldown", () => {
+  values.clear();
+  assert.equal(REFRESH_THROTTLE_MS, 20_000);
+
+  // Initially unthrottled
+  assert.equal(shouldThrottleRefresh("dashboard"), false);
+  assert.equal(shouldThrottleRefresh("attendance"), false);
+
+  // Record a dashboard attempt
+  recordRefreshAttempt("dashboard");
+
+  // Dashboard is throttled, but attendance is NOT blocked!
+  assert.equal(shouldThrottleRefresh("dashboard"), true);
+  assert.equal(shouldThrottleRefresh("attendance"), false);
+
+  // Custom cooldown works
+  assert.equal(shouldThrottleRefresh("dashboard", 0), false);
+
+  // After 21s, dashboard throttle clears
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 21_000;
+    assert.equal(shouldThrottleRefresh("dashboard"), false);
+  } finally {
+    Date.now = realNow;
+  }
 });

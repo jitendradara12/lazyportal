@@ -123,6 +123,7 @@ export async function readRawBody(req, limit = MAX_BODY_BYTES) {
       if (length > limit) {
         exceeded = true;
         cleanup();
+        req.on?.("error", () => {});
         req.resume?.();
         reject(new PayloadTooLargeError(`Request body exceeds ${limit} bytes`));
         return;
@@ -141,12 +142,14 @@ export async function readRawBody(req, limit = MAX_BODY_BYTES) {
     const onError = (err) => {
       if (exceeded) return;
       cleanup();
+      req.on?.("error", () => {});
       reject(err);
     };
 
     const onClose = () => {
       if (exceeded) return;
       cleanup();
+      req.on?.("error", () => {});
       const err = new Error("upload aborted");
       err.code = "ERR_UPLOAD_ABORTED";
       reject(err);
@@ -246,6 +249,7 @@ export default async function handler(req, res) {
     if (method !== "GET" && method !== "HEAD") {
       const contentLength = Number(incomingHeaders["content-length"]);
       if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+        req.on?.("error", () => {});
         req.resume?.();
         res.status(413).json({
           status: { responseStatus: "Failure" },
@@ -263,6 +267,7 @@ export default async function handler(req, res) {
         }
       } catch (err) {
         if (err instanceof PayloadTooLargeError) {
+          req.on?.("error", () => {});
           res.status(413).json({
             status: { responseStatus: "Failure" },
             message: "Payload Too Large",

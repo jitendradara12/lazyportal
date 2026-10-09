@@ -244,7 +244,7 @@ export function SubjectDetail({
     staleTimeMs: FEATURE_TTL.subjects,
     isFresh: (updatedAt) => {
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
-      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
+      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum, undefined, true);
     },
     writeExtra: () => ({ checksum: computeSubjectRowChecksum(row) }),
   });
@@ -398,6 +398,19 @@ export function combinedAttendance(
     !r.Tsubjectcomponentid
   );
 
+  // Fallback row counts to guard against stale cached detail
+  const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);
+  const Lpres = Number(r.Ltotalpresent ?? r.LTotalpresent ?? r.ltotalpresent ?? 0);
+  const Ttotal = Number(r.Ttotalclass ?? r.TTotalclass ?? r.ttotalclass ?? 0);
+  const Tpres = Number(r.Ttotalpresent ?? r.TTotalpresent ?? r.ttotalpresent ?? 0);
+  const Ptotal = Number(r.Ptotalclass ?? r.PTotalclass ?? r.ptotalclass ?? 0);
+  const Ppres = Number(r.Ptotalpresent ?? r.PTotalpresent ?? r.ptotalpresent ?? 0);
+  const topTotal = Number(r.totalclass ?? r.totalclasses ?? r.Totalclass ?? 0);
+  const topPres = Number(r.totalpresent ?? r.totalpresents ?? r.Totalpresent ?? 0);
+
+  const rowTotalClasses = Math.max(topTotal, isLab ? Ptotal : Ltotal + Ttotal + (r.Lsubjectcomponentid ? 0 : Ptotal));
+  const rowTotalPresent = Math.max(topPres, isLab ? Ppres : Lpres + Tpres + (r.Lsubjectcomponentid ? 0 : Ppres));
+
   // When class-by-class detail logs are available (from live fetch or cache)
   if (detail && typeof detail === "object" && Object.keys(detail).length > 0) {
     let totalClasses = 0;
@@ -426,7 +439,9 @@ export function combinedAttendance(
       }
     }
 
-    if (totalClasses > 0) {
+    // If detail is stale (fresh row has more total classes than cached detail),
+    // do not prioritize stale cached detail over fresh overview row!
+    if (totalClasses > 0 && !(rowTotalClasses > totalClasses)) {
       const val = (totalPresent / totalClasses) * 100;
       return {
         pct: `${val.toFixed(1)}%`,
@@ -440,30 +455,11 @@ export function combinedAttendance(
         components,
       };
     }
-
-    return {
-      pct: "—",
-      pctNum: null,
-      isShort: false,
-      colorClass: "",
-      margin: { type: "none", count: 0, text: "" },
-      totalClasses: 0,
-      totalPresent: 0,
-      hasHeldClasses: false,
-      components,
-    };
   }
 
   // Fallback when counts are directly embedded in row
-  const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);
-  const Lpres = Number(r.Ltotalpresent ?? r.LTotalpresent ?? r.ltotalpresent ?? 0);
-  const Ttotal = Number(r.Ttotalclass ?? r.TTotalclass ?? r.ttotalclass ?? 0);
-  const Tpres = Number(r.Ttotalpresent ?? r.TTotalpresent ?? r.ttotalpresent ?? 0);
-  const Ptotal = Number(r.Ptotalclass ?? r.PTotalclass ?? r.ptotalclass ?? 0);
-  const Ppres = Number(r.Ptotalpresent ?? r.PTotalpresent ?? r.ptotalpresent ?? 0);
-
-  const totalClasses = isLab ? Ptotal : Ltotal + Ttotal + (r.Lsubjectcomponentid ? 0 : Ptotal);
-  const totalPresent = isLab ? Ppres : Lpres + Tpres + (r.Lsubjectcomponentid ? 0 : Ppres);
+  const totalClasses = rowTotalClasses;
+  const totalPresent = rowTotalPresent;
 
   const components: CombinedAttResult["components"] = {};
   if (Ltotal > 0 || r.Lpercentage != null) {
@@ -572,8 +568,10 @@ export function useAttendanceSummary(session: SectionProps["session"]) {
   const rows = att.data?.rows ?? [];
   const semId = att.data?.semesters?.[0]?.registrationid;
   const shortsCount = rows.filter((r) => {
-    const cached = getCachedSubjectDetail(session.username, semId != null ? String(semId) : null, r, session.instituteid);
-    return combinedAttendance(r, cached).isShort;
+    const entry = getCachedSubjectDetailEntry(session.username, semId != null ? String(semId) : null, r, session.instituteid);
+    const isStale = doesSubjectNeedDeepFetch(r, entry.data, entry.updatedAt, entry.checksum);
+    const detail = isStale ? null : entry.data;
+    return combinedAttendance(r, detail).isShort;
   }).length;
   const badgeText = rows.length > 0
     ? (shortsCount > 0 ? `${shortsCount} short` : "All clear")
@@ -581,7 +579,7 @@ export function useAttendanceSummary(session: SectionProps["session"]) {
   return { shortsCount, badgeText, loading: att.loading };
 }
 
-export function AttendanceSection({ session }: SectionProps) {
+export function AttendanceSection({ session, onLogout }: SectionProps) {
   const card = useCardState("attendance", true);
   const att = useAttendanceInitial(session);
   const initial = att.data;
@@ -700,7 +698,7 @@ export function AttendanceSection({ session }: SectionProps) {
                             registrationid={sem?.registrationid}
                             registrationcode={sem?.registrationcode}
                             session={session}
-                            onLogout={onLogout}
+                            onLogout={onLogout ?? (() => {})}
                           />
                         </td>
                       </tr>

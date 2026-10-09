@@ -11,6 +11,7 @@ import {
   doesSubjectNeedDeepFetch,
   subscribePortalDayRollover,
   FEATURE_TTL,
+  computeSubjectRowChecksum,
   type RefreshQuotaState,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
@@ -24,6 +25,7 @@ import {
   getSubjectCacheKey,
   setCachedSubjectDetail,
   useAttendanceInitial,
+  getCachedLov,
   setCachedLov,
 } from "../sections/attendance";
 
@@ -155,7 +157,7 @@ export function AttendancePage({
 
   // Re-sync cached details when rows or semester change, and prefetch uncached/changed in background
   useEffect(() => {
-    if (!rows.length || isExpired || !isDefault) return;
+    if (!rows.length || isExpired || !isDefault || refreshInProgress.current) return;
 
     let isLive = true;
     let isAborted = false;
@@ -294,7 +296,7 @@ export function AttendancePage({
         showNotice("Up to date with portal", 2500);
         return;
       }
-      if (shouldThrottleRefresh()) {
+      if (shouldThrottleRefresh("attendance")) {
         showNotice("already up to date bro", 2000);
         return;
       }
@@ -302,7 +304,7 @@ export function AttendancePage({
 
     const requestGeneration = getCacheGeneration();
     refreshInProgress.current = true;
-    recordRefreshAttempt();
+    recordRefreshAttempt("attendance");
     setRefreshError(null);
     setQuotaNotice(null);
     setIsRefreshing(true);
@@ -317,7 +319,8 @@ export function AttendancePage({
       };
 
       if (isDefault) {
-        const freshAtt = await features.getAttendance(client, session);
+        const cachedLov = getCachedLov(session);
+        const freshAtt = await features.getAttendance(client, session, cachedLov ?? undefined);
         if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
         if (freshAtt && Array.isArray(freshAtt.rows)) {
           freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
@@ -339,9 +342,6 @@ export function AttendancePage({
 
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
-      // Revalidate hooks from fresh cache, then deep-fetch only changed subjects.
-      window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
-
       const activeRows = freshRows ?? rows;
       const toFetch: (AttRow & Record<string, unknown>)[] = [];
       for (const r of activeRows) {
@@ -354,6 +354,7 @@ export function AttendancePage({
 
       let isAborted = false;
       let detailRefreshError: string | null = null;
+      let successCount = 0;
 
       if (toFetch.length > 0 && getSessionStatus() !== "expired") {
         setSyncProgress({ done: 0, total: toFetch.length });
@@ -366,7 +367,6 @@ export function AttendancePage({
 
         const queue = [...toFetch];
         const concurrency = 2;
-        let successCount = 0;
         const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
           while (
             queue.length > 0 &&
@@ -449,7 +449,19 @@ export function AttendancePage({
         } catch {}
       }
 
-      // Deduct quota only after a clean full refresh: current semester, real rows, no retry.
+      if (pageIsLive.current && isCacheGenerationCurrent(requestGeneration)) {
+        window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
+      }
+
+      const rowsDiffered = !rows || rows.length !== freshRows.length || freshRows.some((fr) => {
+        const subId = String(fr.subjectid ?? fr.individualsubjectcode ?? fr.subjectcode);
+        const oldRow = rows.find((or) => String(or.subjectid ?? or.individualsubjectcode ?? or.subjectcode) === subId);
+        if (!oldRow) return true;
+        return computeSubjectRowChecksum(fr) !== computeSubjectRowChecksum(oldRow);
+      });
+      const attendanceChanged = rowsDiffered || (toFetch.length > 0 && successCount > 0);
+
+      // Deduct quota only after attendance actually changed: current semester, real rows, no retry.
       const latestQuota = getManualRefreshQuota(session);
       if (
         !isErrorRetry &&
@@ -459,12 +471,15 @@ export function AttendancePage({
         latestQuota.canRefresh &&
         freshRows &&
         freshRows.length > 0 &&
+        attendanceChanged &&
         pageIsLive.current &&
         isCacheGenerationCurrent(requestGeneration) &&
         getSessionStatus() !== "expired"
       ) {
-        recordSuccessfulManualRefresh(session);
+        recordSuccessfulManualRefresh(session, { changed: true });
         setRefreshQuota(getManualRefreshQuota(session));
+      } else if (!isErrorRetry && !attendanceChanged && pageIsLive.current) {
+        showNotice("Already up to date with portal", 2500);
       }
     } catch (err: unknown) {
       if (pageIsLive.current && getSessionStatus() !== "expired") {
@@ -561,7 +576,7 @@ export function AttendancePage({
                 ? "Refreshing attendance…"
                 : isDefault && !refreshQuota.canRefresh && !error
                 ? "Up to date with portal"
-                : shouldThrottleRefresh() && lastSync
+                : shouldThrottleRefresh("attendance") && lastSync
                 ? formatLastSync(lastSync)
                 : "Refresh attendance"
             }

@@ -201,6 +201,7 @@ test("POST overflow (512 KiB + 1 byte) returns controlled 413 without socket des
   assert.equal(res.statusCode, 413);
   assert.equal(res.jsonCalls, 1);
   assert.equal(req.destroyed, false, "client request stream must not be destroyed");
+  assert.doesNotThrow(() => req.emit("error", new Error("aborted")));
   const parsed = JSON.parse(res.body);
   assert.equal(parsed.status?.responseStatus, "Failure");
   assert.equal(parsed.message, "Payload Too Large");
@@ -219,6 +220,7 @@ test("POST with Content-Length header exceeding limit rejects early with 413", a
   assert.equal(res.statusCode, 413);
   assert.equal(res.jsonCalls, 1);
   assert.equal(req.destroyed, false, "client request stream must not be destroyed");
+  assert.doesNotThrow(() => req.emit("error", new Error("aborted")));
 });
 
 test("POST preserves split UTF-8 bytes and recomputes the exact Content-Length", async (t) => {
@@ -458,6 +460,7 @@ test("an aborted POST upload never opens an upstream request", async (t) => {
   assert.equal(calls.length, 0);
   assert.equal(res.jsonCalls, 0);
   assert.equal(req.listenerCount("aborted"), 0);
+  assert.doesNotThrow(() => req.emit("error", new Error("aborted after close")));
   assert.equal(console.error.mock.calls.length, 0);
 });
 

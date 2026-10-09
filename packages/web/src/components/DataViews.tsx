@@ -42,23 +42,11 @@ export function formatLastSync(ts: number | null): string {
   return `Synced ${d.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 }
 
-export const REFRESH_THROTTLE_MS = 2 * 60 * 1000;
-
-/** Check whether an explicit refresh should be throttled based on the last manual refresh attempt. */
-export function shouldThrottleRefresh(throttleMs = REFRESH_THROTTLE_MS): boolean {
-  try {
-    const raw = localStorage.getItem("juet.portal.last_refresh_attempt");
-    return Boolean(raw && Date.now() - Number(raw) < throttleMs);
-  } catch {
-    return false;
-  }
-}
-
-export function recordRefreshAttempt(): void {
-  try {
-    localStorage.setItem("juet.portal.last_refresh_attempt", String(Date.now()));
-  } catch {}
-}
+export {
+  REFRESH_THROTTLE_MS,
+  shouldThrottleRefresh,
+  recordRefreshAttempt,
+} from "../lib/portalSchedule";
 
 /** Fallback table for responses whose columns we haven't mapped yet. */
 export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
