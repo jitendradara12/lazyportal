@@ -75,7 +75,7 @@ export async function importKey(now) {
   let promise = keyCache.get(val);
   if (promise) return promise;
 
-  if (keyCache.size >= 4) keyCache.clear();
+  if (keyCache.size >= 4) keyCache.delete(keyCache.keys().next().value);
 
   promise = subtle().importKey("raw", te.encode(val), "AES-CBC", false, [
     "encrypt",

@@ -14,7 +14,7 @@ import {
 
 const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
 const PORTAL_HOST = new URL(UPSTREAM).hostname;
-const PORTAL_PORT = new URL(UPSTREAM).port || 443;
+const PORTAL_PORT = Number(new URL(UPSTREAM).port) || 443;
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
 const PORTAL_REFERER = "https://studentportal.juet.ac.in/studentportal/";
 const UPSTREAM_PATH = new URL(UPSTREAM).pathname.replace(/\/+$/, "");
@@ -147,6 +147,9 @@ export async function readRawBody(req, limit = MAX_BODY_BYTES) {
     const onClose = () => {
       if (exceeded) return;
       cleanup();
+      const err = new Error("upload aborted");
+      err.code = "ERR_UPLOAD_ABORTED";
+      reject(err);
     };
 
     req.on("data", onData);
@@ -166,12 +169,13 @@ function fetchUpstream(target, { method, headers, body, signal }) {
     const req = https.request(
       {
         hostname: url.hostname,
-        port: url.port || PORTAL_PORT,
+        port: url.port ? Number(url.port) : PORTAL_PORT,
         path: url.pathname + url.search,
         method,
         headers,
         agent: upstreamAgent,
         signal,
+        // Portal TLS certificate hostname matches studentportal.juet.ac.in; bypass only for the portal host
         rejectUnauthorized: url.hostname !== PORTAL_HOST,
       },
       resolve
@@ -224,7 +228,7 @@ export default async function handler(req, res) {
     if (DROP_HEADERS.has(lk) || lk.startsWith("x-forwarded") || lk.startsWith("x-vercel") || lk === "x-real-ip") continue;
     headers[k] = v;
   }
-  if (!incomingHeaders.accept) headers.Accept = "application/json";
+  if (!incomingHeaders.accept && !incomingHeaders.Accept) headers.Accept = "application/json";
 
   const controller = new AbortController();
   const onAborted = () => controller.abort();
@@ -266,7 +270,13 @@ export default async function handler(req, res) {
           });
           return;
         }
-        if (req.aborted || controller.signal.aborted) {
+        if (
+          req.aborted ||
+          req.destroyed ||
+          controller.signal.aborted ||
+          err?.code === "ERR_UPLOAD_ABORTED" ||
+          err?.message === "upload aborted"
+        ) {
           return;
         }
         throw err;

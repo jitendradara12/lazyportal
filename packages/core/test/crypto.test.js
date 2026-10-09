@@ -15,33 +15,33 @@ describe("crypto", () => {
   });
   it("derives known key for 2026-09-28 (IST, Monday)", () => {
     // Verified against live portal Date header + local repro.
-    const d = new Date(2026, 8, 28, 12, 0, 0); // local tz-agnostic fields
-    assert.equal(d.getDate(), 28);
+    // 2026-09-28 12:00:00 IST = 2026-09-28 06:30:00 UTC
+    const d = new Date(Date.UTC(2026, 8, 28, 6, 30, 0));
     assert.equal(generateValue(d), "qa8y2021896ty1pn");
   });
 
   it("roundtrips encrypt/decrypt", async () => {
-    const now = new Date(2026, 8, 28);
+    const now = new Date(Date.UTC(2026, 8, 28, 6, 30, 0));
     const cipher = await encrypt('{"username":"221B001"}', { now });
     assert.equal(await decrypt(cipher, { now }), '{"username":"221B001"}');
   });
 
   it("makeLocalName plain is 16 chars, encrypted decrypts back", async () => {
-    const now = new Date(2026, 8, 28);
+    const now = new Date(Date.UTC(2026, 8, 28, 6, 30, 0));
     const { plain, encrypted } = await makeLocalName({ now, random: () => 0.5 });
     assert.equal(plain.length, 16);
     assert.equal(await decrypt(encrypted, { now }), plain);
   });
 
   it("coalesces concurrent importKey calls to the exact same CryptoKey instance", async () => {
-    const now = new Date(2026, 8, 28, 10, 0, 0);
+    const now = new Date(Date.UTC(2026, 8, 28, 6, 30, 0));
     const [k1, k2, k3] = await Promise.all([
       importKey(now),
       importKey(now),
       importKey(now),
     ]);
-    assert.equal(k1, k2);
-    assert.equal(k2, k3);
+    assert.strictEqual(k1, k2);
+    assert.strictEqual(k2, k3);
   });
 
   it("invalidates and updates the cached key across IST midnight day-swap", async () => {
@@ -53,7 +53,7 @@ describe("crypto", () => {
     const keyBefore = await importKey(beforeMidnight);
     const keyAfter = await importKey(afterMidnight);
 
-    assert.notEqual(keyBefore, keyAfter, "key must update across IST midnight");
+    assert.notStrictEqual(keyBefore, keyAfter, "key must update across IST midnight");
     assert.notEqual(generateValue(beforeMidnight), generateValue(afterMidnight));
 
     const plain = "secret-session-token";

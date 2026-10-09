@@ -7,8 +7,8 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import handler, { config, maxDuration, MAX_BODY_BYTES } from "../api/proxy.js";
 import { WEBVIEW_ORIGIN } from "../shared/cors.js";
 
-function request({ method = "GET", chunks = [], headers = {}, query = {} } = {}) {
-  return Object.assign(Readable.from(chunks), {
+function request({ method = "GET", chunks = [], headers = {}, query = {}, autoDestroy = false } = {}) {
+  return Object.assign(Readable.from(chunks, { autoDestroy }), {
     method,
     headers,
     query: { path: "StudentClassAttendance/detail", ...query },
@@ -468,33 +468,40 @@ test("OPTIONS returns 204 with CORS preflight headers without opening upstream",
     method: "OPTIONS",
     headers: {
       origin: WEBVIEW_ORIGIN,
-      "access-control-request-headers": "authorization, content-type",
+      "access-control-request-headers": "Authorization, Content-Type, X-Injected\r\nBad: 1",
     },
   }), res);
   assert.equal(calls.length, 0);
   assert.equal(res.statusCode, 204);
   assert.equal(res.headers["access-control-allow-origin"], WEBVIEW_ORIGIN);
-  assert.equal(res.headers["access-control-allow-methods"], "GET, POST, HEAD, OPTIONS");
+  assert.equal(res.headers["access-control-allow-methods"], "GET, HEAD, POST, OPTIONS");
   assert.equal(res.headers["access-control-allow-headers"], "authorization, content-type");
-  assert.equal(res.writableFinished, true);
+  assert.equal(res.headers["access-control-max-age"], "86400");
+  assert.equal(res.headers.vary, "Origin");
+  assert.equal(res.writableEnded, true);
 });
 
 test("unsupported HTTP methods return 405 with Allow header without opening upstream", async (t) => {
   const calls = mockTransport(t);
   const res = new Response();
-  await handler(request({ method: "DELETE" }), res);
+  await handler(request({ method: "DELETE", headers: { origin: WEBVIEW_ORIGIN } }), res);
   assert.equal(calls.length, 0);
   assert.equal(res.statusCode, 405);
-  assert.equal(res.headers.allow, "GET, POST, HEAD, OPTIONS");
-  assert.equal(res.writableFinished, true);
+  assert.equal(res.headers.allow, "GET, HEAD, POST, OPTIONS");
+  assert.equal(res.headers["access-control-allow-origin"], WEBVIEW_ORIGIN);
+  assert.equal(res.headers.vary, "Origin");
+  assert.equal(res.writableEnded, true);
 });
 
 test("invalid proxy paths return 400 without opening upstream", async (t) => {
-  const calls = mockTransport(t);
-  const res = new Response();
-  await handler(request({ query: { path: "../secret" } }), res);
-  assert.equal(calls.length, 0);
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.jsonCalls, 1);
-  assert.deepEqual(JSON.parse(res.body), { message: "Invalid proxy path" });
+  const invalidPaths = ["../secret", ".", "a/./b", "a/../b", "", "foo//bar"];
+  for (const path of invalidPaths) {
+    const calls = mockTransport(t);
+    const res = new Response();
+    await handler(request({ query: { path } }), res);
+    assert.equal(calls.length, 0);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.jsonCalls, 1);
+    assert.deepEqual(JSON.parse(res.body), { message: "Invalid proxy path" });
+  }
 });
