@@ -18,6 +18,7 @@ import {
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
   FEATURE_TTL,
+  isCurrentPortalDay,
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
 
@@ -51,6 +52,7 @@ export function SubjectDetailSheet({
     cacheKey,
     staleTimeMs: FEATURE_TTL.subjects,
     isFresh: (updatedAt) => {
+      if (!isCurrentPortalDay(updatedAt)) return false;
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
       return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
     },

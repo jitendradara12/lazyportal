@@ -9,6 +9,7 @@
   "scripts": {
     "test": "npm --workspace @juet/core test && npm --workspace @juet/web test && node --test test/*.test.js",
     "build": "npm --workspace @juet/web run build",
+    "bench:proxy": "node --expose-gc scripts/benchmark-proxy.mjs",
     "cap:assets": "node scripts/generate-app-assets.mjs",
     "cap:sync": "npm run build && cap sync android",
     "cap:open": "cap open android",

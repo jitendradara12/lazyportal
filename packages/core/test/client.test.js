@@ -472,9 +472,14 @@ describe("client", () => {
     assert.equal(fast.response.ok, true);
     assert.equal(slow.response.ok, true);
     assert.equal(refreshes, 1);
-    assert.deepEqual(calls, [
-      ["https://x/fast", "Bearer old"],
-      ["https://x/slow", "Bearer old"],
+    assert.deepEqual(
+      calls.slice(0, 2).sort((a, b) => a[0].localeCompare(b[0])),
+      [
+        ["https://x/fast", "Bearer old"],
+        ["https://x/slow", "Bearer old"],
+      ]
+    );
+    assert.deepEqual(calls.slice(2), [
       ["https://x/fast", "Bearer new"],
       ["https://x/slow", "Bearer new"],
     ]);

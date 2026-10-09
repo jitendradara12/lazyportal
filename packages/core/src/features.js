@@ -174,22 +174,54 @@ export async function getFaculties(client, session, { registrationid }) {
   };
 }
 
-/** One subject-detail call. `previous` selects the previous-day endpoint. */
+// Background attendance sync and an opened detail sheet can request the same
+// subject simultaneously, outside useFeature's hook-level deduplication. Share
+// only pending reads: never retain results/errors or coalesce auth/login calls.
+const subjectAttendanceRequests = new WeakMap();
+
+function shareSubjectAttendanceRead(client, key, run) {
+  let pending = subjectAttendanceRequests.get(client);
+  if (!pending) {
+    pending = new Map();
+    subjectAttendanceRequests.set(client, pending);
+  }
+  const existing = pending.get(key);
+  if (existing) return existing;
+
+  const request = Promise.resolve().then(run).finally(() => {
+    pending.delete(key);
+    if (pending.size === 0) subjectAttendanceRequests.delete(client);
+  });
+  pending.set(key, request);
+  return request;
+}
+
+/** One subject-detail read. `previous` selects the previous-day endpoint.
+ * Identical concurrent reads share the transport, not a persistent cache. */
 export async function fetchSubjectAttendance(client, session, which, { subjectid, registrationid, components, subjectcode, registrationcode }) {
-  const body = await client.post(
-    which === "previous"
-      ? "/StudentClassAttendance/getpreviousstudentsubjectpersentage"
-      : "/StudentClassAttendance/getstudentsubjectpersentage",
-    {
-      instituteid: session.instituteid,
-      subjectid,
-      registrationid,
-      cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
-      subjectcode,
-      registrationcode,
-    }
-  );
-  return body.response;
+  const endpoint = which === "previous"
+    ? "/StudentClassAttendance/getpreviousstudentsubjectpersentage"
+    : "/StudentClassAttendance/getstudentsubjectpersentage";
+  const payload = {
+    instituteid: session.instituteid,
+    subjectid,
+    registrationid,
+    cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
+    subjectcode,
+    registrationcode,
+  };
+  // Client identity + account/token + exact endpoint/payload isolate reads
+  // across logins, institutes, semesters, subjects, and L/T/P components.
+  const key = JSON.stringify([
+    session.username ?? session.enrollmentno,
+    session.token,
+    endpoint,
+    payload,
+  ]);
+  return shareSubjectAttendanceRead(client, key, async () => {
+    const body = await client.post(endpoint, payload);
+    return body.response;
+  });
 }
 
 /** L/T/P detail for one attendance row in parallel. Skips types with no components. */

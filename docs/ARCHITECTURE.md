@@ -6,7 +6,7 @@ Small interfaces, everything tricky behind them. Each module below earns its pla
 
 | Module | What you call | What it hides |
 |---|---|---|
-| `crypto.js` | `generateValue`, `encrypt`, `decrypt`, `makeLocalName` | Date-derived AES key, fixed IV, CBC/padding/base64. WebCrypto only, so browsers and Node share it |
+| `crypto.js` | `generateValue`, `encrypt`, `decrypt`, `makeLocalName`, `importKey` | Date-derived AES key, fixed IV, CBC/padding/base64. WebCrypto only, so browsers and Node share it |
 | `errors.js` | `PortalError`, `SessionExpiredError`, `CaptchaError`, `toPortalError` | The portal's `{status:{responseStatus,errors}}` shape |
 | `session.js` | `createStore`, `memoryAdapter`, `browserLocalAdapter`, `isExpired` | JWT expiry checks, `juet.portal.*` key names |
 | `client.js` | `createClient` gives `{post, postRaw, getPublic}` | AES bodies, `Authorization` + `LocalName` headers, 401 mapping. `postRaw`/`getPublic` exist because some endpoints take plain JSON or no auth headers |
@@ -53,8 +53,10 @@ registry line and use `useSemester` for the semester pick. Nothing else changes.
 
 | Module | What you call | What it hides |
 |---|---|---|
-| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, StudentPortalAPI path confinement, GET/HEAD/POST method allow-list, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, timeout/502 mapping |
+| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, StudentPortalAPI path confinement, GET/HEAD/POST method allow-list, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, backpressure-aware response streaming, shared HTTPS idle pool, disconnect cancellation, timeout/502 mapping |
 | `shared/cors.js` | `corsHeaders`, `preflightHeaders` | The only origin allowed to call the proxy cross-origin: the Capacitor WebView (`https://localhost`). Browser builds are same-origin and need none of it |
+
+Proxy performance and Fluid Compute validation: [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Native shell (`android/`)
 

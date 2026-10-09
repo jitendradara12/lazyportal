@@ -10,19 +10,22 @@ const td = new TextDecoder();
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Module-level cached formatter: constructing Intl.DateTimeFormat is expensive
+// and constructing it repeatedly on every crypto operation / request burns CPU.
+const istFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+});
+
 /**
  * Return date components in Indian Standard Time (IST, UTC+05:30),
  * which is the timezone evaluated by the JUET portal server.
  */
 export function getIstParts(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-  });
-  const parts = formatter.formatToParts(date);
+  const parts = istFormatter.formatToParts(date);
   const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
   const dow = String(DAYS.indexOf(map.weekday));
   const day = map.day;
@@ -59,11 +62,39 @@ function b64ToBytes(b64) {
   return bytes;
 }
 
-async function importKey(now) {
-  return subtle().importKey("raw", te.encode(generateValue(now)), "AES-CBC", false, [
+// Map of day value -> Promise<CryptoKey>. Avoids thrashing on mixed-day
+// concurrency and coalesces parallel cold-start imports.
+const keyCache = new Map();
+
+export function _resetCryptoCacheForTesting() {
+  keyCache.clear();
+}
+
+export function _getCryptoCacheSizeForTesting() {
+  return keyCache.size;
+}
+
+export async function importKey(now) {
+  const val = generateValue(now);
+  let promise = keyCache.get(val);
+  if (promise) {
+    keyCache.delete(val);
+    keyCache.set(val, promise);
+    return promise;
+  }
+
+  if (keyCache.size >= 4) keyCache.delete(keyCache.keys().next().value);
+
+  promise = subtle().importKey("raw", te.encode(val), "AES-CBC", false, [
     "encrypt",
     "decrypt",
-  ]);
+  ]).catch((err) => {
+    keyCache.delete(val);
+    throw err;
+  });
+
+  keyCache.set(val, promise);
+  return promise;
 }
 
 /** CryptoJS AES.encrypt(plain, Utf8(key), {iv, CBC, Pkcs7}) equivalent. Returns base64. */

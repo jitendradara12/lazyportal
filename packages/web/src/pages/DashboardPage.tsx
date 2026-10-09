@@ -94,7 +94,7 @@ export function DashboardPage({
   const handleRefresh = async () => {
     // Quota is attendance-manual-refresh only by design; dashboard just revalidates section caches.
     if (isSpinning) return;
-    if (shouldThrottleRefresh()) {
+    if (shouldThrottleRefresh("dashboard")) {
       spinBriefly();
       return;
     }
@@ -107,7 +107,7 @@ export function DashboardPage({
     try {
       window.dispatchEvent(new CustomEvent("juet:refresh-dashboard"));
       if (getSessionStatus() !== "expired") {
-        recordRefreshAttempt();
+        recordRefreshAttempt("dashboard");
       }
     } finally {
       spinBriefly();
@@ -245,7 +245,7 @@ export function DashboardPage({
             title={
               isSpinning
                 ? "Refreshing portal data…"
-                : shouldThrottleRefresh() && lastSync
+                : shouldThrottleRefresh("dashboard") && lastSync
                 ? formatLastSync(lastSync)
                 : "Refresh portal data"
             }
