@@ -10,19 +10,22 @@ const td = new TextDecoder();
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Module-level cached formatter: constructing Intl.DateTimeFormat is expensive
+// and constructing it repeatedly on every crypto operation / request burns CPU.
+const istFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+});
+
 /**
  * Return date components in Indian Standard Time (IST, UTC+05:30),
  * which is the timezone evaluated by the JUET portal server.
  */
 export function getIstParts(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-  });
-  const parts = formatter.formatToParts(date);
+  const parts = istFormatter.formatToParts(date);
   const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
   const dow = String(DAYS.indexOf(map.weekday));
   const day = map.day;
@@ -59,11 +62,22 @@ function b64ToBytes(b64) {
   return bytes;
 }
 
+// Cache the imported CryptoKey by day-derived value. Key only changes once per
+// calendar day (IST); caching avoids 2-4 async subtle.importKey calls per request.
+let cachedKeyVal = "";
+let cachedCryptoKey = null;
+
 async function importKey(now) {
-  return subtle().importKey("raw", te.encode(generateValue(now)), "AES-CBC", false, [
+  const val = generateValue(now);
+  if (cachedCryptoKey && cachedKeyVal === val) {
+    return cachedCryptoKey;
+  }
+  cachedCryptoKey = await subtle().importKey("raw", te.encode(val), "AES-CBC", false, [
     "encrypt",
     "decrypt",
   ]);
+  cachedKeyVal = val;
+  return cachedCryptoKey;
 }
 
 /** CryptoJS AES.encrypt(plain, Utf8(key), {iv, CBC, Pkcs7}) equivalent. Returns base64. */
