@@ -123,7 +123,10 @@ export async function readRawBody(req, limit = MAX_BODY_BYTES) {
       if (length > limit) {
         exceeded = true;
         cleanup();
-        req.on?.("error", () => {});
+        const noop = () => {};
+        req.once?.("error", noop);
+        req.once?.("end", () => req.removeListener?.("error", noop));
+        req.once?.("close", () => req.removeListener?.("error", noop));
         req.resume?.();
         reject(new PayloadTooLargeError(`Request body exceeds ${limit} bytes`));
         return;

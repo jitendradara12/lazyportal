@@ -137,4 +137,32 @@ describe("crypto", () => {
       assert.equal(plaintext, `secret-${i}`);
     }
   });
+
+  it("promotes accessed keys so least recently used (not oldest inserted) is evicted", async () => {
+    const days = [1, 2, 3, 4, 5].map(
+      (d) => new Date(Date.UTC(2026, 8, d, 12, 0, 0))
+    );
+
+    // Insert 4 keys in order: day 0, day 1, day 2, day 3
+    const k0 = await importKey(days[0]);
+    const k1 = await importKey(days[1]);
+    const k2 = await importKey(days[2]);
+    const k3 = await importKey(days[3]);
+
+    // Access day 0 to promote it to most recently used
+    const k0Touched = await importKey(days[0]);
+    assert.strictEqual(k0Touched, k0);
+
+    // Now insert a 5th key (day 4). In true LRU, day 1 must be evicted, NOT day 0!
+    const k4 = await importKey(days[4]);
+    assert.equal(_getCryptoCacheSizeForTesting(), 4);
+
+    // Day 0 remains cached (was promoted to MRU)
+    assert.strictEqual(await importKey(days[0]), k0);
+
+    // Day 1 was evicted (was least recently used)
+    const k1Reimported = await importKey(days[1]);
+    assert.notStrictEqual(k1Reimported, k1);
+  });
 });
+

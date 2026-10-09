@@ -406,6 +406,9 @@ export function combinedAttendance(
   const topTotal = Number(r.totalclass ?? r.totalclasses ?? r.Totalclass ?? 0);
   const topPres = Number(r.totalpresent ?? r.totalpresents ?? r.Totalpresent ?? 0);
 
+  // Tradeoff: Math.max ensures we do not undercount if component breakdown lags top-level summary
+  // rows on the portal. Consistent portal data cannot produce >100%, but downward corrections
+  // on individual components will yield to the higher summary count until fresh details arrive.
   const rowTotalClasses = Math.max(topTotal, isLab ? Ptotal : Ltotal + Ttotal + (r.Lsubjectcomponentid ? 0 : Ptotal));
   const rowTotalPresent = Math.max(topPres, isLab ? Ppres : Lpres + Tpres + (r.Lsubjectcomponentid ? 0 : Ppres));
 

@@ -77,7 +77,11 @@ export function _getCryptoCacheSizeForTesting() {
 export async function importKey(now) {
   const val = generateValue(now);
   let promise = keyCache.get(val);
-  if (promise) return promise;
+  if (promise) {
+    keyCache.delete(val);
+    keyCache.set(val, promise);
+    return promise;
+  }
 
   if (keyCache.size >= 4) keyCache.delete(keyCache.keys().next().value);
 
