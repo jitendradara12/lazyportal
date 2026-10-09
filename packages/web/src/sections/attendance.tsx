@@ -500,12 +500,12 @@ export function combinedAttendance(
     return {
       pct: allSame ? `${presentPcts[0].toFixed(1)}%` : `~${avg.toFixed(1)}%`,
       pctNum: avg,
-      isShort: avg < 70.0,
-      colorClass: getColorClass(avg),
+      isShort: false,
+      colorClass: avg > 0 ? getColorClass(avg) : "",
       margin: { type: "none", count: 0, text: "" },
       totalClasses: 0,
       totalPresent: 0,
-      hasHeldClasses: true,
+      hasHeldClasses: false,
       components,
     };
   }
