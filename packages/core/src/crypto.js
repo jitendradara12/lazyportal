@@ -62,22 +62,31 @@ function b64ToBytes(b64) {
   return bytes;
 }
 
-// Cache the imported CryptoKey by day-derived value. Key only changes once per
-// calendar day (IST); caching avoids 2-4 async subtle.importKey calls per request.
-let cachedKeyVal = "";
-let cachedCryptoKey = null;
+// Map of day value -> Promise<CryptoKey>. Avoids thrashing on mixed-day
+// concurrency and coalesces parallel cold-start imports.
+const keyCache = new Map();
 
-async function importKey(now) {
+export function _resetCryptoCacheForTesting() {
+  keyCache.clear();
+}
+
+export async function importKey(now) {
   const val = generateValue(now);
-  if (cachedCryptoKey && cachedKeyVal === val) {
-    return cachedCryptoKey;
-  }
-  cachedCryptoKey = await subtle().importKey("raw", te.encode(val), "AES-CBC", false, [
+  let promise = keyCache.get(val);
+  if (promise) return promise;
+
+  if (keyCache.size >= 4) keyCache.clear();
+
+  promise = subtle().importKey("raw", te.encode(val), "AES-CBC", false, [
     "encrypt",
     "decrypt",
-  ]);
-  cachedKeyVal = val;
-  return cachedCryptoKey;
+  ]).catch((err) => {
+    keyCache.delete(val);
+    throw err;
+  });
+
+  keyCache.set(val, promise);
+  return promise;
 }
 
 /** CryptoJS AES.encrypt(plain, Utf8(key), {iv, CBC, Pkcs7}) equivalent. Returns base64. */
