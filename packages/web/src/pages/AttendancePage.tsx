@@ -56,7 +56,6 @@ export function AttendancePage({
     }, ms);
   };
   const refreshInProgress = useRef(false);
-  const lastErrorRetryAt = useRef(0);
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -273,7 +272,7 @@ export function AttendancePage({
     return { shortsCount: count, filteredRows: filtered };
   }, [rows, detailsMap, filter]);
 
-  const handleRefresh = async (bypassThrottle = false) => {
+  const handleRefresh = async () => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
 
     if (!isDefault) {
@@ -281,25 +280,14 @@ export function AttendancePage({
       return;
     }
 
-    // Error retries have a 5-second cooldown to avoid rapid spam; normal refreshes check daily quota then rapid-click throttle.
-    const isErrorRetry = Boolean(bypassThrottle);
-    if (isErrorRetry) {
-      const now = Date.now();
-      if (now - lastErrorRetryAt.current < 5000) {
-        showNotice("Wait a few seconds to retry", 2000);
-        return;
-      }
-      lastErrorRetryAt.current = now;
-    } else {
-      const quota = getManualRefreshQuota(session);
-      if (!quota.canRefresh) {
-        showNotice("Up to date with portal", 2500);
-        return;
-      }
-      if (shouldThrottleRefresh("attendance")) {
-        showNotice("already up to date bro", 2000);
-        return;
-      }
+    const quota = getManualRefreshQuota(session);
+    if (!quota.canRefresh) {
+      showNotice("Up to date with portal", 2500);
+      return;
+    }
+    if (shouldThrottleRefresh("attendance")) {
+      showNotice("Please wait a few seconds to refresh", 2000);
+      return;
     }
 
     const requestGeneration = getCacheGeneration();
@@ -461,25 +449,21 @@ export function AttendancePage({
       });
       const attendanceChanged = rowsDiffered || (toFetch.length > 0 && successCount > 0);
 
-      // Deduct quota only after attendance actually changed: current semester, real rows, no retry.
-      const latestQuota = getManualRefreshQuota(session);
-      if (
-        !isErrorRetry &&
+      const isValidCurrentSync =
         !detailRefreshError &&
         !isAborted &&
         isDefault &&
-        latestQuota.canRefresh &&
-        freshRows &&
-        freshRows.length > 0 &&
-        attendanceChanged &&
+        Boolean(freshRows && freshRows.length > 0) &&
         pageIsLive.current &&
         isCacheGenerationCurrent(requestGeneration) &&
-        getSessionStatus() !== "expired"
-      ) {
-        recordSuccessfulManualRefresh(session, { changed: true });
-        setRefreshQuota(getManualRefreshQuota(session));
-      } else if (!isErrorRetry && !detailRefreshError && !isAborted && !attendanceChanged && pageIsLive.current) {
-        showNotice("Already up to date with portal", 2500);
+        getSessionStatus() !== "expired";
+
+      if (isValidCurrentSync) {
+        const next = recordSuccessfulManualRefresh(session, { changed: attendanceChanged });
+        setRefreshQuota(next);
+        if (!attendanceChanged) {
+          showNotice("Up to date with portal", 2500);
+        }
       }
     } catch (err: unknown) {
       if (pageIsLive.current && getSessionStatus() !== "expired") {
@@ -496,7 +480,8 @@ export function AttendancePage({
   };
 
   const error = refreshError ?? att.error ?? detail.error;
-  const retry = refreshError ? () => handleRefresh(true) : att.error ? att.retry : detail.retry;
+  const isHardBlocked = isDefault && !refreshQuota.canRefresh && !error;
+  const retry = refreshError ? () => handleRefresh() : att.error ? att.retry : detail.retry;
 
   return (
     <main className="dash att-page dash-view-enter">
@@ -574,7 +559,7 @@ export function AttendancePage({
             title={
               isSyncing
                 ? "Refreshing attendance…"
-                : isDefault && !refreshQuota.canRefresh && !error
+                : isHardBlocked
                 ? "Up to date with portal"
                 : shouldThrottleRefresh("attendance") && lastSync
                 ? formatLastSync(lastSync)
