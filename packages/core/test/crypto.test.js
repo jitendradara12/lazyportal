@@ -7,6 +7,7 @@ import {
   makeLocalName,
   importKey,
   _resetCryptoCacheForTesting,
+  _getCryptoCacheSizeForTesting,
 } from "../src/crypto.js";
 
 describe("crypto", () => {
@@ -92,5 +93,48 @@ describe("crypto", () => {
     assert.equal(p2, "msg2");
     assert.equal(p3, "msg3");
     assert.equal(p4, "msg4");
+  });
+
+  it("properly evicts the least recently used key when 5 different day keys are encrypted", async () => {
+    // 5 different days produce 5 distinct day keys in IST
+    const days = [20, 21, 22, 23, 24].map(
+      (d) => new Date(Date.UTC(2026, 8, d, 12, 0, 0))
+    );
+
+    // Initial cache is empty
+    assert.equal(_getCryptoCacheSizeForTesting(), 0);
+
+    // Encrypt 4 different days to fill the 4-entry LRU cache
+    for (let i = 0; i < 4; i++) {
+      await encrypt(`data-${i}`, { now: days[i] });
+    }
+    assert.equal(_getCryptoCacheSizeForTesting(), 4);
+
+    // Capture cached CryptoKey references for days 0..3
+    const k1 = await importKey(days[0]);
+    const k2 = await importKey(days[1]);
+    const k3 = await importKey(days[2]);
+    const k4 = await importKey(days[3]);
+
+    // Encrypting the 5th distinct day must evict the oldest key (day 0) to maintain capacity <= 4
+    const c5 = await encrypt("data-4", { now: days[4] });
+    assert.equal(await decrypt(c5, { now: days[4] }), "data-4");
+    assert.equal(_getCryptoCacheSizeForTesting(), 4);
+
+    // Keys 2, 3, and 4 must remain cached (same CryptoKey reference)
+    assert.strictEqual(await importKey(days[1]), k2);
+    assert.strictEqual(await importKey(days[2]), k3);
+    assert.strictEqual(await importKey(days[3]), k4);
+
+    // Day 0 was evicted; re-importing it produces a newly imported CryptoKey instance
+    const k1Reimported = await importKey(days[0]);
+    assert.notStrictEqual(k1Reimported, k1);
+
+    // All 5 days continue to roundtrip encrypt and decrypt correctly
+    for (let i = 0; i < 5; i++) {
+      const ciphertext = await encrypt(`secret-${i}`, { now: days[i] });
+      const plaintext = await decrypt(ciphertext, { now: days[i] });
+      assert.equal(plaintext, `secret-${i}`);
+    }
   });
 });

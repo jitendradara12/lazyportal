@@ -70,6 +70,10 @@ export function _resetCryptoCacheForTesting() {
   keyCache.clear();
 }
 
+export function _getCryptoCacheSizeForTesting() {
+  return keyCache.size;
+}
+
 export async function importKey(now) {
   const val = generateValue(now);
   let promise = keyCache.get(val);

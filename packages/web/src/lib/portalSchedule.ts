@@ -15,27 +15,16 @@ export const DAILY_MANUAL_REFRESH_LIMIT = 1;
 
 export const REFRESH_THROTTLE_MS = 20 * 1000; // 20s cooldown
 
-export function getThrottleKey(key = "attempt"): string {
+export function getThrottleKey(key = "attendance"): string {
   if (key.startsWith("juet.portal.")) return key;
   return `juet.portal.last_refresh_${key}`;
 }
 
 /** Check whether an explicit refresh should be throttled based on the last manual refresh attempt. */
 export function shouldThrottleRefresh(
-  keyOrMs: string | number = "attempt",
-  msOrKey: number | string = REFRESH_THROTTLE_MS
+  key: string = "attendance",
+  throttleMs: number = REFRESH_THROTTLE_MS
 ): boolean {
-  let key = "attempt";
-  let throttleMs = REFRESH_THROTTLE_MS;
-
-  if (typeof keyOrMs === "number") {
-    throttleMs = keyOrMs;
-    if (typeof msOrKey === "string") key = msOrKey;
-  } else if (typeof keyOrMs === "string") {
-    key = keyOrMs;
-    if (typeof msOrKey === "number") throttleMs = msOrKey;
-  }
-
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(getThrottleKey(key)) : null;
     return Boolean(raw && Date.now() - Number(raw) < throttleMs);
@@ -44,7 +33,7 @@ export function shouldThrottleRefresh(
   }
 }
 
-export function recordRefreshAttempt(key = "attempt"): void {
+export function recordRefreshAttempt(key = "attendance"): void {
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(getThrottleKey(key), String(Date.now()));
@@ -175,25 +164,16 @@ export function getManualRefreshQuota(session?: SessionRef | null, now = Date.no
  */
 export function recordSuccessfulManualRefresh(
   session?: SessionRef | null,
-  nowOrOptions?: number | { changed?: boolean; now?: number } | boolean,
-  optionsOrNow?: { changed?: boolean } | number
+  options?: { changed?: boolean; now?: number } | number
 ): RefreshQuotaState {
   let now = Date.now();
   let changed = true;
 
-  if (typeof nowOrOptions === "boolean") {
-    changed = nowOrOptions;
-    if (typeof optionsOrNow === "number") now = optionsOrNow;
-  } else if (typeof nowOrOptions === "number") {
-    now = nowOrOptions;
-    if (typeof optionsOrNow === "object" && optionsOrNow !== null) {
-      changed = optionsOrNow.changed ?? true;
-    } else if (typeof optionsOrNow === "boolean") {
-      changed = optionsOrNow;
-    }
-  } else if (typeof nowOrOptions === "object" && nowOrOptions !== null) {
-    if (typeof nowOrOptions.now === "number") now = nowOrOptions.now;
-    if (typeof nowOrOptions.changed === "boolean") changed = nowOrOptions.changed;
+  if (typeof options === "number") {
+    now = options;
+  } else if (typeof options === "object" && options !== null) {
+    if (typeof options.now === "number") now = options.now;
+    if (typeof options.changed === "boolean") changed = options.changed;
   }
 
   const current = getManualRefreshQuota(session, now);

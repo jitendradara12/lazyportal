@@ -478,7 +478,7 @@ export function AttendancePage({
       ) {
         recordSuccessfulManualRefresh(session, { changed: true });
         setRefreshQuota(getManualRefreshQuota(session));
-      } else if (!isErrorRetry && !attendanceChanged && pageIsLive.current) {
+      } else if (!isErrorRetry && !detailRefreshError && !isAborted && !attendanceChanged && pageIsLive.current) {
         showNotice("Already up to date with portal", 2500);
       }
     } catch (err: unknown) {

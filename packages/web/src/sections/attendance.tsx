@@ -228,13 +228,11 @@ export function SubjectDetail({
   registrationid,
   registrationcode,
   session,
-  onLogout,
 }: {
   row: AttRow & Record<string, unknown>;
   registrationid?: string;
   registrationcode?: string;
   session: SectionProps["session"];
-  onLogout: () => void;
 }) {
   const base = { registrationid, registrationcode };
   const detail = useFeature<Record<string, Record<string, unknown>>>({
@@ -698,7 +696,6 @@ export function AttendanceSection({ session, onLogout }: SectionProps) {
                             registrationid={sem?.registrationid}
                             registrationcode={sem?.registrationcode}
                             session={session}
-                            onLogout={onLogout ?? (() => {})}
                           />
                         </td>
                       </tr>
