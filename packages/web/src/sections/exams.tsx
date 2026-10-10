@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
@@ -22,10 +22,28 @@ interface ExamEvent {
 
 interface ExamRow {
   datetime?: string;
+  datetimefrom?: string;
   datetimeupto?: string;
   subjectdesc?: string;
   roomcode?: string;
   seatno?: string;
+}
+
+function parseRowExamTime(r: ExamRow): number | null {
+  return examTime(`${r.datetime ?? ""} ${r.datetimefrom ?? r.datetimeupto ?? ""}`.trim());
+}
+
+function formatExamDateTime(r: ExamRow): string {
+  const date = r.datetime ?? "";
+  let timeStr = "";
+  if (r.datetimeupto && /to/i.test(r.datetimeupto)) {
+    timeStr = r.datetimeupto;
+  } else if (r.datetimefrom && r.datetimeupto) {
+    timeStr = `${r.datetimefrom} to ${r.datetimeupto}`;
+  } else {
+    timeStr = r.datetimefrom ?? r.datetimeupto ?? "";
+  }
+  return [date, timeStr].filter(Boolean).join(" – ");
 }
 
 function examEventLabel(e: ExamEvent): string {
@@ -81,6 +99,9 @@ export function ExamsSection({ session }: SectionProps) {
   };
 
   const rows = examRows.data ?? [];
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => (parseRowExamTime(a) ?? 0) - (parseRowExamTime(b) ?? 0));
+  }, [rows]);
   const badgeText = rows.length > 0 ? `${rows.length} scheduled` : (card.hasExpanded ? "No schedules" : "Seating & dates");
 
   return (
@@ -142,23 +163,21 @@ export function ExamsSection({ session }: SectionProps) {
               </tr>
             </thead>
             <tbody>
-              {[...rows]
-                .sort((a, b) => (examTime(a.datetime) ?? 0) - (examTime(b.datetime) ?? 0))
-                .map((r, i) => {
-                  const t = examTime(r.datetime);
-                  const next = t !== null && t > Date.now();
-                  return (
-                    <tr key={i}>
-                      <td>
-                        {[r.datetime, r.datetimeupto].filter(Boolean).join(" – ")}
-                        {next ? ` (${countdown(t - Date.now())})` : ""}
-                      </td>
-                      <td>{titleCase(r.subjectdesc ?? "")}</td>
-                      <td>{r.roomcode ?? "—"}</td>
-                      <td>{r.seatno ?? "—"}</td>
-                    </tr>
-                  );
-                })}
+              {sortedRows.map((r, i) => {
+                const t = parseRowExamTime(r);
+                const next = t !== null && t > Date.now();
+                return (
+                  <tr key={i}>
+                    <td>
+                      {formatExamDateTime(r)}
+                      {next ? ` (${countdown(t - Date.now())})` : ""}
+                    </td>
+                    <td>{titleCase(r.subjectdesc ?? "")}</td>
+                    <td>{r.roomcode ?? "—"}</td>
+                    <td>{r.seatno ?? "—"}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -489,6 +489,149 @@ describe("features", () => {
     assert.deepEqual(out, { L: { summary: [] } });
   });
 
+  it("getSubjectAttendanceAll rejects if any component fails with an unexpected error even if another succeeds", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_tut") {
+          return { response: { summary: [{ present: "Y" }] } };
+        }
+        const err = new Error("Database query failed");
+        err.status = 500;
+        throw err;
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+      Tsubjectcomponentid: "c_tut",
+    };
+    await assert.rejects(
+      getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }),
+      /Database query failed/
+    );
+  });
+
+  it("getSubjectAttendanceAll retries transient 502/network errors once before succeeding", async () => {
+    let lecAttempts = 0;
+    const fake = {
+      async post(endpoint, payload) {
+        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_lec") {
+          lecAttempts++;
+          if (lecAttempts === 1) {
+            const err = new Error("Upstream unreachable");
+            err.status = 502;
+            throw err;
+          }
+          return { response: { summary: [{ present: "Y" }] } };
+        }
+        return { response: { summary: [{ present: "Y" }] } };
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+      Tsubjectcomponentid: "c_tut",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(lecAttempts, 2, "retried lecture component once");
+    assert.ok(out.L);
+    assert.ok(out.T);
+  });
+
+  it("getSubjectAttendanceAll retries on code NETWORK_ERROR without status 502", async () => {
+    let lecAttempts = 0;
+    const fake = {
+      async post(endpoint, payload) {
+        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_lec") {
+          lecAttempts++;
+          if (lecAttempts === 1) {
+            const err = new Error("Transport failed");
+            err.code = "NETWORK_ERROR";
+            throw err;
+          }
+          return { response: { summary: [{ present: "Y" }] } };
+        }
+        return { response: { summary: [{ present: "Y" }] } };
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+      Tsubjectcomponentid: "c_tut",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(lecAttempts, 2, "retried lecture component once on NETWORK_ERROR");
+    assert.ok(out.L);
+    assert.ok(out.T);
+  });
+
+  it("getSubjectAttendanceAll does not retry on 401 or non-gateway 500 error", async () => {
+    let calls = 0;
+    const fake = {
+      async post() {
+        calls++;
+        const err = new Error("Session expired");
+        err.code = "SESSION_EXPIRED";
+        err.status = 401;
+        throw err;
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+    };
+    await assert.rejects(
+      getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }),
+      { code: "SESSION_EXPIRED" }
+    );
+    assert.equal(calls, 1, "does not retry auth errors");
+  });
+
+  it("getSubjectAttendanceAll throws when retry attempts are exhausted", async () => {
+    let calls = 0;
+    const fake = {
+      async post() {
+        calls++;
+        const err = new Error("Gateway timeout");
+        err.status = 504;
+        throw err;
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+    };
+    await assert.rejects(
+      getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }),
+      /Gateway timeout/
+    );
+    assert.equal(calls, 2, "attempted once and retried once before giving up");
+  });
+
+  it("getSubjectAttendanceAll normalizes to empty summary if retry returns NO Attendance Found", async () => {
+    let calls = 0;
+    const fake = {
+      async post() {
+        calls++;
+        if (calls === 1) {
+          const err = new Error("Bad gateway");
+          err.status = 502;
+          throw err;
+        }
+        const err = new Error("NO Attendance Found");
+        err.errors = ["NO Attendance Found"];
+        throw err;
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(calls, 2, "retried after initial 502");
+    assert.deepEqual(out, { L: { summary: [] } });
+  });
+
 
 
 

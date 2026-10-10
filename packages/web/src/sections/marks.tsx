@@ -1,21 +1,23 @@
+import { useState, useMemo } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
+import { formatEventCode } from "../lib/marks.ts";
 import {
   CollapsibleCard,
   SectionError,
   useCardState,
   titleCase,
   formatSemester,
-  num,
 } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
 
-interface MarkRow {
+export interface MarkRow {
   subjectcode?: string;
   subjectdesc?: string;
+  eventcode?: string;
   fullmarks?: string | number;
   obtainedmarks?: string | number;
   [key: string]: unknown;
@@ -58,6 +60,34 @@ export function MarksSection({ session }: SectionProps) {
   const retry = lov.error ? lov.retry : detail.retry;
   const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects` : (card.hasExpanded ? "No marks" : "Evaluation & test marks");
 
+  const [filter, setFilter] = useState<string>("All");
+
+  const events = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rawRows) {
+      const formatted = formatEventCode(r.eventcode);
+      if (formatted) set.add(formatted);
+    }
+    const list = Array.from(set);
+    list.sort((a, b) => {
+      const aP = a[0];
+      const bP = b[0];
+      if (aP !== bP) {
+        if (aP === "T") return -1;
+        if (bP === "T") return 1;
+      }
+      return a.localeCompare(b, undefined, { numeric: true });
+    });
+    return list;
+  }, [rawRows]);
+
+  const activeFilter = events.includes(filter) ? filter : "All";
+
+  const filteredRows = useMemo(() => {
+    if (activeFilter === "All") return rawRows;
+    return rawRows.filter((r) => formatEventCode(r.eventcode) === activeFilter);
+  }, [rawRows, activeFilter]);
+
   return (
     <CollapsibleCard
       id="marks"
@@ -84,7 +114,23 @@ export function MarksSection({ session }: SectionProps) {
       }
     >
       {loading && <p className="muted">Loading…</p>}
-      {rawRows.length > 0 && (
+      {rawRows.length > 0 && events.length > 1 && (
+        <div className="segmented-pill-toggle att-target-toggle" role="tablist" aria-label="Filter marks" style={{ margin: "0 auto 12px" }}>
+          {["All", ...events].map((ev) => (
+            <button
+              key={ev}
+              type="button"
+              role="tab"
+              aria-selected={activeFilter === ev}
+              className={`segmented-pill ${activeFilter === ev ? "active" : ""}`}
+              onClick={() => setFilter(ev)}
+            >
+              {ev}
+            </button>
+          ))}
+        </div>
+      )}
+      {filteredRows.length > 0 && (
         <div className="table-scroll">
           <table>
             <thead>
@@ -95,18 +141,24 @@ export function MarksSection({ session }: SectionProps) {
               </tr>
             </thead>
             <tbody>
-              {rawRows.map((r, i) => (
-                <tr key={i}>
-                  <td>
-                    {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
-                    {titleCase(r.subjectdesc ?? "")}
-                  </td>
-                  <td className="num-col">{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</td>
-                  <td className="num-col">
-                    <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
-                  </td>
-                </tr>
-              ))}
+              {filteredRows.map((r, i) => {
+                const tag = formatEventCode(r.eventcode);
+                return (
+                  <tr key={i}>
+                    <td>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "6px" }}>
+                        {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
+                        {tag && <span className="att-log-type-tag">{tag}</span>}
+                      </div>
+                      {titleCase(r.subjectdesc ?? "")}
+                    </td>
+                    <td className="num-col">{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</td>
+                    <td className="num-col">
+                      <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

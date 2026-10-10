@@ -242,6 +242,22 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   // 8. Explicit subject tap (SubjectDetailSheet) allows deep fetch if not updated today
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum, fixedNow, true), true);
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, fixedNow, checksum, fixedNow, true), false);
+
+  // 9. Incomplete cache (missing or null component expected by row) MUST trigger deep fetch
+  const multiCompRow = {
+    subjectcode: "MA106",
+    Lsubjectcomponentid: "c_lec",
+    Tsubjectcomponentid: "c_tut",
+    Lpercentage: "96.8",
+    Tpercentage: "100",
+  };
+  const multiChecksum = computeSubjectRowChecksum(multiCompRow);
+  const incompleteDetailOnlyT = { T: { summary: [{ present: "Y" }] } };
+  const incompleteDetailNullL = { L: null, T: { summary: [{ present: "Y" }] } };
+  const completeDetail = { L: { summary: [] }, T: { summary: [] } };
+  assert.equal(doesSubjectNeedDeepFetch(multiCompRow, incompleteDetailOnlyT, fixedNow, multiChecksum, fixedNow), true);
+  assert.equal(doesSubjectNeedDeepFetch(multiCompRow, incompleteDetailNullL, fixedNow, multiChecksum, fixedNow), true);
+  assert.equal(doesSubjectNeedDeepFetch(multiCompRow, completeDetail, fixedNow, multiChecksum, fixedNow), false);
 });
 
 test("isCurrentPortalDay defaults to now for single-arg freshness checks", () => {

@@ -1,3 +1,6 @@
+import { isSubjectDetailComplete } from "./attendanceCalc.ts";
+export { isSubjectDetailComplete };
+
 /**
  * Portal scheduling and daily refresh quota management.
  *
@@ -303,7 +306,7 @@ function pickComponent(row: Record<string, unknown>, prefix: string): string {
  */
 export function computeSubjectRowChecksum(row: Record<string, unknown>): string {
   const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
-  const overall = pick(row, "overallattendance", "percentage", "attendance");
+  const overall = pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
   const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
   const pres = pick(row, "totalpresent", "Totalpresent");
   const L = pickComponent(row, "L");
@@ -321,6 +324,7 @@ function getComponentTotal(comp: unknown): number {
   return Number(rec.totalclass ?? rec.totalclasses ?? rec.Totalclass ?? 0);
 }
 
+
 export function doesSubjectNeedDeepFetch(
   row: Record<string, unknown>,
   cached: Record<string, Record<string, unknown>> | null,
@@ -330,6 +334,12 @@ export function doesSubjectNeedDeepFetch(
   options?: { allowFetchIfNotUpdatedToday?: boolean } | boolean
 ): boolean {
   if (!cached || Object.keys(cached).length === 0) return true;
+
+  // Incomplete / corrupted cache detection:
+  // If a component is expected by the row, but is missing or null in cached,
+  // we must deep fetch to repair the incomplete cache (e.g. only tutorials fetched).
+  if (!isSubjectDetailComplete(row, cached)) return true;
+
   const currentChecksum = computeSubjectRowChecksum(row);
   const allowIfNotUpdatedToday =
     typeof options === "boolean" ? options : Boolean(options?.allowFetchIfNotUpdatedToday);
