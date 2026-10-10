@@ -259,22 +259,27 @@ export function combinedAttendance(
     };
   }
 
-  // Fallback when component percentages are available without class count breakdown
+  // Fallback when component percentages or official overall percentage are available without class count breakdown
+  const officialPct = isLab
+    ? pct(r.Ppercentage as string | number | null)
+    : pct((r.LTpercantage ?? r.LTpercentage) as string | number | null);
   const l = pct(r.Lpercentage as string | number | null);
   const t = pct(r.Tpercentage as string | number | null);
   const p = pct(r.Ppercentage as string | number | null);
   const presentPcts = [l, t, p].filter((x): x is number => x !== null);
 
-  if (presentPcts.length > 0) {
-    const avg = presentPcts.reduce((sum, val) => sum + val, 0) / presentPcts.length;
-    const allSame = presentPcts.every((x) => x === presentPcts[0]);
+  if (officialPct !== null || presentPcts.length > 0) {
+    const val = officialPct !== null
+      ? officialPct
+      : presentPcts.reduce((sum, v) => sum + v, 0) / presentPcts.length;
+    const isExact = officialPct !== null || presentPcts.every((x) => x === presentPcts[0]);
     // When no classes have been held (e.g. project/internship), 0% should display as '—'
-    const isZeroWithoutClasses = avg === 0 && rowTotalClasses === 0;
+    const isZeroWithoutClasses = val === 0 && rowTotalClasses === 0;
     return {
-      pct: isZeroWithoutClasses ? "—" : (allSame ? `${presentPcts[0].toFixed(1)}%` : `~${avg.toFixed(1)}%`),
-      pctNum: isZeroWithoutClasses ? null : avg,
-      isShort: false,
-      colorClass: !isZeroWithoutClasses && avg > 0 ? getColorClass(avg) : "",
+      pct: isZeroWithoutClasses ? "—" : (isExact ? `${val.toFixed(1)}%` : `~${val.toFixed(1)}%`),
+      pctNum: isZeroWithoutClasses ? null : val,
+      isShort: !isZeroWithoutClasses && val < 70.0,
+      colorClass: !isZeroWithoutClasses && val > 0 ? getColorClass(val) : "",
       margin: { type: "none", count: 0, text: "" },
       totalClasses: 0,
       totalPresent: 0,

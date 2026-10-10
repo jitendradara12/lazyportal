@@ -54,9 +54,11 @@ export interface AttRow {
   Lsubjectcomponentid?: string;
   Tsubjectcomponentid?: string;
   Psubjectcomponentid?: string;
-  Lpercentage?: string;
-  Tpercentage?: string;
-  Ppercentage?: string;
+  Lpercentage?: string | number;
+  Tpercentage?: string | number;
+  Ppercentage?: string | number;
+  LTpercantage?: string | number;
+  LTpercentage?: string | number;
 }
 
 export interface AttData {

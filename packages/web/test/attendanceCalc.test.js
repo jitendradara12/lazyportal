@@ -201,3 +201,83 @@ test("doesSubjectNeedDeepFetch detects incomplete cache and triggers repair", ()
   const doesNotNeedDeep = doesSubjectNeedDeepFetch(row, completeCached, now, checksum, now);
   assert.equal(doesNotNeedDeep, false, "complete cache with matching checksum skips deep fetch");
 });
+
+test("combinedAttendance prioritizes official portal LTpercantage and calculates accurate isShort", () => {
+  // MA106 live portal case: weighted combined attendance is 97.1%, while unweighted average would be 98.4%
+  const rowMA106 = {
+    subjectcode: "PROBABILITY THEORY AND RANDOM PROCESSES(MA106)",
+    individualsubjectcode: "MA106",
+    Lsubjectcomponentid: "comp_l",
+    Tsubjectcomponentid: "comp_t",
+    Lpercentage: 96.8,
+    Tpercentage: 100,
+    LTpercantage: 97.1,
+  };
+
+  const att = combinedAttendance(rowMA106, null);
+  assert.equal(att.pct, "97.1%", "uses official weighted LTpercantage, not unweighted average");
+  assert.equal(att.pctNum, 97.1);
+  assert.equal(att.isShort, false, "above 70% is not debarred");
+  assert.equal(att.colorClass, "att-green");
+
+  // Debarred subject before deep fetch detail is loaded
+  const rowShort = {
+    subjectcode: "THEORY OF COMPUTATION(CS110)",
+    individualsubjectcode: "CS110",
+    Lpercentage: 64.0,
+    Tpercentage: 68.0,
+    LTpercantage: 65.5,
+  };
+  const attShort = combinedAttendance(rowShort, null);
+  assert.equal(attShort.pct, "65.5%");
+  assert.equal(attShort.pctNum, 65.5);
+  assert.equal(attShort.isShort, true, "accurately flagged as short in overview");
+  assert.equal(attShort.colorClass, "att-red");
+
+  // Minor project / Summer internship with 0 classes held
+  const rowProject = {
+    subjectcode: "MINOR PROJECT-1(CS211)",
+    individualsubjectcode: "CS211",
+    Psubjectcomponentid: "comp_p",
+    Ppercentage: 0,
+    LTpercantage: 0,
+  };
+  const attProject = combinedAttendance(rowProject, null);
+  assert.equal(attProject.pct, "—", "displays dash for 0 classes");
+  assert.equal(attProject.pctNum, null);
+  assert.equal(attProject.isShort, false, "not marked as short when no classes held");
+
+  // Pure lab subject where LTpercantage is 0 but Ppercentage is 85.0%
+  const rowLab = {
+    subjectcode: "COMPUTER NETWORKS LAB(CS212)",
+    individualsubjectcode: "CS212",
+    Psubjectcomponentid: "comp_p",
+    Ppercentage: 85.0,
+    LTpercantage: 0,
+  };
+  const attLab = combinedAttendance(rowLab, null);
+  assert.equal(attLab.pct, "85.0%", "uses Ppercentage for pure lab subject when LTpercantage is 0");
+  assert.equal(attLab.pctNum, 85.0);
+  assert.equal(attLab.isShort, false);
+  assert.equal(attLab.colorClass, "att-normal");
+});
+
+test("computeSubjectRowChecksum detects updates in official LTpercantage", () => {
+  const row1 = {
+    individualsubjectcode: "MA106",
+    Lpercentage: "96.8",
+    Tpercentage: "100",
+    LTpercantage: "96.8",
+  };
+  const row2 = {
+    individualsubjectcode: "MA106",
+    Lpercentage: "96.8",
+    Tpercentage: "100",
+    LTpercantage: "97.1",
+  };
+
+  const cs1 = computeSubjectRowChecksum(row1);
+  const cs2 = computeSubjectRowChecksum(row2);
+  assert.notEqual(cs1, cs2, "checksum must change when LTpercantage updates on portal");
+});
+

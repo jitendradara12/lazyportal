@@ -306,7 +306,7 @@ function pickComponent(row: Record<string, unknown>, prefix: string): string {
  */
 export function computeSubjectRowChecksum(row: Record<string, unknown>): string {
   const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
-  const overall = pick(row, "overallattendance", "percentage", "attendance");
+  const overall = pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
   const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
   const pres = pick(row, "totalpresent", "Totalpresent");
   const L = pickComponent(row, "L");
