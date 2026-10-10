@@ -330,6 +330,14 @@ export function doesSubjectNeedDeepFetch(
   options?: { allowFetchIfNotUpdatedToday?: boolean } | boolean
 ): boolean {
   if (!cached || Object.keys(cached).length === 0) return true;
+
+  // Incomplete / corrupted cache detection:
+  // If a component is expected by the row, but is missing or null in cached,
+  // we must deep fetch to repair the incomplete cache (e.g. only tutorials fetched).
+  if (row.Lsubjectcomponentid && (!cached.L || typeof cached.L !== "object")) return true;
+  if (row.Tsubjectcomponentid && (!cached.T || typeof cached.T !== "object")) return true;
+  if (row.Psubjectcomponentid && (!cached.P || typeof cached.P !== "object")) return true;
+
   const currentChecksum = computeSubjectRowChecksum(row);
   const allowIfNotUpdatedToday =
     typeof options === "boolean" ? options : Boolean(options?.allowFetchIfNotUpdatedToday);

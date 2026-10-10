@@ -16,6 +16,7 @@ interface FacultyRow {
   subjectcode?: string;
   employeename?: string;
   credits?: string | number;
+  subjectcomponentcode?: string;
   [key: string]: unknown;
 }
 
@@ -90,7 +91,12 @@ export function FacultySection({ session }: SectionProps) {
               {rows.map((r, i) => (
                 <tr key={i}>
                   <td>
-                    {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
+                      {r.subjectcomponentcode && (
+                        <span className="att-log-type-tag">{String(r.subjectcomponentcode)}</span>
+                      )}
+                    </div>
                   </td>
                   <td>{titleCase(r.employeename ?? "")}</td>
                   <td className="num-col">{String(r.credits ?? "—")}</td>

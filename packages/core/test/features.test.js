@@ -489,6 +489,53 @@ describe("features", () => {
     assert.deepEqual(out, { L: { summary: [] } });
   });
 
+  it("getSubjectAttendanceAll rejects if any component fails with an unexpected error even if another succeeds", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_tut") {
+          return { response: { summary: [{ present: "Y" }] } };
+        }
+        throw new Error("502 Bad Gateway");
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+      Tsubjectcomponentid: "c_tut",
+    };
+    await assert.rejects(
+      getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }),
+      /502 Bad Gateway/
+    );
+  });
+
+  it("getSubjectAttendanceAll retries transient 502/network errors once before succeeding", async () => {
+    let lecAttempts = 0;
+    const fake = {
+      async post(endpoint, payload) {
+        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_lec") {
+          lecAttempts++;
+          if (lecAttempts === 1) {
+            const err = new Error("Upstream unreachable");
+            err.status = 502;
+            throw err;
+          }
+          return { response: { summary: [{ present: "Y" }] } };
+        }
+        return { response: { summary: [{ present: "Y" }] } };
+      },
+    };
+    const row = {
+      subjectid: "s1", subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+      Tsubjectcomponentid: "c_tut",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(lecAttempts, 2, "retried lecture component once");
+    assert.ok(out.L);
+    assert.ok(out.T);
+  });
+
 
 
 

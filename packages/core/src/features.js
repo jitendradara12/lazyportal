@@ -228,7 +228,6 @@ export async function fetchSubjectAttendance(client, session, which, { subjectid
 export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current") {
   const out = {};
   let lastErr = null;
-  let successCount = 0;
   await Promise.all(
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
@@ -241,21 +240,34 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
           subjectcode: row.individualsubjectcode ?? row.subjectcode,
           registrationcode,
         });
-        successCount++;
       } catch (e) {
         const msg = e?.message || "";
         const errList = Array.isArray(e?.errors) ? e.errors.join(" ") : "";
         if (/no attendance/i.test(msg) || /no attendance/i.test(errList)) {
           out[t] = { summary: [] };
-          successCount++;
-        } else {
-          lastErr = e;
-          out[t] = null;
+          return;
         }
+        // Transient network/proxy 502/504 retry: one retry on mobile transport blips
+        if (e?.code === "NETWORK_ERROR" || e?.status === 502 || e?.status === 504) {
+          try {
+            out[t] = await fetchSubjectAttendance(client, session, which, {
+              subjectid: row.subjectid,
+              registrationid,
+              components: csv,
+              subjectcode: row.individualsubjectcode ?? row.subjectcode,
+              registrationcode,
+            });
+            return;
+          } catch (retryErr) {
+            e = retryErr;
+          }
+        }
+        lastErr = e;
+        out[t] = null;
       }
     })
   );
-  if (successCount === 0 && lastErr) {
+  if (lastErr) {
     throw lastErr;
   }
   return out;

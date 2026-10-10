@@ -369,6 +369,17 @@ export function getCachedSubjectDetail(
   return getCachedSubjectDetailEntry(username, registrationid, row, instituteid).data;
 }
 
+export function isSubjectDetailComplete(
+  row: AttRow & Record<string, unknown>,
+  detail?: Record<string, unknown> | null,
+): boolean {
+  if (!detail || typeof detail !== "object") return false;
+  if (row.Lsubjectcomponentid && (!detail.L || typeof detail.L !== "object")) return false;
+  if (row.Tsubjectcomponentid && (!detail.T || typeof detail.T !== "object")) return false;
+  if (row.Psubjectcomponentid && (!detail.P || typeof detail.P !== "object")) return false;
+  return true;
+}
+
 export function setCachedSubjectDetail(
   session: SessionRef,
   registrationid: string | undefined | null,
@@ -381,8 +392,8 @@ export function setCachedSubjectDetail(
     row,
     session.instituteid ? String(session.instituteid) : undefined,
   );
-  const checksum = computeSubjectRowChecksum(row);
-  return setCached(key, data, { checksum });
+  const checksum = isSubjectDetailComplete(row, data) ? computeSubjectRowChecksum(row) : null;
+  return setCached(key, data, checksum ? { checksum } : undefined);
 }
 
 export function combinedAttendance(
@@ -413,7 +424,9 @@ export function combinedAttendance(
   const rowTotalPresent = Math.max(topPres, isLab ? Ppres : Lpres + Tpres + (r.Lsubjectcomponentid ? 0 : Ppres));
 
   // When class-by-class detail logs are available (from live fetch or cache)
-  if (detail && typeof detail === "object" && Object.keys(detail).length > 0) {
+  // Only trust detail if all expected components are present and non-null
+  const isComplete = isSubjectDetailComplete(r, detail);
+  if (isComplete && detail && typeof detail === "object" && Object.keys(detail).length > 0) {
     let totalClasses = 0;
     let totalPresent = 0;
     const components: CombinedAttResult["components"] = {};
@@ -497,11 +510,13 @@ export function combinedAttendance(
   if (presentPcts.length > 0) {
     const avg = presentPcts.reduce((sum, val) => sum + val, 0) / presentPcts.length;
     const allSame = presentPcts.every((x) => x === presentPcts[0]);
+    // When no classes have been held (e.g. project/internship), 0% should display as '—'
+    const isZeroWithoutClasses = avg === 0 && rowTotalClasses === 0;
     return {
-      pct: allSame ? `${presentPcts[0].toFixed(1)}%` : `~${avg.toFixed(1)}%`,
-      pctNum: avg,
+      pct: isZeroWithoutClasses ? "—" : (allSame ? `${presentPcts[0].toFixed(1)}%` : `~${avg.toFixed(1)}%`),
+      pctNum: isZeroWithoutClasses ? null : avg,
       isShort: false,
-      colorClass: avg > 0 ? getColorClass(avg) : "",
+      colorClass: !isZeroWithoutClasses && avg > 0 ? getColorClass(avg) : "",
       margin: { type: "none", count: 0, text: "" },
       totalClasses: 0,
       totalPresent: 0,
