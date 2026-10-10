@@ -57,7 +57,7 @@ export function SubjectDetailSheet({
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
       return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
     },
-    writeExtra: () => (isSubjectDetailComplete(row, detail.data) ? { checksum: computeSubjectRowChecksum(row) } : {}),
+    writeExtra: (d) => (isSubjectDetailComplete(row, d) ? { checksum: computeSubjectRowChecksum(row) } : {}),
   });
 
   const attInfo = combinedAttendance(row, detail.data, target / 100);

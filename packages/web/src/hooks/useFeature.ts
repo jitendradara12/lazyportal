@@ -14,7 +14,7 @@ interface UseFeatureOptions<T> {
   isFresh?: (updatedAt: number | null) => boolean;
   scope?: "dashboard" | "attendance" | "all";
   /** Optional extra metadata to persist in the cache entry (e.g. checksum). */
-  writeExtra?: Record<string, unknown> | (() => Record<string, unknown>);
+  writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>);
 }
 
 function isUnauthorized(e: unknown): boolean {
@@ -246,7 +246,7 @@ export function useFeature<T>({
           const time = Date.now();
           if (isCacheGenerationCurrent(generation)) {
             const extra = typeof writeExtraRef.current === "function"
-              ? writeExtraRef.current()
+              ? (writeExtraRef.current as (data: T) => Record<string, unknown>)(d as T)
               : writeExtraRef.current;
             setCached(cacheKey, d, extra);
           }

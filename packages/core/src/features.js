@@ -224,6 +224,12 @@ export async function fetchSubjectAttendance(client, session, which, { subjectid
   });
 }
 
+function isNoAttendance(e) {
+  const msg = e?.message || "";
+  const errList = Array.isArray(e?.errors) ? e.errors.join(" ") : "";
+  return /no attendance/i.test(msg) || /no attendance/i.test(errList);
+}
+
 /** L/T/P detail for one attendance row in parallel. Skips types with no components. */
 export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current") {
   const out = {};
@@ -241,9 +247,7 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
           registrationcode,
         });
       } catch (e) {
-        const msg = e?.message || "";
-        const errList = Array.isArray(e?.errors) ? e.errors.join(" ") : "";
-        if (/no attendance/i.test(msg) || /no attendance/i.test(errList)) {
+        if (isNoAttendance(e)) {
           out[t] = { summary: [] };
           return;
         }
@@ -259,11 +263,14 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
             });
             return;
           } catch (retryErr) {
+            if (isNoAttendance(retryErr)) {
+              out[t] = { summary: [] };
+              return;
+            }
             e = retryErr;
           }
         }
         lastErr = e;
-        out[t] = null;
       }
     })
   );

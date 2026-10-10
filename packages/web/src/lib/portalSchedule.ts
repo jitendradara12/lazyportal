@@ -1,3 +1,6 @@
+import { isSubjectDetailComplete } from "./attendanceCalc.ts";
+export { isSubjectDetailComplete };
+
 /**
  * Portal scheduling and daily refresh quota management.
  *
@@ -321,6 +324,7 @@ function getComponentTotal(comp: unknown): number {
   return Number(rec.totalclass ?? rec.totalclasses ?? rec.Totalclass ?? 0);
 }
 
+
 export function doesSubjectNeedDeepFetch(
   row: Record<string, unknown>,
   cached: Record<string, Record<string, unknown>> | null,
@@ -334,9 +338,7 @@ export function doesSubjectNeedDeepFetch(
   // Incomplete / corrupted cache detection:
   // If a component is expected by the row, but is missing or null in cached,
   // we must deep fetch to repair the incomplete cache (e.g. only tutorials fetched).
-  if (row.Lsubjectcomponentid && (!cached.L || typeof cached.L !== "object")) return true;
-  if (row.Tsubjectcomponentid && (!cached.T || typeof cached.T !== "object")) return true;
-  if (row.Psubjectcomponentid && (!cached.P || typeof cached.P !== "object")) return true;
+  if (!isSubjectDetailComplete(row, cached)) return true;
 
   const currentChecksum = computeSubjectRowChecksum(row);
   const allowIfNotUpdatedToday =

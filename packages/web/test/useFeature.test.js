@@ -143,6 +143,20 @@ test("setCached stores data, timestamp, and optional extra metadata like checksu
   assert.equal(raw.checksum, "CS101|11|9|81.8%|L11:9:81.8");
 });
 
+test("writeExtra function computes checksum based on freshly resolved data", () => {
+  const key = "att.subject:student1:ma106";
+  const resolvedData = { L: { total: 31 }, T: { total: 3 } };
+  const writeExtraFn = (d) => ({
+    checksum: d.L && d.T ? "MA106|34|31|91.2%" : null,
+  });
+  const extra = writeExtraFn(resolvedData);
+  setCached(key, resolvedData, extra);
+
+  const raw = JSON.parse(globalThis.localStorage.getItem(`juet.cache.${key}`));
+  assert.deepEqual(raw.data, resolvedData);
+  assert.equal(raw.checksum, "MA106|34|31|91.2%");
+});
+
 test("STALE_MS is configured to 2 hours", () => {
   assert.equal(STALE_MS, 2 * 60 * 60 * 1000);
 });
