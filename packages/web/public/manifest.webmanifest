@@ -1,7 +1,8 @@
 {
   "name": "JUET Portal (Open)",
   "short_name": "JUET",
-  "description": "Student portal companion for Jaypee University of Engineering and Technology",
+  "description": "Student webportal and webkiosk companion for Jaypee University of Engineering and Technology (JUET). Check attendance, calculate lecture margins, and view marks.",
+  "categories": ["education", "utilities"],
   "id": "/",
   "start_url": "/",
   "scope": "/",
