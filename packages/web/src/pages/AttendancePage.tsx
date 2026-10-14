@@ -58,7 +58,6 @@ export function AttendancePage({
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
-  const inFlightSubjects = useRef(new Set<string>());
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
 
@@ -173,8 +172,7 @@ export function AttendancePage({
       if (entry.data) {
         currentMap[subId] = entry.data;
       }
-      const subKey = `${session.username}:${session.instituteid ?? "default"}:${semId ?? "default"}:${subId}`;
-      if (!inFlightSubjects.current.has(subKey) && doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
+      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
         toFetch.push(r as AttRow & Record<string, unknown>);
       }
     }
@@ -201,24 +199,18 @@ export function AttendancePage({
           const r = queue.shift();
           if (!r) break;
           const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-          const subKey = `${session.username}:${session.instituteid ?? "default"}:${semId ?? "default"}:${subId}`;
-          if (inFlightSubjects.current.has(subKey)) {
-            if (isLive && !isAborted) {
-              setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
-            }
-            continue;
-          }
-          inFlightSubjects.current.add(subKey);
           if (isLive) {
             setSyncingIds((prev) => new Set(prev).add(subId));
           }
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-            if (isLive && data && !isAborted && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
+            if (pageIsLive.current && data && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired") {
               const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
               setCachedSubjectDetail(session, semId, r, data);
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
-              successCount++;
+              if (isLive && !isAborted) {
+                successCount++;
+              }
             }
           } catch (err: unknown) {
             const code = (err as { code?: string })?.code;
@@ -234,7 +226,6 @@ export function AttendancePage({
             }
             detailFailures++;
           } finally {
-            inFlightSubjects.current.delete(subKey);
             if (isLive && !isAborted) {
               setSyncingIds((prev) => {
                 const next = new Set(prev);
@@ -255,14 +246,14 @@ export function AttendancePage({
               window.dispatchEvent(new CustomEvent("juet:sync"));
             } catch {}
           }
-          if (isLive && !isAborted && detailFailures > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
-            showNotice("Some subject details could not be updated", 3500);
-          }
         })
         .finally(() => {
           if (isLive) {
             setSyncingIds(new Set());
             setSyncProgress({ done: 0, total: 0 });
+            if (!isAborted && detailFailures > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
+              showNotice("Some subject details could not be updated", 3500);
+            }
           }
         });
     }
