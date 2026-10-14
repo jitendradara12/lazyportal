@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
+import { useFeature, getCached, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
@@ -22,7 +22,6 @@ import {
   combinedAttendance,
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
-  getSubjectCacheKey,
   setCachedSubjectDetail,
   useAttendanceInitial,
   getCachedLov,
@@ -59,6 +58,7 @@ export function AttendancePage({
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const inFlightSubjects = useRef(new Set<string>());
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
 
@@ -114,6 +114,7 @@ export function AttendancePage({
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
+  const lastSemRef = useRef(`${session.username}:${session.instituteid ?? "default"}:${semId}`);
 
   const detail = useFeature<{ rows: AttRow[] }>({
     run: () =>
@@ -158,9 +159,11 @@ export function AttendancePage({
   useEffect(() => {
     if (!rows.length || isExpired || !isDefault || refreshInProgress.current) return;
 
+    const generation = getCacheGeneration();
     let isLive = true;
     let isAborted = false;
     let successCount = 0;
+    let detailFailures = 0;
     const currentMap: Record<string, Record<string, unknown>> = {};
     const toFetch: (AttRow & Record<string, unknown>)[] = [];
 
@@ -170,15 +173,19 @@ export function AttendancePage({
       if (entry.data) {
         currentMap[subId] = entry.data;
       }
-      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
+      const subKey = `${session.username}:${session.instituteid ?? "default"}:${semId ?? "default"}:${subId}`;
+      if (!inFlightSubjects.current.has(subKey) && doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
         toFetch.push(r as AttRow & Record<string, unknown>);
       }
     }
 
-    // Isolate detailsMap to current semester (no additive leak across semesters)
-    setDetailsMap(currentMap);
+    // Isolate detailsMap to current semester, but preserve concurrent in-memory updates
+    const currentSemKey = `${session.username}:${session.instituteid ?? "default"}:${semId}`;
+    const isNewSemester = lastSemRef.current !== currentSemKey;
+    lastSemRef.current = currentSemKey;
+    setDetailsMap((prev) => (isNewSemester ? currentMap : { ...prev, ...currentMap }));
 
-    if (toFetch.length > 0 && getSessionStatus() !== "expired") {
+    if (toFetch.length > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
       setSyncProgress({ done: 0, total: toFetch.length });
 
       const base = {
@@ -190,16 +197,24 @@ export function AttendancePage({
       const queue = [...toFetch];
       const concurrency = 2;
       const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-        while (queue.length > 0 && isLive && !isAborted && getSessionStatus() !== "expired") {
+        while (queue.length > 0 && isLive && !isAborted && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
           const r = queue.shift();
           if (!r) break;
           const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+          const subKey = `${session.username}:${session.instituteid ?? "default"}:${semId ?? "default"}:${subId}`;
+          if (inFlightSubjects.current.has(subKey)) {
+            if (isLive && !isAborted) {
+              setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+            }
+            continue;
+          }
+          inFlightSubjects.current.add(subKey);
           if (isLive) {
             setSyncingIds((prev) => new Set(prev).add(subId));
           }
           try {
             const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-            if (isLive && data && !isAborted && getSessionStatus() !== "expired") {
+            if (isLive && data && !isAborted && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
               const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
               setCachedSubjectDetail(session, semId, r, data);
               setDetailsMap((prev) => ({ ...prev, [subId]: data }));
@@ -217,8 +232,10 @@ export function AttendancePage({
               }
               break;
             }
+            detailFailures++;
           } finally {
-            if (isLive) {
+            inFlightSubjects.current.delete(subKey);
+            if (isLive && !isAborted) {
               setSyncingIds((prev) => {
                 const next = new Set(prev);
                 next.delete(subId);
@@ -232,11 +249,14 @@ export function AttendancePage({
 
       Promise.all(workers)
         .then(() => {
-          if (isLive && !isAborted && successCount > 0 && getSessionStatus() !== "expired") {
+          if (isLive && !isAborted && successCount > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
             try {
               localStorage.setItem("juet.portal.last_sync", String(Date.now()));
               window.dispatchEvent(new CustomEvent("juet:sync"));
             } catch {}
+          }
+          if (isLive && !isAborted && detailFailures > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
+            showNotice("Some subject details could not be updated", 3500);
           }
         })
         .finally(() => {
@@ -297,6 +317,10 @@ export function AttendancePage({
     setQuotaNotice(null);
     setIsRefreshing(true);
 
+    // Capture baseline rows before network fetch and before writing fresh cache
+    const cachedInitialBefore = getCached<AttData>(sessionCacheKey("att.initial", session));
+    const baselineRows = rows.length > 0 ? rows : (cachedInitialBefore.data?.rows ?? []);
+
     try {
       // 1. Fetch fresh base overview first
       let freshRows: (AttRow & Record<string, unknown>)[] | null = null;
@@ -331,127 +355,24 @@ export function AttendancePage({
       if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
 
       const activeRows = freshRows ?? rows;
-      const toFetch: (AttRow & Record<string, unknown>)[] = [];
-      for (const r of activeRows) {
-        const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
+      const rowsDiffered = baselineRows.length > 0
+        ? (baselineRows.length !== (freshRows?.length ?? 0) || (freshRows ?? []).some((fr) => {
+            const subId = String(fr.subjectid ?? fr.individualsubjectcode ?? fr.subjectcode);
+            const oldRow = baselineRows.find((or) => String(or.subjectid ?? or.individualsubjectcode ?? or.subjectcode) === subId);
+            if (!oldRow) return true;
+            return computeSubjectRowChecksum(fr) !== computeSubjectRowChecksum(oldRow);
+          }))
+        : true;
+
+      // Pure cache-based check: does any subject need deep detail update?
+      // Attendance changed = overview rows differed OR cached subject details are missing/stale
+      const hasSubjectDetailChanged = activeRows.some((r) => {
         const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
-        if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, detailsMap[subId] ?? entry.data, entry.updatedAt, entry.checksum)) {
-          toFetch.push(r as AttRow & Record<string, unknown>);
-        }
-      }
-
-      let isAborted = false;
-      let detailRefreshError: string | null = null;
-      let successCount = 0;
-
-      if (toFetch.length > 0 && getSessionStatus() !== "expired") {
-        setSyncProgress({ done: 0, total: toFetch.length });
-
-        const base = {
-          stynumber: initial?.header?.stynumber,
-          registrationid: sem?.registrationid,
-          registrationcode: sem?.registrationcode,
-        };
-
-        const queue = [...toFetch];
-        const concurrency = 2;
-        const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-          while (
-            queue.length > 0 &&
-            !isAborted &&
-            pageIsLive.current &&
-            isCacheGenerationCurrent(requestGeneration) &&
-            getSessionStatus() !== "expired"
-          ) {
-            const r = queue.shift();
-            if (!r) break;
-            const subId = String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode);
-            setSyncingIds((prev) => new Set(prev).add(subId));
-            try {
-              const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-              if (
-                data &&
-                !isAborted &&
-                pageIsLive.current &&
-                isCacheGenerationCurrent(requestGeneration) &&
-                getSessionStatus() !== "expired"
-              ) {
-                setCachedSubjectDetail(session, semId, r, data);
-                setDetailsMap((prev) => ({ ...prev, [subId]: data }));
-                successCount++;
-              }
-            } catch (err: unknown) {
-              const code = (err as { code?: string })?.code;
-              const status = (err as { status?: number })?.status;
-              if (code === "SESSION_EXPIRED" || status === 401 || getSessionStatus() === "expired") {
-                isAborted = true;
-                queue.length = 0;
-                if (pageIsLive.current) {
-                  setSyncingIds(new Set());
-                  setSyncProgress({ done: 0, total: 0 });
-                }
-                break;
-              }
-              if (!detailRefreshError) {
-                detailRefreshError = err instanceof Error ? err.message : String(err);
-              }
-            } finally {
-              if (pageIsLive.current) {
-                setSyncingIds((prev) => {
-                  const next = new Set(prev);
-                  next.delete(subId);
-                  return next;
-                });
-                setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
-              }
-            }
-          }
-        });
-
-        await Promise.all(workers);
-        if (
-          detailRefreshError &&
-          pageIsLive.current &&
-          isCacheGenerationCurrent(requestGeneration) &&
-          getSessionStatus() !== "expired"
-        ) {
-          setRefreshError(detailRefreshError);
-        }
-
-        if (
-          !isAborted &&
-          successCount > 0 &&
-          pageIsLive.current &&
-          isCacheGenerationCurrent(requestGeneration) &&
-          getSessionStatus() !== "expired"
-        ) {
-          try {
-            localStorage.setItem("juet.portal.last_sync", String(Date.now()));
-            window.dispatchEvent(new CustomEvent("juet:sync"));
-          } catch {}
-        }
-      } else if (getSessionStatus() !== "expired" && !att.error && !detail.error) {
-        try {
-          localStorage.setItem("juet.portal.last_sync", String(Date.now()));
-          window.dispatchEvent(new CustomEvent("juet:sync"));
-        } catch {}
-      }
-
-      if (pageIsLive.current && isCacheGenerationCurrent(requestGeneration)) {
-        window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
-      }
-
-      const rowsDiffered = !rows || rows.length !== freshRows.length || freshRows.some((fr) => {
-        const subId = String(fr.subjectid ?? fr.individualsubjectcode ?? fr.subjectcode);
-        const oldRow = rows.find((or) => String(or.subjectid ?? or.individualsubjectcode ?? or.subjectcode) === subId);
-        if (!oldRow) return true;
-        return computeSubjectRowChecksum(fr) !== computeSubjectRowChecksum(oldRow);
+        return doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum);
       });
-      const attendanceChanged = rowsDiffered || (toFetch.length > 0 && successCount > 0);
+      const attendanceChanged = rowsDiffered || hasSubjectDetailChanged;
 
       const isValidCurrentSync =
-        !detailRefreshError &&
-        !isAborted &&
         isDefault &&
         Boolean(freshRows && freshRows.length > 0) &&
         pageIsLive.current &&
@@ -464,6 +385,22 @@ export function AttendancePage({
         if (!attendanceChanged) {
           showNotice("Up to date with portal", 2500);
         }
+        try {
+          localStorage.setItem("juet.portal.last_sync", String(Date.now()));
+          window.dispatchEvent(new CustomEvent("juet:sync"));
+        } catch {}
+      }
+
+      // Release overview numbers and interactive view immediately (~1-2s) so mobile users get instant
+      // feedback, while background detail syncing continues via syncingIds and the status pill.
+      if (pageIsLive.current) {
+        setIsRefreshing(false);
+      }
+      refreshInProgress.current = false;
+
+      // Trigger background hook sync and effect prefetch
+      if (pageIsLive.current && isCacheGenerationCurrent(requestGeneration)) {
+        window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
       }
     } catch (err: unknown) {
       if (pageIsLive.current && getSessionStatus() !== "expired") {
@@ -473,8 +410,6 @@ export function AttendancePage({
       refreshInProgress.current = false;
       if (pageIsLive.current) {
         setIsRefreshing(false);
-        setSyncingIds(new Set());
-        setSyncProgress({ done: 0, total: 0 });
       }
     }
   };
