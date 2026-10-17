@@ -46,7 +46,34 @@ const {
   getCacheGeneration,
   isCacheGenerationCurrent,
   invalidateCacheGeneration,
+  requestFeature,
 } = await import("../src/hooks/useFeature.ts");
+
+test("automatic and imperative reads share one request and one cache result", async () => {
+  let resolve;
+  let calls = 0;
+  const run = () => { calls++; return new Promise((done) => { resolve = done; }); };
+  const automatic = requestFeature("audit.overview", run);
+  const manual = requestFeature("audit.overview", run);
+  assert.equal(automatic, manual);
+  await Promise.resolve();
+  assert.equal(calls, 1);
+  resolve({ rows: ["latest"] });
+  await Promise.all([automatic, manual]);
+  assert.deepEqual(getCached("audit.overview").data, { rows: ["latest"] });
+});
+
+test("failed shared reads can be retried and logout prevents late cache writes", async () => {
+  await assert.rejects(requestFeature("audit.failed", async () => { throw new Error("failed"); }));
+  assert.equal((await requestFeature("audit.failed", async () => "recovered")).data, "recovered");
+  let resolve;
+  const pending = requestFeature("audit.logout", () => new Promise((done) => { resolve = done; }));
+  await Promise.resolve();
+  invalidateCacheGeneration();
+  resolve("discard");
+  await pending;
+  assert.equal(getCached("audit.logout").data, null);
+});
 
 test("getCached returns null for missing or empty keys", () => {
   assert.deepEqual(getCached(undefined), { data: null, updatedAt: null });
@@ -124,13 +151,15 @@ test("setCached stores data with timestamp and retrieves accurately", () => {
   assert.equal(cached.updatedAt, time);
 });
 
-test("setCached for att.* keys records portal last_sync and dispatches juet:sync", () => {
+test("an attendance cache write updates consumers without claiming a full sync", () => {
   dispatchedEvents = [];
+  globalThis.localStorage.removeItem("juet.portal.last_sync");
   const payload = { rows: [] };
-  const time = setCached("att.initial:user123", payload);
+  setCached("att.initial:user123", payload);
 
-  assert.equal(globalThis.localStorage.getItem("juet.portal.last_sync"), String(time));
-  assert.ok(dispatchedEvents.includes("juet:sync"));
+  assert.equal(globalThis.localStorage.getItem("juet.portal.last_sync"), null);
+  assert.ok(dispatchedEvents.includes("juet:cache-updated"));
+  assert.ok(!dispatchedEvents.includes("juet:sync"));
 });
 
 test("setCached stores data, timestamp, and optional extra metadata like checksum", () => {

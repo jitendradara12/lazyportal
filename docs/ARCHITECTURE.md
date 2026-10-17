@@ -71,8 +71,33 @@ with a 14-day dismissal cooldown in `localStorage`.
 ### Client scheduling & caching
 
 - Portal day cutover occurs at 02:00 AM IST (`portalSchedule.ts`), resetting daily refresh quotas.
-- Attendance refreshes use row checksums (`doesSubjectNeedDeepFetch`) to skip redundant deep-fetch POSTs when cached details are unchanged.
+- The attendance overview updates once per portal day. Cached subject history
+  stays usable across days while its overview checksum matches; opening a cached
+  subject does not revalidate by age. Missing/incomplete history or changed rows
+  trigger background reads. Equal percentages can hide new classes (7/7 → 8/8);
+  those counts catch up on an overview change or explicit refresh.
+- Automatic refresh, manual refresh, and expanded subjects share pending reads
+  and cache updates (`requestFeature`, `attendanceSync.ts`). Expanding fresh
+  history does not make another request; queued jobs recheck the cache before fetching.
+- Explicit attendance refresh rechecks every subject, even with matching cached
+  percentages. Quota is committed only after the whole batch succeeds. An unfinished
+  manual refresh retains successful reads and change detection for retry on the
+  same page and portal day; a new day or changed row requires another read.
+  Failed/cancelled batches spend no quota. Sync timestamps advance only on completion.
 - In-memory read-through cache for features and sessions, with 20s cooldowns on manual refresh buttons.
+
+### Deployment and asset caching
+
+- `vercel.json` pins the API function to Mumbai (`bom1`), near the app's Indian users and portal.
+- Only Vite's generated `/assets/` files get a one-year immutable browser cache.
+  Their names contain content hashes, so a new build gets new URLs. Do not put
+  unversioned public files under `packages/web/public/assets/`.
+- HTML, the service worker, and the manifest keep their normal revalidation policy
+  so daily deployments are discoverable immediately.
+- The service worker uses cache-first reads for hashed assets, network-first for
+  navigation, and background revalidation for other static files. Background
+  cache writes use `waitUntil`; storage failures never block an online response.
+- API responses bypass the service worker. No shared student-response cache is used.
 
 ## Native shell (`android/`)
 

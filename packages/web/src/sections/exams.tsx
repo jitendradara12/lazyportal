@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
@@ -8,29 +8,16 @@ import {
   CollapsibleCard,
   SectionError,
   useCardState,
-  examTime,
   countdown,
   titleCase,
   formatSemester,
 } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
+import { examTimes, groupExams, type ExamRow } from "../lib/exams";
 
 interface ExamEvent {
   exameventid?: string;
   exameventdesc?: string;
-}
-
-interface ExamRow {
-  datetime?: string;
-  datetimefrom?: string;
-  datetimeupto?: string;
-  subjectdesc?: string;
-  roomcode?: string;
-  seatno?: string;
-}
-
-function parseRowExamTime(r: ExamRow): number | null {
-  return examTime(`${r.datetime ?? ""} ${r.datetimefrom ?? r.datetimeupto ?? ""}`.trim());
 }
 
 function formatExamDateTime(r: ExamRow): string {
@@ -63,46 +50,62 @@ export function ExamsSection({ session }: SectionProps) {
   const examEvents = useFeature<ExamEvent[]>({
     run: () => features.getExamEvents(client, session, { registrationid: examSemId }),
     deps: [session, examSemId],
-    enabled: card.hasExpanded && examSemId !== null,
-    cacheKey: examSemId ? sessionCacheKey("exams.events", session, examSemId) : undefined,
+    enabled: card.hasExpanded && examSem !== null,
+    cacheKey: examSem ? sessionCacheKey("exams.events", session, examSemId) : undefined,
     staleTimeMs: FEATURE_TTL.exams,
   });
   const [examEventId, setExamEventId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (examSemId === null || !examEvents.data?.length) {
-      if (examEventId !== null) setExamEventId(null);
-      return;
-    }
-    const hasCurrent = examEvents.data.some((e) => String(e.exameventid) === examEventId);
-    if (!hasCurrent) {
-      const first = examEvents.data[0]?.exameventid;
-      setExamEventId(first != null ? String(first) : null);
-    }
-  }, [examSemId, examEvents.data, examEventId]);
+  // Resolve the event during render so semester changes never read the old
+  // event or briefly claim that the next step in the chain has no schedules.
+  const selectedEvent = examEvents.data?.find((e) => String(e.exameventid) === examEventId)
+    ?? examEvents.data?.[0];
+  const activeEventId = selectedEvent?.exameventid != null ? String(selectedEvent.exameventid) : null;
 
   const examRows = useFeature<ExamRow[]>({
     run: () =>
-      features.getExamSchedule(client, session, { registrationid: examSemId, exameventid: examEventId }),
-    deps: [session, examSemId, examEventId],
-    enabled: card.hasExpanded && examSemId !== null && examEventId !== null,
-    cacheKey: examSemId && examEventId ? sessionCacheKey("exams.rows", session, examSemId, examEventId) : undefined,
+      features.getExamSchedule(client, session, { registrationid: examSemId, exameventid: activeEventId }),
+    deps: [session, examSemId, activeEventId],
+    enabled: card.hasExpanded && examSem !== null && activeEventId !== null,
+    cacheKey: examSem && activeEventId ? sessionCacheKey("exams.rows", session, examSemId, activeEventId) : undefined,
     staleTimeMs: FEATURE_TTL.exams,
   });
 
-  const loading = examSems.loading || examEvents.loading || examRows.loading;
   const error = examSems.error ?? examEvents.error ?? examRows.error;
+  const loading = examSems.loading || examEvents.loading || examRows.loading || (card.hasExpanded && !error && (
+    examSems.data === null || (examSems.data.length > 0 && examSem === null) ||
+    (examSem !== null && examEvents.data === null) ||
+    (activeEventId !== null && examRows.data === null)
+  ));
   const retry = () => {
     examSems.retry();
     examEvents.retry();
     examRows.retry();
   };
 
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!card.hasExpanded) return;
+    const update = () => setNow(Date.now());
+    update();
+    const timer = setInterval(update, 60_000);
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [card.hasExpanded]);
+
   const rows = examRows.data ?? [];
-  const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => (parseRowExamTime(a) ?? 0) - (parseRowExamTime(b) ?? 0));
-  }, [rows]);
-  const badgeText = rows.length > 0 ? `${rows.length} scheduled` : (card.hasExpanded ? "No schedules" : "Seating & dates");
+  const { upcoming, past, undated } = groupExams(rows, now);
+  const badgeText = upcoming.length > 0 ? `${upcoming.length} scheduled`
+    : loading ? "Loading…"
+    : error ? "Couldn't load schedules"
+    : undated.length > 0 ? "Dates unavailable"
+    : rows.length > 0 ? "No upcoming exams"
+    : card.hasExpanded ? "No schedules" : "Seating & dates";
 
   return (
     <CollapsibleCard
@@ -136,7 +139,7 @@ export function ExamsSection({ session }: SectionProps) {
         <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "4px 0 12px" }}>
           <span className="muted" style={{ fontSize: "14px", fontWeight: 500 }}>Event:</span>
           <select
-            value={examEventId ?? ""}
+            value={activeEventId ?? ""}
             onChange={(e) => setExamEventId(e.target.value)}
             disabled={loading}
             className="sem-picker"
@@ -151,41 +154,56 @@ export function ExamsSection({ session }: SectionProps) {
         </div>
       )}
       {loading && <p className="muted">Loading…</p>}
-      {rows.length > 0 && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Date / Time</th>
-                <th>Subject</th>
-                <th>Room</th>
-                <th>Seat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedRows.map((r, i) => {
-                const t = parseRowExamTime(r);
-                const next = t !== null && t > Date.now();
-                return (
-                  <tr key={i}>
-                    <td>
-                      {formatExamDateTime(r)}
-                      {next ? ` (${countdown(t - Date.now())})` : ""}
-                    </td>
-                    <td>{titleCase(r.subjectdesc ?? "")}</td>
-                    <td>{r.roomcode ?? "—"}</td>
-                    <td>{r.seatno ?? "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {upcoming.length > 0 && <ExamTable rows={upcoming} now={now} />}
+      {undated.length > 0 && (
+        <>
+          <p className="muted">Dates unavailable</p>
+          <ExamTable rows={undated} now={now} />
+        </>
+      )}
+      {past.length > 0 && (
+        <details className="past-exams" key={`${examSemId}:${activeEventId}`}>
+          <summary>Past exams ({past.length})</summary>
+          <ExamTable rows={past} now={now} />
+        </details>
       )}
       {rows.length === 0 && !error && !loading && (
         <p className="muted">No exam schedule published for this semester yet.</p>
       )}
       {error && <SectionError label="Exams" error={error} retry={retry} />}
     </CollapsibleCard>
+  );
+}
+
+function ExamTable({ rows, now }: { rows: ExamRow[]; now: number }) {
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Date / Time</th>
+            <th>Subject</th>
+            <th>Room</th>
+            <th>Seat</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const start = examTimes(r)?.start;
+            return (
+              <tr key={i}>
+                <td>
+                  {formatExamDateTime(r)}
+                  {start != null && start > now ? ` (${countdown(start - now)})` : ""}
+                </td>
+                <td>{titleCase(r.subjectdesc ?? "")}</td>
+                <td>{r.roomcode ?? "—"}</td>
+                <td>{r.seatno ?? "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

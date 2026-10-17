@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, setCached, getCached, sessionCacheKey } from "../hooks/useFeature";
+import { useFeature, setCached, getCached, sessionCacheKey, requestFeature } from "../hooks/useFeature";
 import {
   isCurrentPortalDay,
   computeSubjectRowChecksum,
@@ -227,6 +227,26 @@ export function setCachedSubjectDetail(
   );
   const checksum = isSubjectDetailComplete(row, data) ? computeSubjectRowChecksum(row) : null;
   return setCached(key, data, checksum ? { checksum } : undefined);
+}
+
+export async function readSubjectDetail(
+  session: SectionProps["session"], row: AttRow & Record<string, unknown>,
+  base: { registrationid?: string | null; registrationcode?: string | null },
+) {
+  const data = await features.getSubjectAttendanceAll(client, session, row, base, "current");
+  if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
+  return data;
+}
+
+export function refreshSubjectDetail(
+  session: SectionProps["session"], row: AttRow & Record<string, unknown>,
+  base: { registrationid?: string | null; registrationcode?: string | null },
+) {
+  return requestFeature(
+    getSubjectCacheKey(session.username, base.registrationid, row, session.instituteid),
+    () => readSubjectDetail(session, row, base),
+    { checksum: computeSubjectRowChecksum(row) },
+  );
 }
 
 export interface AttLovData {

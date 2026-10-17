@@ -1,12 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { offlinePage } from "./scripts/offline-page.mjs";
 
 // Dev proxy: browser talks same-origin to /api, Vite forwards server-side.
 // Direct browser -> studentportal.juet.ac.in is blocked by CORS:
 // preflight OPTIONS returns 403 and ACAO allowlists only the portal origin.
 // Same-origin via proxy => no preflight, no ACAO check.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), offlinePage()],
   server: {
     port: 5173,
     proxy: {

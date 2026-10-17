@@ -172,15 +172,34 @@ export function setCached<T>(key: string | undefined, data: T, extra?: Record<st
       raw,
       parsed: { ...(extra ?? {}), data, updatedAt: now },
     });
-    if (key.startsWith("att.")) {
-      localStorage.setItem("juet.portal.last_sync", String(now));
-      window.dispatchEvent(new CustomEvent("juet:sync"));
-    }
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
   } catch {}
   return now;
 }
 
 export const STALE_MS = 2 * 60 * 60 * 1000;
+
+/** Share hook and imperative reads, including their single cache write. */
+export function requestFeature<T>(
+  cacheKey: string | undefined,
+  run: () => Promise<T>,
+  writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>),
+): Promise<{ data: T; updatedAt: number }> {
+  const existing = cacheKey ? inFlight.get(cacheKey) : undefined;
+  if (existing) return existing as Promise<{ data: T; updatedAt: number }>;
+  const generation = getCacheGeneration();
+  const request = Promise.resolve().then(run).then((data) => {
+    let updatedAt = Date.now();
+    if (isCacheGenerationCurrent(generation)) {
+      updatedAt = setCached(cacheKey, data, typeof writeExtra === "function" ? writeExtra(data) : writeExtra);
+    }
+    return { data, updatedAt };
+  }).finally(() => {
+    if (cacheKey && inFlight.get(cacheKey) === request) inFlight.delete(cacheKey);
+  });
+  if (cacheKey) inFlight.set(cacheKey, request);
+  return request;
+}
 
 export function useFeature<T>({
   run,
@@ -198,6 +217,12 @@ export function useFeature<T>({
   // switch cannot briefly show the previous key's data before effects run.
   const visibleState = resolveFeatureState(state, cacheKey, enabled);
   const [retryKey, setRetryKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const forceRef = useRef(false);
   const runRef = useRef(run);
   runRef.current = run;
@@ -224,6 +249,31 @@ export function useFeature<T>({
     setRetryKey((k) => k + 1);
   }, []);
 
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setStateForKey(cacheKey, { error: null });
+    try {
+      const result = await requestFeature(cacheKey, runRef.current, writeExtraRef.current);
+      if (mounted.current) setStateForKey(cacheKey, { ...result, loading: false, error: null });
+      return result.data;
+    } finally {
+      if (mounted.current) setRefreshing(false);
+    }
+  }, [cacheKey, setStateForKey]);
+
+  // A completed manual/background read updates every mounted consumer without
+  // broadcasting another network refresh (e.g. the dashboard attendance hero).
+  useEffect(() => {
+    if (!cacheKey) return;
+    const update = (event: Event) => {
+      if ((event as CustomEvent<{ key: string }>).detail?.key !== cacheKey) return;
+      const cached = getCached<T>(cacheKey);
+      setStateForKey(cacheKey, { data: cached.data, updatedAt: cached.updatedAt, error: null, loading: false });
+    };
+    window.addEventListener("juet:cache-updated", update);
+    return () => window.removeEventListener("juet:cache-updated", update);
+  }, [cacheKey, setStateForKey]);
+
   // Re-fetch live data when a scoped or global refresh is requested
   useEffect(() => {
     const handleRefresh = () => {
@@ -245,6 +295,7 @@ export function useFeature<T>({
 
   useEffect(() => {
     if (!enabled) {
+      setRefreshing(false);
       forceRef.current = false;
       setStateForKey(cacheKey, { loading: false, error: null });
       return;
@@ -258,6 +309,7 @@ export function useFeature<T>({
       ? isFresh(cached.updatedAt)
       : Boolean(cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs);
     if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && isFreshEntry) {
+      setRefreshing(false);
       setStateForKey(cacheKey, {
         data: cached.data,
         updatedAt: cached.updatedAt,
@@ -271,36 +323,18 @@ export function useFeature<T>({
       setStateForKey(cacheKey, { loading: true });
     }
 
-    let promise = cacheKey ? inFlight.get(cacheKey) : undefined;
-    if (!promise) {
-      const generation = getCacheGeneration();
-      let request: Promise<{ data: unknown; updatedAt: number }>;
-      request = Promise.resolve()
-        .then(() => runRef.current())
-        .then((d) => {
-          const time = Date.now();
-          if (isCacheGenerationCurrent(generation)) {
-            const extra = typeof writeExtraRef.current === "function"
-              ? (writeExtraRef.current as (data: T) => Record<string, unknown>)(d as T)
-              : writeExtraRef.current;
-            setCached(cacheKey, d, extra);
-          }
-          return { data: d, updatedAt: time };
-        })
-        .finally(() => {
-          if (cacheKey && inFlight.get(cacheKey) === request) inFlight.delete(cacheKey);
-        });
-      promise = request;
-      if (cacheKey) inFlight.set(cacheKey, request);
-    }
+    setRefreshing(true);
+    const promise = requestFeature(cacheKey, runRef.current, writeExtraRef.current);
 
     promise.then(
       ({ data: d, updatedAt: time }) => {
         if (!live) return;
+        setRefreshing(false);
         setStateForKey(cacheKey, { data: d as T, updatedAt: time, loading: false, error: null });
       },
       (e) => {
         if (!live) return;
+        setRefreshing(false);
         if (isUnauthorized(e)) {
           // Only suppress auth errors when this key itself has stale cached
           // data. Data left over from a previous key is not a valid fallback.
@@ -323,6 +357,8 @@ export function useFeature<T>({
     error: visibleState.error,
     loading: visibleState.loading,
     retry,
+    refresh,
+    refreshing,
     updatedAt: visibleState.updatedAt,
   };
 }

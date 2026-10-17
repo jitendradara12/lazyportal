@@ -31,7 +31,7 @@ export function ReconnectModal({
   const [error, setError] = useState<string | null>(null);
   const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const [isAutoSolved, setIsAutoSolved] = useState(false);
-  const [isCaptchaLoading, setIsCaptchaLoading] = useState(false);
+  const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
   const captchaInputRef = useRef<HTMLInputElement>(null);
   const loading = useRef(false);
   const abortController = useRef<AbortController | null>(null);
@@ -69,8 +69,8 @@ export function ReconnectModal({
         setIsAutoSolved(false);
       }
       setTimeout(() => captchaInputRef.current?.focus(), 60);
-    } catch {
-      if (!ac.signal.aborted) setError("JUET's portal is down (not us).");
+    } catch (error) {
+      if (!ac.signal.aborted) setError(error instanceof Error ? error.message : String(error));
     } finally {
       loading.current = false;
       if (!ac.signal.aborted) setIsCaptchaLoading(false);
@@ -254,7 +254,7 @@ export function ReconnectModal({
                 <img src={captcha.imageDataUrl} alt="Captcha image" className="auth-captcha-img" />
               ) : (
                 <div className="auth-captcha-placeholder">
-                  <span className="auth-captcha-spinner" />
+                  {isCaptchaLoading ? <span className="auth-captcha-spinner" /> : <span>Captcha unavailable</span>}
                 </div>
               )}
               <button

@@ -173,6 +173,32 @@ test("computeBunkMargin calculates accurate bunk and attend requirements", () =>
   assert.equal(marginZero.count, 0);
 });
 
+test("computeBunkMargin does not add an extra class at exact 80% and 90% boundaries", () => {
+  assert.equal(computeBunkMargin(7, 10, 0.8).count, 5);
+  assert.equal(computeBunkMargin(8, 10, 0.9).count, 10);
+  assert.equal(computeBunkMargin(0, 1, 0.8).count, 4);
+  assert.equal(computeBunkMargin(0, 1, 0.9).count, 9);
+});
+
+test("class advice meets the selected target with the minimum attendance or maximum absence", () => {
+  for (const target of [70, 80, 90]) {
+    for (let total = 1; total <= 100; total++) {
+      for (let present = 0; present <= total; present++) {
+        const advice = computeBunkMargin(present, total, target / 100);
+        const n = advice.count;
+        const context = `${present}/${total} at ${target}%`;
+        if (advice.type === "attend") {
+          assert.ok((present + n) * 100 >= target * (total + n), context);
+          assert.ok((present + n - 1) * 100 < target * (total + n - 1), context);
+        } else {
+          assert.ok(present * 100 >= target * (total + n), context);
+          assert.ok(present * 100 < target * (total + n + 1), context);
+        }
+      }
+    }
+  }
+});
+
 test("doesSubjectNeedDeepFetch detects incomplete cache and triggers repair", () => {
   const row = {
     subjectid: "101",

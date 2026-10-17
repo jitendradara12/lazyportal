@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { features } from "@juet/core";
-import { client } from "../lib/portal";
 import { useFeature } from "../hooks/useFeature";
 import { SectionError } from "./DataViews";
 import type { Session } from "../types";
@@ -10,6 +8,7 @@ import {
   subjectRowId,
   getSubjectCacheKey,
   getCachedSubjectDetailEntry,
+  readSubjectDetail,
   CombinedClassLog,
 } from "../sections/attendance";
 import {
@@ -31,6 +30,7 @@ export function SubjectDetailSheet({
   registrationcode,
   session,
   cachedDetail,
+  enabled = true,
   onDetailLoaded,
   onClose,
   onLogout: _onLogout,
@@ -40,6 +40,7 @@ export function SubjectDetailSheet({
   registrationcode?: string;
   session: Session;
   cachedDetail?: Record<string, Record<string, unknown>>;
+  enabled?: boolean;
   onDetailLoaded?: (subId: string, data: Record<string, Record<string, unknown>>, updatedAt?: number | null) => void;
   onClose: () => void;
   onLogout: () => void;
@@ -56,13 +57,14 @@ export function SubjectDetailSheet({
   const rowChecksum = computeSubjectRowChecksum(row);
 
   const detail = useFeature<Record<string, Record<string, unknown>>>({
-    run: () => features.getSubjectAttendanceAll(client, session, row, base, "current"),
+    run: () => readSubjectDetail(session, row, base),
     deps: [session, registrationid, String(row.subjectid), rowChecksum],
     cacheKey,
+    enabled,
     staleTimeMs: FEATURE_TTL.subjects,
     isFresh: (updatedAt) => {
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
-      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum, undefined, true);
+      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
     },
     writeExtra: (d) => (isSubjectDetailComplete(row, d) ? { checksum: computeSubjectRowChecksum(row) } : {}),
   });
@@ -77,7 +79,8 @@ export function SubjectDetailSheet({
     }
   }, [detail.data, detail.updatedAt, row]);
 
-  const activeDetail = detail.data ?? cachedDetail;
+  const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
+  const activeDetail = entry.checksum && entry.checksum !== rowChecksum ? undefined : detail.data ?? cachedDetail;
   const attInfo = combinedAttendance(row, activeDetail, target / 100);
 
   // Simulation calculations (supports attending X and leaving Y simultaneously)
@@ -195,7 +198,8 @@ export function SubjectDetailSheet({
           )}
 
           {/* Empty state when no classes held yet */}
-          {!attInfo.hasHeldClasses && !detail.loading && (
+          {!attInfo.hasHeldClasses && attInfo.pctNum === null &&
+            isSubjectDetailComplete(row, activeDetail) && !detail.loading && !detail.error && (
             <div className="att-empty-held-card">
               <span className="att-empty-icon" aria-hidden="true">📋</span>
               <p>No classes held yet.</p>
@@ -205,7 +209,7 @@ export function SubjectDetailSheet({
 
         {/* Detailed Class History Log */}
         <div className="att-sheet-history-section">
-          {detail.loading && !activeDetail && <p className="muted">Loading class breakdown…</p>}
+          {(detail.loading || detail.refreshing || !enabled) && !activeDetail && <p className="muted">Loading class breakdown…</p>}
           {detail.error && (
             <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />
           )}

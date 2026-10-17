@@ -37,7 +37,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [expired, setExpired] = useState(false);
   const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const [isAutoSolved, setIsAutoSolved] = useState(false);
-  const [isCaptchaLoading, setIsCaptchaLoading] = useState(false);
+  const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
 
   const loading = useRef(false);
   const userRef = useRef<HTMLInputElement>(null);
@@ -310,7 +310,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
                 <img src={captcha.imageDataUrl} alt="Captcha image" className="auth-captcha-img" />
               ) : (
                 <div className="auth-captcha-placeholder">
-                  <span className="auth-captcha-spinner" />
+                  {isCaptchaLoading ? <span className="auth-captcha-spinner" /> : <span>Captcha unavailable</span>}
                 </div>
               )}
               <button

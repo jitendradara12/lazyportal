@@ -1,34 +1,30 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { features } from "@juet/core";
 import { client, getSessionStatus } from "../lib/portal";
-import { useFeature, getCached, setCached, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import {
+  isCurrentPortalDay,
+  computeSubjectRowChecksum,
   getManualRefreshQuota,
-  recordSuccessfulManualRefresh,
-  doesSubjectNeedDeepFetch,
   subscribePortalDayRollover,
   FEATURE_TTL,
-  computeSubjectRowChecksum,
   type RefreshQuotaState,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
 import {
   type AttRow,
-  type AttData,
   subjectName,
   rowSubId,
   subjectRowId,
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
-  setCachedSubjectDetail,
   useAttendanceInitial,
-  getCachedLov,
-  setCachedLov,
 } from "../sections/attendance";
-import { combinedAttendance } from "../lib/attendanceCalc";
+import { combinedAttendance, isSubjectDetailComplete } from "../lib/attendanceCalc";
+import { runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanceRefreshCheckpoint } from "../lib/attendanceSync";
 
 export function AttendancePage({
   session,
@@ -57,6 +53,7 @@ export function AttendancePage({
     }, ms);
   };
   const refreshInProgress = useRef(false);
+  const manualCheckpoint = useRef<ManualAttendanceRefreshCheckpoint>({ details: new Map() });
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -148,6 +145,20 @@ export function AttendancePage({
     return map;
   });
 
+  // Old logs can otherwise override a newly fetched percentage after a partial
+  // failure. Keep cached numbers only while they describe the same overview.
+  const visibleDetailsMap = useMemo(() => {
+    const compatible: typeof detailsMap = {};
+    for (const row of rows) {
+      const id = rowSubId(row);
+      const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
+      if (!entry.checksum || entry.checksum === computeSubjectRowChecksum(row)) {
+        if (detailsMap[id]) compatible[id] = detailsMap[id];
+      }
+    }
+    return compatible;
+  }, [rows, detailsMap, session, semId]);
+
   const activeSelectedSubject = useMemo(() => {
     if (!selectedSubject) return null;
     const subId = subjectRowId(selectedSubject);
@@ -179,118 +190,46 @@ export function AttendancePage({
     }
   }, [isExpired]);
 
-  // Re-sync cached details when rows or semester change, and prefetch uncached/changed in background
+  // Wait for today's overview before fetching logs, otherwise the old row
+  // checksum can launch a second wave of identical reads when it is replaced.
   useEffect(() => {
-    if (!rows.length || isExpired || !isDefault || refreshInProgress.current) return;
-
+    if (!rows.length || isExpired || !isDefault || refreshInProgress.current ||
+      att.refreshing || !isCurrentPortalDay(att.updatedAt)) return;
     const generation = getCacheGeneration();
-    let isLive = true;
-    let isAborted = false;
-    let successCount = 0;
-    let detailFailures = 0;
+    let active = true;
+    const current = () => active && pageIsLive.current && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired";
     const currentMap: Record<string, Record<string, unknown>> = {};
-    const toFetch: (AttRow & Record<string, unknown>)[] = [];
-
-    for (const r of rows) {
-      const subId = rowSubId(r);
-      const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
-      if (entry.data) {
-        currentMap[subId] = entry.data;
-      }
-      if (doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum)) {
-        toFetch.push(r as AttRow & Record<string, unknown>);
-      }
+    for (const row of rows) {
+      const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
+      if (entry.data) currentMap[rowSubId(row)] = entry.data;
     }
+    const key = `${session.username}:${session.instituteid ?? "default"}:${semId}`;
+    const changedSemester = lastSemRef.current !== key;
+    lastSemRef.current = key;
+    setDetailsMap((prev) => changedSemester ? currentMap : { ...prev, ...currentMap });
 
-    // Isolate detailsMap to current semester, but preserve concurrent in-memory updates
-    const currentSemKey = `${session.username}:${session.instituteid ?? "default"}:${semId}`;
-    const isNewSemester = lastSemRef.current !== currentSemKey;
-    lastSemRef.current = currentSemKey;
-    setDetailsMap((prev) => (isNewSemester ? currentMap : { ...prev, ...currentMap }));
+    void syncAttendanceDetails({
+      session, rows,
+      overviewUpdatedAt: att.updatedAt,
+      base: { registrationid: sem?.registrationid, registrationcode: sem?.registrationcode },
+      isCurrent: current,
+      onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
+      onProgress: (pending, done, total) => {
+        setSyncingIds(pending);
+        setSyncProgress({ done, total });
+      },
+    }).then((result) => {
+      if (current() && !result.complete) showNotice("Some subject details could not be updated", 3500);
+    }).finally(() => {
+      if (active) {
+        setSyncingIds(new Set());
+        setSyncProgress({ done: 0, total: 0 });
+      }
+    });
+    return () => { active = false; };
+  }, [rows, semId, session, sem?.registrationid, sem?.registrationcode, isExpired, att.refreshing, att.updatedAt]);
 
-    if (toFetch.length > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
-      setSyncProgress({ done: 0, total: toFetch.length });
-
-      const base = {
-        stynumber: initial?.header?.stynumber,
-        registrationid: sem?.registrationid,
-        registrationcode: sem?.registrationcode,
-      };
-
-      const queue = [...toFetch];
-      const concurrency = 2;
-      const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-        while (queue.length > 0 && isLive && !isAborted && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
-          const r = queue.shift();
-          if (!r) break;
-          const subId = rowSubId(r);
-          if (isLive) {
-            setSyncingIds((prev) => new Set(prev).add(subId));
-          }
-          try {
-            const data = await features.getSubjectAttendanceAll(client, session, r, base, "current");
-            if (pageIsLive.current && data && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired") {
-              setCachedSubjectDetail(session, semId, r, data);
-              setDetailsMap((prev) => ({ ...prev, [subId]: data }));
-              if (isLive && !isAborted) {
-                successCount++;
-              }
-            }
-          } catch (err: unknown) {
-            const code = (err as { code?: string })?.code;
-            const status = (err as { status?: number })?.status;
-            if (code === "SESSION_EXPIRED" || status === 401 || getSessionStatus() === "expired") {
-              isAborted = true;
-              queue.length = 0;
-              if (isLive) {
-                setSyncingIds(new Set());
-                setSyncProgress({ done: 0, total: 0 });
-              }
-              break;
-            }
-            detailFailures++;
-          } finally {
-            if (isLive && !isAborted) {
-              setSyncingIds((prev) => {
-                const next = new Set(prev);
-                next.delete(subId);
-                return next;
-              });
-              setSyncProgress((prev) => ({ ...prev, done: prev.done + 1 }));
-            }
-          }
-        }
-      });
-
-      Promise.all(workers)
-        .then(() => {
-          if (isLive && !isAborted && successCount > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
-            try {
-              localStorage.setItem("juet.portal.last_sync", String(Date.now()));
-              window.dispatchEvent(new CustomEvent("juet:sync"));
-            } catch {}
-          }
-        })
-        .finally(() => {
-          if (isLive) {
-            setSyncingIds(new Set());
-            setSyncProgress({ done: 0, total: 0 });
-            if (!isAborted && detailFailures > 0 && getSessionStatus() !== "expired" && isCacheGenerationCurrent(generation)) {
-              showNotice("Some subject details could not be updated", 3500);
-            }
-          }
-        });
-    }
-
-    return () => {
-      isLive = false;
-      isAborted = true;
-      setSyncingIds(new Set());
-      setSyncProgress({ done: 0, total: 0 });
-    };
-  }, [rows, semId, session, initial?.header?.stynumber, sem?.registrationid, sem?.registrationcode, isExpired]);
-
-  const isSyncing = !isExpired && (isRefreshing || loading || syncingIds.size > 0);
+  const isSyncing = !isExpired && (isRefreshing || loading || att.refreshing || syncingIds.size > 0);
 
   // Single-pass short-count + filter for cheap mobile renders.
   const { shortsCount, filteredRows } = useMemo(() => {
@@ -298,14 +237,14 @@ export function AttendancePage({
     const filtered: (AttRow & Record<string, unknown>)[] = [];
     for (const r of rows) {
       const subId = rowSubId(r);
-      const isShort = combinedAttendance(r, detailsMap[subId]).isShort;
+      const isShort = combinedAttendance(r, visibleDetailsMap[subId]).isShort;
       if (isShort) count++;
       if (filter === "all" || isShort) {
         filtered.push(r as AttRow & Record<string, unknown>);
       }
     }
     return { shortsCount: count, filteredRows: filtered };
-  }, [rows, detailsMap, filter]);
+  }, [rows, visibleDetailsMap, filter]);
 
   const handleRefresh = async () => {
     if (refreshInProgress.current || isSyncing || isExpired) return;
@@ -326,105 +265,37 @@ export function AttendancePage({
     }
 
     const requestGeneration = getCacheGeneration();
+    const current = () => pageIsLive.current && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     refreshInProgress.current = true;
     recordRefreshAttempt("attendance");
     setRefreshError(null);
     setQuotaNotice(null);
     setIsRefreshing(true);
-
-    // Capture baseline rows before network fetch and before writing fresh cache
-    const cachedInitialBefore = getCached<AttData>(sessionCacheKey("att.initial", session));
-    const baselineRows = rows.length > 0 ? rows : (cachedInitialBefore.data?.rows ?? []);
+    const baselineRows = rows;
 
     try {
-      // 1. Fetch fresh base overview first
-      let freshRows: (AttRow & Record<string, unknown>)[] | null = null;
-      const basePayload = {
-        stynumber: initial?.header?.stynumber,
-        registrationid: sem?.registrationid,
-        registrationcode: sem?.registrationcode,
-      };
-
-      if (isDefault) {
-        const cachedLov = getCachedLov(session);
-        const freshAtt = await features.getAttendance(client, session, cachedLov ?? undefined);
-        if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (freshAtt && Array.isArray(freshAtt.rows)) {
-          freshRows = freshAtt.rows as (AttRow & Record<string, unknown>)[];
-          setCached(sessionCacheKey("att.initial", session), freshAtt);
-          setCachedLov(session, freshAtt);
-        } else {
-          throw new Error("Portal returned no attendance data");
-        }
-      } else if (sem?.registrationid) {
-        const freshDetail = await features.getAttendanceDetail(client, session, basePayload);
-        if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-        if (freshDetail && Array.isArray(freshDetail.rows)) {
-          freshRows = freshDetail.rows as (AttRow & Record<string, unknown>)[];
-          setCached(sessionCacheKey("att.detail", session, semId), freshDetail);
-        } else {
-          throw new Error("Portal returned no attendance data");
-        }
-      }
-
-      if (!pageIsLive.current || !isCacheGenerationCurrent(requestGeneration)) return;
-
-      const activeRows = freshRows ?? rows;
-      const rowsDiffered = baselineRows.length > 0
-        ? (baselineRows.length !== (freshRows?.length ?? 0) || (freshRows ?? []).some((fr) => {
-            const subId = rowSubId(fr);
-            const oldRow = baselineRows.find((or) => rowSubId(or) === subId);
-            if (!oldRow) return true;
-            return computeSubjectRowChecksum(fr) !== computeSubjectRowChecksum(oldRow);
-          }))
-        : true;
-
-      // Pure cache-based check: does any subject need deep detail update?
-      // Attendance changed = overview rows differed OR cached subject details are missing/stale
-      const hasSubjectDetailChanged = activeRows.some((r) => {
-        const entry = getCachedSubjectDetailEntry(session.username, semId, r, session.instituteid);
-        return doesSubjectNeedDeepFetch(r as AttRow & Record<string, unknown>, entry.data, entry.updatedAt, entry.checksum);
+      // Joins an automatic overview read if one is already pending. All callers
+      // share its cache write, so a late older response cannot replace this one.
+      const result = await runManualAttendanceRefresh({
+        session, baselineRows, readOverview: att.refresh, isCurrent: current,
+        checkpoint: manualCheckpoint.current,
+        onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
+        onProgress: (pending, done, total) => {
+          setSyncingIds(pending);
+          setSyncProgress({ done, total });
+        },
       });
-      const attendanceChanged = rowsDiffered || hasSubjectDetailChanged;
-
-      const isValidCurrentSync =
-        isDefault &&
-        Boolean(freshRows && freshRows.length > 0) &&
-        pageIsLive.current &&
-        isCacheGenerationCurrent(requestGeneration) &&
-        getSessionStatus() !== "expired";
-
-      if (isValidCurrentSync) {
-        const next = recordSuccessfulManualRefresh(session, { changed: attendanceChanged });
-        setRefreshQuota(next);
-        if (!attendanceChanged) {
-          showNotice("Up to date with portal", 2500);
-        }
-        try {
-          localStorage.setItem("juet.portal.last_sync", String(Date.now()));
-          window.dispatchEvent(new CustomEvent("juet:sync"));
-        } catch {}
-      }
-
-      // Release overview numbers and interactive view immediately (~1-2s) so mobile users get instant
-      // feedback, while background detail syncing continues via syncingIds and the status pill.
-      if (pageIsLive.current) {
-        setIsRefreshing(false);
-      }
-      refreshInProgress.current = false;
-
-      // Sync useAttendanceInitial hook state from the newly written cache (isVeryFresh prevents duplicate network call)
-      if (pageIsLive.current && isCacheGenerationCurrent(requestGeneration)) {
-        window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
-      }
+      if (!result) return;
+      setRefreshQuota(result.quota);
+      if (!result.changed) showNotice("Up to date with portal", 2500);
     } catch (err: unknown) {
-      if (pageIsLive.current && getSessionStatus() !== "expired") {
-        setRefreshError(err instanceof Error ? err.message : String(err));
-      }
+      if (current()) setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       refreshInProgress.current = false;
       if (pageIsLive.current) {
         setIsRefreshing(false);
+        setSyncingIds(new Set());
+        setSyncProgress({ done: 0, total: 0 });
       }
     }
   };
@@ -563,7 +434,9 @@ export function AttendancePage({
               const { name, badge } = subjectName(r.subjectcode);
               const subId = rowSubId(r);
               const isSubjectSyncing = syncingIds.has(subId);
-              const attInfo = combinedAttendance(r, detailsMap[subId]);
+              const attInfo = combinedAttendance(r, visibleDetailsMap[subId]);
+              const hasPercentage = attInfo.pctNum !== null;
+              const hasDetail = isSubjectDetailComplete(r, visibleDetailsMap[subId]);
 
               return (
                 <button
@@ -578,24 +451,22 @@ export function AttendancePage({
                     <span className="att-subject-supporting">
                       {badge && <span className="att-code">{badge}</span>}
                       {badge && " · "}
-                      {isSubjectSyncing ? (
-                        <span className="att-count-syncing">
-                          <span className="sync-pulse-dot" aria-hidden="true" />
-                          Refreshing…
-                        </span>
-                      ) : attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? (
+                      {attInfo.totalClasses > 0 ? (
                         `${attInfo.totalPresent}/${attInfo.totalClasses} classes`
-                      ) : attInfo.hasHeldClasses && attInfo.totalClasses === 0 ? (
-                        attInfo.components.L?.pct != null && attInfo.components.T?.pct != null
-                          ? `L: ${attInfo.components.L.pct}% · T: ${attInfo.components.T.pct}%`
-                          : "Classes held"
+                      ) : !hasDetail || hasPercentage ? (
+                        isSyncing ? "Loading classes…" : "Class details unavailable"
                       ) : (
                         "No classes yet"
                       )}
+                      {isSubjectSyncing && (
+                        <span className="att-count-syncing" role="status" aria-label="Updating class details">
+                          <span className="sync-pulse-dot" aria-hidden="true" />
+                        </span>
+                      )}
                     </span>
                   </div>
-                  <span className={`att-row-pct ${attInfo.hasHeldClasses && attInfo.totalClasses > 0 ? attInfo.colorClass : "is-empty"} ${isSubjectSyncing ? "att-pct-syncing" : ""}`}>
-                    {isSubjectSyncing ? "…" : attInfo.hasHeldClasses && attInfo.pct !== "—" ? attInfo.pct : "--"}
+                  <span className={`att-row-pct ${hasPercentage ? attInfo.colorClass : "is-empty"}`}>
+                    {hasPercentage ? attInfo.pct : "--"}
                   </span>
                 </button>
               );
@@ -626,7 +497,8 @@ export function AttendancePage({
           registrationid={sem?.registrationid}
           registrationcode={sem?.registrationcode}
           session={session}
-          cachedDetail={detailsMap[subjectRowId(activeSelectedSubject)]}
+          cachedDetail={visibleDetailsMap[subjectRowId(activeSelectedSubject)]}
+          enabled={!att.refreshing && isCurrentPortalDay(att.updatedAt)}
           onDetailLoaded={handleDetailLoaded}
           onClose={() => setSelectedSubject(null)}
           onLogout={onLogout}

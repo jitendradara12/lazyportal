@@ -55,10 +55,18 @@ export function MarksSection({ session }: SectionProps) {
   const semesters = lov.data?.semesters ?? [];
   const code = sem?.registrationcode ?? (isDefault ? lov.data?.registrationcode : undefined);
   const semLabel = formatSemester(code);
-  const loading = lov.loading || detail.loading;
   const error = lov.error ?? detail.error;
+  // Include the gaps between chained reads/semester selection, before their
+  // effects start the next request. Those are still loading, not empty results.
+  const loading = lov.loading || detail.loading || (card.hasExpanded && !error && (
+    lov.data === null || (semesters.length > 0 && sem === null) ||
+    (sem !== null && !isDefault && detail.data === null)
+  ));
   const retry = lov.error ? lov.retry : detail.retry;
-  const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects` : (card.hasExpanded ? "No marks" : "Evaluation & test marks");
+  const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects`
+    : loading ? "Loading…"
+    : error ? "Couldn't load marks"
+    : card.hasExpanded ? "No marks" : "Evaluation & test marks";
 
   const [filter, setFilter] = useState<string>("All");
 

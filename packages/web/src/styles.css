@@ -1147,12 +1147,20 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 }
 .att-code { font-weight: 600; letter-spacing: 0.02em; }
 
+.past-exams > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--onSurfaceVariant);
+  cursor: pointer;
+}
+
 .att-count-syncing {
   color: var(--primary);
   font-weight: 500;
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  margin-left: 6px;
 }
 .sync-pulse-dot {
   display: inline-block;
@@ -1162,11 +1170,6 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   background: currentColor;
   animation: syncPulse 1s ease-in-out infinite;
 }
-.att-pct-syncing {
-  opacity: 0.65;
-  transition: opacity 0.2s ease;
-}
-
 .att-row-pct {
   flex: none;
   min-width: 4.5ch;

@@ -12,6 +12,11 @@ traffic goes differs (see [API routing](#api-routing)).
 | Icon/splash generator | `scripts/generate-app-assets.mjs` |
 | CI (tests, debug APK, tagged releases) | `.github/workflows/build-apk.yml` |
 
+The build embeds `public/offline.jpg` into `offline.html` using
+`packages/web/scripts/offline-page.mjs`. Keep the source image separate for
+editing; the bundled error page needs no image request or previously warmed cache.
+Changes to this native fallback require rebuilding and installing the APK.
+
 ## Prerequisites
 
 - Node 20+ (the workspace already needs it) and JDK 21 (`sourceCompatibility` is

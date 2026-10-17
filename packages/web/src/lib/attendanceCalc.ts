@@ -59,10 +59,12 @@ export function getColorClass(val: number | null): AttColorClass {
 
 export function computeBunkMargin(present: number, total: number, target = 0.70): BunkMargin {
   if (total <= 0) return { type: "none", count: 0, text: "" };
-  const currentRatio = present / total;
+  // Calculate in percentage units so targets such as 80% do not introduce
+  // 1 - 0.8 rounding errors before ceil/floor at exact class boundaries.
+  const targetPercent = target * 100;
   // Criteria is strictly debar below 70% (even 69.9% is debarred)
-  if (currentRatio < target) {
-    const needed = Math.max(1, Math.ceil((target * total - present) / (1 - target)));
+  if (present * 100 < targetPercent * total) {
+    const needed = Math.max(1, Math.ceil((targetPercent * total - present * 100) / (100 - targetPercent)));
     return {
       type: "attend",
       count: needed,
@@ -70,7 +72,7 @@ export function computeBunkMargin(present: number, total: number, target = 0.70)
     };
   }
 
-  const canBunk = Math.max(0, Math.floor(present / target - total));
+  const canBunk = Math.max(0, Math.floor((present * 100 - targetPercent * total) / targetPercent));
   if (canBunk > 0) {
     return {
       type: "bunk",

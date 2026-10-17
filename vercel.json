@@ -3,6 +3,15 @@
   "buildCommand": "npm --workspace @juet/web run build",
   "outputDirectory": "packages/web/dist",
   "framework": "vite",
+  "regions": ["bom1"],
+  "headers": [
+    {
+      "source": "/assets/:path*",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
   "rewrites": [{ "source": "/api/:path*", "destination": "/api/proxy?path=:path*" }],
   "functions": {
     "api/proxy.js": {

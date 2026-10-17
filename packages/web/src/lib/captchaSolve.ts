@@ -23,18 +23,21 @@ export async function fetchAutosolvedCaptcha(
       const c = await auth.fetchCaptcha(client, { signal: opts?.signal });
       if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
       return { captcha: c, text: "", autoSolved: false };
-    } catch {
-      return { captcha: null, text: "", autoSolved: false };
+    } catch (error) {
+      if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
+      throw error;
     }
   }
   let last: Captcha | null = null;
+  let fetchError: unknown = new Error("Couldn't load captcha. Try refreshing it.");
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (opts?.signal?.aborted) break;
     let c: Captcha;
     try {
       c = await auth.fetchCaptcha(client, { signal: opts?.signal });
-    } catch {
+    } catch (error) {
       if (opts?.signal?.aborted) break;
+      fetchError = error;
       if (typeof navigator !== "undefined" && navigator.onLine === false) break;
       // Network blip fetching the image: retry with a fresh fetch.
       continue;
@@ -52,6 +55,7 @@ export async function fetchAutosolvedCaptcha(
     }
   }
   if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
+  if (!last) throw fetchError;
   return { captcha: last, text: "", autoSolved: false };
 }
 

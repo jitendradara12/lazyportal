@@ -338,7 +338,6 @@ export function doesSubjectNeedDeepFetch(
   cachedUpdatedAt: number | null,
   cachedChecksum?: string | null,
   now = Date.now(),
-  options?: { allowFetchIfNotUpdatedToday?: boolean } | boolean
 ): boolean {
   if (!cached || Object.keys(cached).length === 0) return true;
 
@@ -348,17 +347,10 @@ export function doesSubjectNeedDeepFetch(
   if (!isSubjectDetailComplete(row, cached)) return true;
 
   const currentChecksum = computeSubjectRowChecksum(row);
-  const allowIfNotUpdatedToday =
-    typeof options === "boolean" ? options : Boolean(options?.allowFetchIfNotUpdatedToday);
-
   if (cachedChecksum) {
     if (cachedChecksum !== currentChecksum) return true;
     // Missing or corrupted timestamp
     if (!cachedUpdatedAt) return true;
-    // When user explicitly requests a daily check (if opted in), allow fetching if not yet updated in the current portal day
-    if (allowIfNotUpdatedToday && !isCurrentPortalDay(cachedUpdatedAt, now)) {
-      return true;
-    }
     // A valid checksum is the freshness signal; age alone must not trigger a refetch.
     return false;
   }
@@ -370,9 +362,6 @@ export function doesSubjectNeedDeepFetch(
       cachedTotal += getComponentTotal(comp);
     }
     if (cachedTotal > 0 && rowTotal !== cachedTotal) return true;
-  }
-  if (allowIfNotUpdatedToday && !isCurrentPortalDay(cachedUpdatedAt, now)) {
-    return true;
   }
   // Legacy detail entries have no checksum. Keep their age limit so they are
   // eventually refreshed and rewritten with checksum metadata.

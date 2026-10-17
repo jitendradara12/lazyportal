@@ -239,11 +239,7 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   assert.equal(doesSubjectNeedDeepFetch(classAddedRow, dummyDetail, fixedNow, null, fixedNow), true);
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, null, fixedNow), true);
 
-  // 8. Explicit subject tap (SubjectDetailSheet) allows deep fetch if not updated today
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, eightDaysAgo, checksum, fixedNow, true), true);
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, fixedNow, checksum, fixedNow, true), false);
-
-  // 9. Incomplete cache (missing or null component expected by row) MUST trigger deep fetch
+  // 8. Incomplete cache (missing or null component expected by row) MUST trigger deep fetch
   const multiCompRow = {
     subjectcode: "MA106",
     Lsubjectcomponentid: "c_lec",
@@ -648,7 +644,7 @@ test("clamp safely handles non-finite values (Infinity, NaN) by defaulting to mi
   assert.equal(qInf.used, 0);
 });
 
-test("doesSubjectNeedDeepFetch skips redundant POST across day rollover in background, but revalidates on explicit tap", () => {
+test("doesSubjectNeedDeepFetch keeps matching history across portal days, including subject expansion", () => {
   const row = { subjectcode: "CS101", totalclass: 10, totalpresent: 8 };
   const checksum = computeSubjectRowChecksum(row);
   const dummyDetail = { L: { totalclass: 10, totalpresent: 8 } };
@@ -659,9 +655,7 @@ test("doesSubjectNeedDeepFetch skips redundant POST across day rollover in backg
   assert.equal(isCurrentPortalDay(yesterday, today), false);
   assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, yesterday, checksum, today), false);
 
-  // When explicitly opened by the user, allowIfNotUpdatedToday forces one revalidation per portal day
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, yesterday, checksum, today, true), true);
-  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, today, checksum, today, true), false);
+  assert.equal(doesSubjectNeedDeepFetch(row, dummyDetail, today, checksum, today), false);
 
   // If the overview row checksum changed (e.g. a new class was recorded), deep fetch is triggered immediately
   const updatedRow = { ...row, totalclass: 11, totalpresent: 9 };
