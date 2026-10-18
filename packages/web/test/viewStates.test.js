@@ -16,7 +16,7 @@ globalThis.window = { addEventListener() {}, removeEventListener() {}, dispatchE
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
 let server, MarksSection, ExamsSection, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha;
-let syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
+let readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
 
 before(async () => {
   server = await createServer({
@@ -34,7 +34,7 @@ before(async () => {
   ({ syncAttendanceDetails, runManualAttendanceRefresh } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
   ({ getManualRefreshQuota, computeSubjectRowChecksum } = await server.ssrLoadModule("/src/lib/portalSchedule.ts"));
   ({ getCached } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
-  ({ refreshSubjectDetail } = await server.ssrLoadModule("/src/sections/attendance.tsx"));
+  ({ refreshSubjectDetail, readAttendanceOverview } = await server.ssrLoadModule("/src/sections/attendance.tsx"));
 });
 after(async () => { await server?.close(); });
 beforeEach(() => values.clear());
@@ -452,4 +452,60 @@ test("a queued subject loaded by expansion is not fetched again when its worker 
   pending.p2({ response: auditLogs(8) });
   assert.equal((await batch).complete, true);
   assert.deepEqual(calls, { p1: 1, p2: 1, p3: 1 });
+});
+
+
+test("daily overview reads do not renew the registration cache; it expires after a week", async (t) => {
+  const start = Date.now();
+  let day = 0;
+  t.mock.method(Date, "now", () => start + day * 86400000);
+  const lov = t.mock.method(client, "postRaw", async () => ({ response: {
+    headerlist: [{ stynumber: "4" }], semlist: [{ ...semester, registrationid: day >= 7 ? "sem2" : "sem1" }],
+  } }));
+  const detail = t.mock.method(client, "post", async () => ({ response: { studentattendancelist: [auditRow("p1")] } }));
+  const key = sessionCacheKey("att.lov", session);
+  for (day = 0; day < 7; day++) {
+    assert.equal((await readAttendanceOverview(session)).semesters[0].registrationid, "sem1");
+    assert.equal(getCached(key).updatedAt, start);
+  }
+  assert.equal(lov.mock.callCount(), 1);
+  assert.equal((await readAttendanceOverview(session)).semesters[0].registrationid, "sem2");
+  assert.equal(lov.mock.callCount(), 2);
+  assert.equal(detail.mock.callCount(), 8);
+});
+
+test("a full browser store does not refetch successful subject history on the next visit", async (t) => {
+  const row = auditRow("storage-full-subject");
+  t.mock.method(localStorage, "setItem", () => { throw new Error("QuotaExceededError"); });
+  const post = t.mock.method(client, "post", async () => ({ response: auditLogs(8) }));
+  assert.equal((await syncAttendanceDetails({ session, rows: [row], base })).complete, true);
+  assert.equal((await syncAttendanceDetails({ session, rows: [row], base })).complete, true);
+  assert.equal(post.mock.callCount(), 1);
+});
+
+test("malformed object responses preserve the old history and spend no quota", async (t) => {
+  const row = auditRow("malformed-object", 80);
+  const key = cacheHistory({ ...row, Ppercentage: 100 }, 7);
+  t.mock.method(client, "post", async () => ({ response: {} }));
+  await assert.rejects(runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) }), /incomplete class records/);
+  assert.equal(getCached(key).data.P.student_attdsummarylist.length, 7);
+  assert.equal(getManualRefreshQuota(session).used, 0);
+  assert.equal(getManualRefreshQuota(session).unchanged, 0);
+});
+
+test("background detail retry reuses successful subjects and spends no quota", async (t) => {
+  const rows = [auditRow("retry1"), auditRow("retry2")];
+  const calls = [];
+  let fail = true;
+  t.mock.method(client, "post", async (_path, payload) => {
+    calls.push(payload.subjectid);
+    if (payload.subjectid === "retry2" && fail) throw new Error("Try again");
+    return { response: auditLogs(5) };
+  });
+  assert.equal((await syncAttendanceDetails({ session, rows, base })).complete, false);
+  fail = false;
+  assert.equal((await syncAttendanceDetails({ session, rows, base })).complete, true);
+  assert.deepEqual(calls.sort(), ["retry1", "retry2", "retry2"]);
+  assert.equal(getManualRefreshQuota(session).used, 0);
+  assert.equal(getManualRefreshQuota(session).unchanged, 0);
 });

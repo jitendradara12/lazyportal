@@ -86,6 +86,25 @@ describe("features", () => {
     assert.equal(res.rows[0].subjectcode, "S2");
   });
 
+  it("malformed successful attendance responses reject without an extra LOV request", async () => {
+    const cachedLov = { semesters: [{ registrationid: "r1" }] };
+    for (const response of [null, {}, { studentattendancelist: {} }, { studentattendancelist: [null] }]) {
+      let lovReads = 0;
+      const fake = {
+        async post() { return { response }; },
+        async postRaw() { lovReads++; return { response: { semlist: [] } }; },
+      };
+      await assert.rejects(getAttendance(fake, {}, cachedLov), { code: "INVALID_RESPONSE" });
+      assert.equal(lovReads, 0);
+    }
+    await assert.rejects(getAttendance({ async postRaw() { return { response: {} }; } }, {}), { code: "INVALID_RESPONSE" });
+  });
+
+  it("an explicitly empty attendance list is valid", async () => {
+    const fake = { async post() { return { response: { studentattendancelist: [] } }; } };
+    assert.deepEqual((await getAttendance(fake, {}, { semesters: [{ registrationid: "r1" }] })).rows, []);
+  });
+
   it("getAttendance does not retry LOV on fatal auth or network error", async () => {
     let postRawCalled = false;
     const fake = {
@@ -729,11 +748,11 @@ describe("features", () => {
     const fake = {
       async post(endpoint, payload) {
         calls.push(endpoint);
-        return { response: {} };
+        return { response: { studentattendancelist: [] } };
       },
       async postRaw(endpoint) {
         calls.push(endpoint);
-        return { response: {} };
+        return { response: { semlist: [] } };
       },
     };
     const { getAttendanceRegistrations: reg, getAttendanceDetail: det, getGradeStudentInfo: gsi,

@@ -93,9 +93,22 @@ export function isSubjectDetailComplete(
   detail?: Record<string, unknown> | null,
 ): boolean {
   if (!detail || typeof detail !== "object") return false;
-  if (row.Lsubjectcomponentid && (!detail.L || typeof detail.L !== "object")) return false;
-  if (row.Tsubjectcomponentid && (!detail.T || typeof detail.T !== "object")) return false;
-  if (row.Psubjectcomponentid && (!detail.P || typeof detail.P !== "object")) return false;
+  for (const type of ["L", "T", "P"]) {
+    if (!row[`${type}subjectcomponentid`]) continue;
+    const component = detail[type];
+    if (!component || typeof component !== "object") return false;
+    if (Array.isArray(component)) continue;
+    const record = component as Record<string, unknown>;
+    const logs = record.student_attdsummarylist ?? record.attdsummarylist ??
+      record.studentAttdsummarylist ?? record.summary ?? record.rows;
+    if (Array.isArray(logs)) continue;
+    // Some portal responses expose totals instead of individual class logs.
+    const total = record.totalclass ?? record.totalclasses ?? record.Totalclass;
+    const present = record.totalpresent ?? record.present ?? record.Totalpresent;
+    if (logs != null || total == null || present == null || total === "" || present === "" ||
+      !Number.isFinite(Number(total)) || !Number.isFinite(Number(present)) ||
+      Number(total) < 0 || Number(present) < 0 || Number(present) > Number(total)) return false;
+  }
   return true;
 }
 

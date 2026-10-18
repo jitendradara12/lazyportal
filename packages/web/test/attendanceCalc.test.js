@@ -307,3 +307,13 @@ test("computeSubjectRowChecksum detects updates in official LTpercantage", () =>
   assert.notEqual(cs1, cs2, "checksum must change when LTpercantage updates on portal");
 });
 
+
+test("component presence alone cannot mark malformed class records as complete", () => {
+  const row = { Psubjectcomponentid: "p1" };
+  for (const P of [{}, { summary: "broken" }, { totalclass: "oops", totalpresent: 2 }, { totalclass: 1, totalpresent: 2 }]) {
+    assert.equal(isSubjectDetailComplete(row, { P }), false);
+  }
+  for (const P of [{ summary: [] }, [], { totalclass: 5, totalpresent: 4 }, { totalclass: 0, totalpresent: 0 }]) {
+    assert.equal(isSubjectDetailComplete(row, { P }), true);
+  }
+});

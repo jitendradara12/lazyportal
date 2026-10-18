@@ -706,3 +706,11 @@ test("subscribePortalDayRollover multiplexes multiple subscribers over a single 
   }
   assert.equal(docListeners.get("visibilitychange")?.size ?? 0, 0, "cleans up listener when last subscriber unsubscribes");
 });
+
+test("blocked refresh notices reassure users without a countdown", async () => {
+  const { getRefreshQuotaNotice } = await import("../src/lib/portalSchedule.ts");
+  for (const blockedReason of ["cooldown", "manual_exhausted", "unchanged_exhausted"]) {
+    assert.equal(getRefreshQuotaNotice({ resetsInMs: 61 * 60_000, blockedReason }), "Up to date with portal");
+  }
+  assert.equal(getRefreshQuotaNotice({ blockedReason: null }), "Refresh attendance");
+});

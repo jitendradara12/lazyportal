@@ -66,7 +66,7 @@ export function resolveFeatureState<T>(
 // ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
 const inFlight = new Map<string, Promise<{ data: unknown; updatedAt: number }>>();
 // In-memory read-through cache to eliminate redundant localStorage + JSON.parse on mobile renders
-const memoryCache = new Map<string, { raw: string; parsed: { data: unknown; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> }>();
+const memoryCache = new Map<string, { raw: string; volatile?: boolean; parsed: { data: unknown; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> }>();
 let storageListenerBound = false;
 let cacheGeneration = 0;
 
@@ -118,13 +118,16 @@ export function sessionCacheKey(
 export function getCached<T>(key?: string): { data: T | null; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> {
   if (!key) return { data: null, updatedAt: null };
   ensureStorageListener();
+  const hit = memoryCache.get(key);
+  // A successful read still belongs in this tab when persistence is blocked or
+  // full. Storage events and logout invalidate these entries as usual.
+  if (hit?.volatile) return { ...hit.parsed } as ReturnType<typeof getCached<T>>;
   try {
     const raw = localStorage.getItem(`juet.cache.${key}`);
     if (!raw) {
       memoryCache.delete(key);
       return { data: null, updatedAt: null };
     }
-    const hit = memoryCache.get(key);
     if (hit && hit.raw === raw) {
       return { ...hit.parsed } as { data: T | null; updatedAt: number | null; checksum?: string | null } & Record<string, unknown>;
     }
@@ -139,7 +142,7 @@ export function getCached<T>(key?: string): { data: T | null; updatedAt: number 
     memoryCache.set(key, { raw, parsed: result });
     return { ...result };
   } catch {
-    return { data: null, updatedAt: null };
+    return hit ? { ...hit.parsed } as ReturnType<typeof getCached<T>> : { data: null, updatedAt: null };
   }
 }
 
@@ -167,9 +170,10 @@ export function setCached<T>(key: string | undefined, data: T, extra?: Record<st
       ...(extra ?? {}),
     };
     const raw = JSON.stringify(entry);
-    localStorage.setItem(`juet.cache.${key}`, raw);
+    let volatile = false;
+    try { localStorage.setItem(`juet.cache.${key}`, raw); } catch { volatile = true; }
     memoryCache.set(key, {
-      raw,
+      raw, volatile,
       parsed: { ...(extra ?? {}), data, updatedAt: now },
     });
     window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));

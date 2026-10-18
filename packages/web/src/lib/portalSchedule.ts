@@ -147,6 +147,11 @@ export interface RefreshQuotaState {
   portalDay: string;
 }
 
+/** Daily attendance is already checked before a manual refresh is blocked. */
+export function getRefreshQuotaNotice(quota: RefreshQuotaState): string {
+  return quota.blockedReason ? "Up to date with portal" : "Refresh attendance";
+}
+
 export function getQuotaStorageKey(session?: SessionRef | null): string {
   const user = session?.username ? encodeURIComponent(String(session.username).trim().toUpperCase()) : "anonymous";
   const inst = session?.instituteid != null ? encodeURIComponent(String(session.instituteid)) : "default";

@@ -9,6 +9,7 @@ import {
   isCurrentPortalDay,
   computeSubjectRowChecksum,
   getManualRefreshQuota,
+  getRefreshQuotaNotice,
   subscribePortalDayRollover,
   FEATURE_TTL,
   type RefreshQuotaState,
@@ -42,7 +43,10 @@ export function AttendancePage({
   onRequestRenew?: () => void;
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshFeedback, setRefreshFeedback] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [detailSyncError, setDetailSyncError] = useState<string | null>(null);
+  const [detailSyncAttempt, setDetailSyncAttempt] = useState(0);
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showNotice = (msg: string, ms: number) => {
@@ -195,6 +199,7 @@ export function AttendancePage({
   useEffect(() => {
     if (!rows.length || isExpired || !isDefault || refreshInProgress.current ||
       att.refreshing || !isCurrentPortalDay(att.updatedAt)) return;
+    setDetailSyncError(null);
     const generation = getCacheGeneration();
     let active = true;
     const current = () => active && pageIsLive.current && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired";
@@ -219,7 +224,7 @@ export function AttendancePage({
         setSyncProgress({ done, total });
       },
     }).then((result) => {
-      if (current() && !result.complete) showNotice("Some subject details could not be updated", 3500);
+      if (current() && !result.complete) setDetailSyncError("Some class details could not be updated. Retry to load the remaining subjects.");
     }).finally(() => {
       if (active) {
         setSyncingIds(new Set());
@@ -227,7 +232,7 @@ export function AttendancePage({
       }
     });
     return () => { active = false; };
-  }, [rows, semId, session, sem?.registrationid, sem?.registrationcode, isExpired, att.refreshing, att.updatedAt]);
+  }, [rows, semId, session, sem?.registrationid, sem?.registrationcode, isExpired, att.refreshing, att.updatedAt, detailSyncAttempt]);
 
   const isSyncing = !isExpired && (isRefreshing || loading || att.refreshing || syncingIds.size > 0);
 
@@ -247,7 +252,7 @@ export function AttendancePage({
   }, [rows, visibleDetailsMap, filter]);
 
   const handleRefresh = async () => {
-    if (refreshInProgress.current || isSyncing || isExpired) return;
+    if (refreshInProgress.current || isSyncing || refreshFeedback || isExpired) return;
 
     if (!isDefault) {
       showNotice("Only current semester updates", 2000);
@@ -256,7 +261,8 @@ export function AttendancePage({
 
     const quota = getManualRefreshQuota(session);
     if (!quota.canRefresh) {
-      showNotice("Up to date with portal", 2500);
+      setRefreshFeedback(true);
+      showNotice(getRefreshQuotaNotice(quota), 3500);
       return;
     }
     if (shouldThrottleRefresh("attendance")) {
@@ -269,6 +275,7 @@ export function AttendancePage({
     refreshInProgress.current = true;
     recordRefreshAttempt("attendance");
     setRefreshError(null);
+    setDetailSyncError(null);
     setQuotaNotice(null);
     setIsRefreshing(true);
     const baselineRows = rows;
@@ -300,9 +307,10 @@ export function AttendancePage({
     }
   };
 
-  const error = refreshError ?? att.error ?? detail.error;
+  const error = refreshError ?? att.error ?? detail.error ?? (isDefault ? detailSyncError : null);
   const isHardBlocked = isDefault && !refreshQuota.canRefresh && !error;
-  const retry = refreshError ? () => handleRefresh() : att.error ? att.retry : detail.retry;
+  const retry = refreshError ? () => handleRefresh() : att.error ? att.retry
+    : detail.error ? detail.retry : () => setDetailSyncAttempt((attempt) => attempt + 1);
 
   return (
     <main className="dash att-page dash-view-enter">
@@ -375,13 +383,14 @@ export function AttendancePage({
           <button
             type="button"
             onClick={() => void handleRefresh()}
-            className={`dash-refresh-btn ${isSyncing ? "is-spinning" : ""}`}
+            className={`dash-refresh-btn ${isSyncing ? "is-spinning" : refreshFeedback ? "is-feedback-spinning" : ""}`}
+            onAnimationEnd={() => setRefreshFeedback(false)}
             aria-label="Refresh attendance"
             title={
               isSyncing
                 ? "Refreshing attendance…"
                 : isHardBlocked
-                ? "Up to date with portal"
+                ? getRefreshQuotaNotice(getManualRefreshQuota(session))
                 : shouldThrottleRefresh("attendance") && lastSync
                 ? formatLastSync(lastSync)
                 : "Refresh attendance"
