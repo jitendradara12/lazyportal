@@ -208,3 +208,26 @@ test("getCached returns isolated wrapper copy so caller mutation does not corrup
   assert.notEqual(second.updatedAt, 99999999);
   assert.equal(second.extraProp, undefined);
 });
+
+test("full storage retains the latest result and checksum in memory and notifies consumers", (t) => {
+  const key = "audit.storage-full";
+  setCached(key, { version: "old" });
+  t.mock.method(localStorage, "setItem", () => { throw new Error("QuotaExceededError"); });
+  dispatchedEvents = [];
+  const updatedAt = setCached(key, { version: "new" }, { checksum: "new-checksum" });
+  assert.deepEqual(getCached(key), { data: { version: "new" }, updatedAt, checksum: "new-checksum" });
+  assert.ok(dispatchedEvents.includes("juet:cache-updated"));
+  // The persisted older value must not replace the newer volatile result.
+  assert.equal(getCached(key).data.version, "new");
+  invalidateCacheGeneration();
+  assert.equal(getCached(key).data.version, "old");
+});
+
+test("blocked storage retains reads for the tab but logout clears them", (t) => {
+  t.mock.method(localStorage, "getItem", () => { throw new Error("SecurityError"); });
+  t.mock.method(localStorage, "setItem", () => { throw new Error("SecurityError"); });
+  setCached("audit.blocked-storage", { rows: ["latest"] });
+  assert.deepEqual(getCached("audit.blocked-storage").data, { rows: ["latest"] });
+  invalidateCacheGeneration();
+  assert.equal(getCached("audit.blocked-storage").data, null);
+});

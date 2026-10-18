@@ -274,14 +274,19 @@ export function setCachedLov(
   }
 }
 
+/** Reuse registrations without extending the lifetime of the last real LOV read. */
+export async function readAttendanceOverview(session: SectionProps["session"]) {
+  const lov = getCachedLov(session);
+  const data = await features.getAttendance(client, session, lov ?? undefined);
+  // Core preserves the supplied semester array when no LOV request was made.
+  // A fallback/new lookup supplies a new array and deserves a new timestamp.
+  if (data.semesters !== lov?.semesters) setCachedLov(session, data);
+  return data;
+}
+
 export function useAttendanceInitial(session: SectionProps["session"]) {
   return useFeature<AttData>({
-    run: async () => {
-      const lov = getCachedLov(session);
-      const data = await features.getAttendance(client, session, lov ?? undefined);
-      setCachedLov(session, data);
-      return data;
-    },
+    run: () => readAttendanceOverview(session),
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
     isFresh: isCurrentPortalDay,

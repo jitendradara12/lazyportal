@@ -75,16 +75,26 @@ with a 14-day dismissal cooldown in `localStorage`.
   stays usable across days while its overview checksum matches; opening a cached
   subject does not revalidate by age. Missing/incomplete history or changed rows
   trigger background reads. Equal percentages can hide new classes (7/7 → 8/8);
-  those counts catch up on an overview change or explicit refresh.
+  those counts catch up when the overview checksum changes.
 - Automatic refresh, manual refresh, and expanded subjects share pending reads
   and cache updates (`requestFeature`, `attendanceSync.ts`). Expanding fresh
   history does not make another request; queued jobs recheck the cache before fetching.
-- Explicit attendance refresh rechecks every subject, even with matching cached
-  percentages. Quota is committed only after the whole batch succeeds. An unfinished
+- Explicit attendance refresh reads a fresh overview and fetches only changed,
+  missing, or incomplete subject history. Quota is committed only after the whole batch succeeds. An unfinished
   manual refresh retains successful reads and change detection for retry on the
-  same page and portal day; a new day or changed row requires another read.
+  same page and portal day. A new day resets change detection; matching cached
+  history remains reusable, while a changed row requires another read.
   Failed/cancelled batches spend no quota. Sync timestamps advance only on completion.
+- Failed background detail syncs expose a retry that reuses the overview and
+  successful subjects; it does not consume manual refresh quota. Quota blocks
+  show “Up to date with portal” without a countdown; attendance updates in the
+  midnight batch before the 02:00 AM IST refresh reset.
+- Attendance registration LOV expiry is measured from its actual portal lookup,
+  not subsequent overview reads. Malformed registration/overview/detail payloads
+  cannot replace a good cache entry with an empty result.
 - In-memory read-through cache for features and sessions, with 20s cooldowns on manual refresh buttons.
+  Successful feature reads remain available in the tab when localStorage is full
+  or blocked; volatile entries are cleared on logout and storage invalidation.
 
 ### Deployment and asset caching
 

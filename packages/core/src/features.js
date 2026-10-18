@@ -2,14 +2,19 @@
 // session, params?) and returns plain data. No crypto here — client.post
 // encrypts, client.postRaw sends plain JSON (see client.js header for which).
 
+import { PortalError } from "./errors.js";
+
 /** Attendance LOV: header (stynumber) + semester list. Plain JSON (unencrypted) — official app stringifies without AES here. */
 export async function getAttendanceRegistrations(client, session) {
   const body = await client.postRaw("/StudentClassAttendance/getstudentInforegistrationforattendence", {
     instituteid: session.instituteid,
   });
+  if (!Array.isArray(body.response?.semlist)) {
+    throw new PortalError("Portal returned incomplete attendance registrations. Please retry.", { code: "INVALID_RESPONSE" });
+  }
   return {
     header: body.response?.headerlist?.[0] ?? null,
-    semesters: body.response?.semlist ?? [],
+    semesters: body.response.semlist,
   };
 }
 
@@ -21,10 +26,11 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
     registrationid,
     registrationcode,
   });
-  return {
-    rows: body.response?.studentattendancelist ?? [],
-    currentSem: body.response?.currentSem,
-  };
+  const rows = body.response?.studentattendancelist;
+  if (!Array.isArray(rows) || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) {
+    throw new PortalError("Portal returned incomplete attendance records. Please retry.", { code: "INVALID_RESPONSE" });
+  }
+  return { rows, currentSem: body.response?.currentSem };
 }
 
 /** Daily attendance in one call: LOV -> latest registration -> detail rows. */
@@ -47,6 +53,7 @@ export async function getAttendance(client, session, cachedLov) {
     const isFatal =
       err?.code === "SESSION_EXPIRED" ||
       err?.code === "NETWORK_ERROR" ||
+      err?.code === "INVALID_RESPONSE" ||
       err?.status === 401 ||
       (typeof err?.status === "number" && err.status >= 500);
     if (cachedLov && !isFatal) {
