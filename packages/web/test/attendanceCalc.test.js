@@ -317,3 +317,15 @@ test("component presence alone cannot mark malformed class records as complete",
     assert.equal(isSubjectDetailComplete(row, { P }), true);
   }
 });
+
+
+test("malformed history list entries are rejected and safe to render from old caches", () => {
+  const row = { Psubjectcomponentid: "p1", Ppercentage: 80 };
+  for (const logs of [[null], ["broken"], [[]]]) {
+    for (const P of [logs, { summary: logs }]) {
+      assert.equal(isSubjectDetailComplete(row, { P }), false);
+      assert.equal(parseClassLogs(P), null);
+      assert.equal(combinedAttendance(row, { P }).pctNum, 80);
+    }
+  }
+});

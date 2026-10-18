@@ -88,6 +88,10 @@ export function computeBunkMargin(present: number, total: number, target = 0.70)
   };
 }
 
+function isClassRecordList(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.every((item) => item !== null && typeof item === "object" && !Array.isArray(item));
+}
+
 export function isSubjectDetailComplete(
   row: Record<string, unknown>,
   detail?: Record<string, unknown> | null,
@@ -97,11 +101,17 @@ export function isSubjectDetailComplete(
     if (!row[`${type}subjectcomponentid`]) continue;
     const component = detail[type];
     if (!component || typeof component !== "object") return false;
-    if (Array.isArray(component)) continue;
+    if (Array.isArray(component)) {
+      if (!isClassRecordList(component)) return false;
+      continue;
+    }
     const record = component as Record<string, unknown>;
     const logs = record.student_attdsummarylist ?? record.attdsummarylist ??
       record.studentAttdsummarylist ?? record.summary ?? record.rows;
-    if (Array.isArray(logs)) continue;
+    if (Array.isArray(logs)) {
+      if (!isClassRecordList(logs)) return false;
+      continue;
+    }
     // Some portal responses expose totals instead of individual class logs.
     const total = record.totalclass ?? record.totalclasses ?? record.Totalclass;
     const present = record.totalpresent ?? record.present ?? record.Totalpresent;
@@ -131,6 +141,10 @@ export function parseClassLogs(raw: unknown, type?: string): {
         obj.rows ??
         [])
   ) as Record<string, unknown>[];
+
+  // Old caches may predate validation; never let malformed list entries crash
+  // the history sheet while a replacement read is pending.
+  if (Array.isArray(list) && !isClassRecordList(list)) return null;
 
   if (!Array.isArray(list) || list.length === 0) {
     const total = Number(obj.totalclass ?? obj.totalclasses ?? obj.Totalclass);

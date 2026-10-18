@@ -486,9 +486,12 @@ test("a full browser store does not refetch successful subject history on the ne
 test("malformed object responses preserve the old history and spend no quota", async (t) => {
   const row = auditRow("malformed-object", 80);
   const key = cacheHistory({ ...row, Ppercentage: 100 }, 7);
-  t.mock.method(client, "post", async () => ({ response: {} }));
-  await assert.rejects(runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) }), /incomplete class records/);
-  assert.equal(getCached(key).data.P.student_attdsummarylist.length, 7);
+  let response;
+  t.mock.method(client, "post", async () => ({ response }));
+  for (response of [{}, { summary: [null] }]) {
+    await assert.rejects(runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) }), /incomplete class records/);
+    assert.equal(getCached(key).data.P.student_attdsummarylist.length, 7);
+  }
   assert.equal(getManualRefreshQuota(session).used, 0);
   assert.equal(getManualRefreshQuota(session).unchanged, 0);
 });
