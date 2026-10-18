@@ -285,19 +285,33 @@ test("background sync fetches only changed, missing, or incomplete subject histo
   assert.equal(calls.length, 3);
 });
 
-test("an explicit refresh detects 7/7 becoming 8/8 even with a matching cache from today", async (t) => {
-  const row = auditRow("p1");
-  const key = sessionCacheKey("att.subject", session, "sem1", "p1");
-  values.set(`juet.cache.${key}`, JSON.stringify({ data: { P: auditLogs(7) }, updatedAt: Date.now(), checksum: computeSubjectRowChecksum(row) }));
-  const post = t.mock.method(client, "post", async () => ({ response: auditLogs(8) }));
-  const result = await runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) });
+test("manual refresh skips unchanged history, including weekly subjects across days", async (t) => {
+  const rows = [auditRow("p1"), auditRow("weekly", 80)];
+  cacheHistory(rows[0], 7, 7, 8 * 86400000);
+  cacheHistory(rows[1], 5, 4, 8 * 86400000);
+  const post = t.mock.method(client, "post", async () => { throw new Error("Unexpected history fetch"); });
+  let reads = 0;
+  const result = await runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => { reads++; return overview(rows); } });
+  assert.equal(reads, 1);
+  assert.equal(result.changed, false);
+  assert.equal(result.quota.used, 0);
+  assert.equal(result.quota.unchanged, 1);
+  assert.equal(post.mock.callCount(), 0);
+});
+
+test("manual refresh fetches only the subjects changed in the fresh overview", async (t) => {
+  const rows = [auditRow("changed"), auditRow("weekly", 80)];
+  for (const row of rows) cacheHistory(row, 5, 4);
+  const freshRows = [{ ...rows[0], Ppercentage: 80 }, rows[1]];
+  const calls = [];
+  t.mock.method(client, "post", async (_path, payload) => {
+    calls.push(payload.subjectid);
+    return { response: auditLogs(5, 4) };
+  });
+  const result = await runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => overview(freshRows) });
   assert.equal(result.changed, true);
   assert.equal(result.quota.used, 1);
-  assert.equal(getCached(key).data.P.student_attdsummarylist.length, 8);
-  await syncAttendanceDetails({ session, rows: [row], base });
-  const html = renderToStaticMarkup(createElement(SubjectDetailSheet, { session, row, registrationid: "sem1", onClose() {}, onLogout() {} }));
-  assert.match(html, /8<\/strong> \/ 8/);
-  assert.equal(post.mock.callCount(), 1);
+  assert.deepEqual(calls, ["changed"]);
 });
 
 test("a partial failure spends no quota; retry reuses successful siblings and commits once", async (t) => {
@@ -309,7 +323,7 @@ test("a partial failure spends no quota; retry reuses successful siblings and co
     if (payload.subjectid === "p2" && fail) { const error = new Error("detail failed"); error.status = 500; throw error; }
     return { response: auditLogs(5, 4) };
   });
-  const checkpoint = { details: new Map() };
+  const checkpoint = {};
   const run = () => runManualAttendanceRefresh({ session, checkpoint, baselineRows: rows, readOverview: async () => overview(rows) });
   await assert.rejects(run(), /detail failed/);
   assert.equal(getManualRefreshQuota(session).used, 0);
@@ -323,10 +337,10 @@ test("a partial failure spends no quota; retry reuses successful siblings and co
   assert.deepEqual(calls, { p1: 1, p2: 2 });
 });
 
-test("manual retry remembers hidden count changes from a successful sibling", async (t) => {
+test("manual retry remembers completed changes from a successful sibling", async (t) => {
   const rows = [auditRow("p1"), auditRow("p2")];
-  for (const row of rows) cacheHistory(row, 7);
-  const checkpoint = { details: new Map() };
+  for (const row of rows) cacheHistory({ ...row, Ppercentage: 80 }, 7, 6);
+  const checkpoint = {};
   const calls = { p1: 0, p2: 0 };
   let fail = true;
   t.mock.method(client, "post", async (_path, payload) => {
@@ -343,12 +357,12 @@ test("manual retry remembers hidden count changes from a successful sibling", as
   assert.equal(result.quota.used, 1);
   assert.equal(result.quota.unchanged, 0);
   assert.deepEqual(calls, { p1: 1, p2: 2 });
-  assert.equal(checkpoint.details.size, 0);
+  assert.equal(checkpoint.changed, false);
 });
 
 test("manual retry rechecks a successful sibling if its overview changed", async (t) => {
   let rows = [auditRow("p1"), auditRow("p2")];
-  const checkpoint = { details: new Map() };
+  const checkpoint = {};
   const calls = { p1: 0, p2: 0 };
   let fail = true;
   t.mock.method(client, "post", async (_path, payload) => {
@@ -364,9 +378,9 @@ test("manual retry rechecks a successful sibling if its overview changed", async
   assert.deepEqual(calls, { p1: 2, p2: 2 });
 });
 
-test("a new portal day invalidates successful reads from an unfinished manual batch", async (t) => {
+test("a new portal day resets the checkpoint but preserves matching subject caches", async (t) => {
   const rows = [auditRow("p1"), auditRow("p2")];
-  const checkpoint = { details: new Map() };
+  const checkpoint = {};
   const calls = { p1: 0, p2: 0 };
   let fail = true;
   t.mock.method(client, "post", async (_path, payload) => {
@@ -380,7 +394,7 @@ test("a new portal day invalidates successful reads from an unfinished manual ba
   t.mock.method(Date, "now", () => tomorrow);
   fail = false;
   assert.equal((await run()).quota.used, 1);
-  assert.deepEqual(calls, { p1: 2, p2: 2 });
+  assert.deepEqual(calls, { p1: 1, p2: 2 });
 });
 
 test("a completed unchanged refresh counts only as an unchanged check", async (t) => {

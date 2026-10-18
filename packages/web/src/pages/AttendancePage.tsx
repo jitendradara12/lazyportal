@@ -53,7 +53,7 @@ export function AttendancePage({
     }, ms);
   };
   const refreshInProgress = useRef(false);
-  const manualCheckpoint = useRef<ManualAttendanceRefreshCheckpoint>({ details: new Map() });
+  const manualCheckpoint = useRef<ManualAttendanceRefreshCheckpoint>({});
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
