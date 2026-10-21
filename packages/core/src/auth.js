@@ -74,8 +74,17 @@ export async function login(
     },
     noRefresh
   );
-  const r = gen.response.regdata;
+  const r = gen.response?.regdata ?? {};
   const institute = r.institutelist?.[0];
+  const candidate = [
+    r.tokendate,
+    r.TokenDate,
+    r.tokenDate,
+    r.token_date,
+    r.issuedate,
+    r.issuedAt,
+  ].find((v) => (typeof v === "string" && v.trim().length > 0) || (typeof v === "number" && !Number.isNaN(v)));
+  const tokendate = candidate !== undefined ? String(candidate).trim() : new Date().toString();
   return {
     token: r.token,
     clientid: r.clientid,
@@ -88,7 +97,10 @@ export async function login(
     institutename: institute?.label ?? null,
     institutelist: r.institutelist ?? [],
     username: userField,
-    tokendate: new Date().toString(),
+    tokendate,
     bypassValue: r.bypass ?? null,
   };
 }
+
+export const loginWithPassword = login;
+

@@ -351,31 +351,69 @@ export async function getMarksLatest(client, session) {
 
 /** SGPA/CGPA student info. Encrypted {instituteid} -> response.studentInfo[0]. */
 export async function getSgpaStudentInfo(client, session) {
-  const body = await client.post("/studentsgpacgpa/loadData", {
-    instituteid: session.instituteid,
-  });
-  return body.response?.studentInfo?.[0] ?? null;
+  try {
+    const body = await client.post("/studentsgpacgpa/loadData", {
+      instituteid: session.instituteid,
+    });
+    return body.response?.studentInfo?.[0] ?? null;
+  } catch (err) {
+    if (isSgpa500(err)) return null;
+    throw err;
+  }
 }
 
 /** SGPA/CGPA current semester. Encrypted {instituteid, studentid, name, enrollmentno}. */
 export async function getSgpaCurrentSem(client, session, { studentid, name, enrollmentno }) {
-  const body = await client.post("/studentsgpacgpa/checkIfstudentmasterexist", {
-    instituteid: session.instituteid,
-    studentid,
-    name,
-    enrollmentno,
-  });
-  return body.response?.studentlov?.currentsemester ?? null;
+  try {
+    const body = await client.post("/studentsgpacgpa/checkIfstudentmasterexist", {
+      instituteid: session.instituteid,
+      studentid,
+      name,
+      enrollmentno,
+    });
+    return body.response?.studentlov?.currentsemester ?? null;
+  } catch (err) {
+    if (isSgpa500(err)) return null;
+    throw err;
+  }
+}
+
+function isSgpa500(err) {
+  if (!err || typeof err !== "object") return false;
+  if (err.name === "AbortError" || err.code === "ABORT_ERR") return false;
+  if (err.code === "SESSION_EXPIRED" || err.status === 401 || err.name === "SessionExpiredError") return false;
+
+  const statusNum = Number(err.status ?? err.statusCode);
+  if (Number.isFinite(statusNum) && statusNum >= 500) return true;
+
+  const msg = typeof err.message === "string" ? err.message : "";
+  const errList = Array.isArray(err.errors)
+    ? err.errors.join(" ")
+    : typeof err.errors === "string"
+      ? err.errors
+      : "";
+  const combined = `${msg} ${errList}`;
+  return (
+    /SQLGrammarException/i.test(combined) ||
+    /HTTP\s*5\d\d/i.test(msg) ||
+    /5\d\d\s+Internal\s+Server\s+Error/i.test(msg)
+  );
 }
 
 /** SGPA/CGPA semester list (credit-wise rows with sgpa/cgpa). Encrypted {instituteid, studentid, stynumber}. */
 export async function getSgpaSemesters(client, session, { studentid, stynumber }) {
-  const body = await client.post("/studentsgpacgpa/getallsemesterdata", {
-    instituteid: session.instituteid,
-    studentid,
-    stynumber,
-  });
-  return body.response?.semesterList ?? [];
+  try {
+    const body = await client.post("/studentsgpacgpa/getallsemesterdata", {
+      instituteid: session.instituteid,
+      studentid,
+      stynumber,
+    });
+    const list = body.response?.semesterList;
+    return Array.isArray(list) ? list : [];
+  } catch (err) {
+    if (isSgpa500(err)) return [];
+    throw err;
+  }
 }
 
 /** SGPA/CGPA semester detail (subject rows). Encrypted {instituteid, studentid, stynumber}. Returns response as-is. */
@@ -390,18 +428,23 @@ export async function getSgpaDetail(client, session, { studentid, stynumber }) {
 
 /** SGPA/CGPA in one call: loadData -> checkexist -> currentsem -> semester list. */
 export async function getSgpaLatest(client, session) {
-  const student = await getSgpaStudentInfo(client, session);
-  if (!student) return { student: null, currentsem: null, semesters: [] };
-  const currentsem =
-    (await getSgpaCurrentSem(client, session, {
+  try {
+    const student = await getSgpaStudentInfo(client, session);
+    if (!student) return { student: null, currentsem: null, semesters: [] };
+    const currentsem =
+      (await getSgpaCurrentSem(client, session, {
+        studentid: student.studentid,
+        name: student.name,
+        enrollmentno: student.enrollmentno,
+      })) ?? student.stynumber ?? null;
+    const semesters = await getSgpaSemesters(client, session, {
       studentid: student.studentid,
-      name: student.name,
-      enrollmentno: student.enrollmentno,
-    })) ?? student.stynumber ?? null;
-  const semesters = await getSgpaSemesters(client, session, {
-    studentid: student.studentid,
-    stynumber: currentsem,
-  });
-  return { student, currentsem, semesters };
+      stynumber: currentsem,
+    });
+    return { student, currentsem, semesters };
+  } catch (err) {
+    if (isSgpa500(err)) return { student: null, currentsem: null, semesters: [] };
+    throw err;
+  }
 }
 

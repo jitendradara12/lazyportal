@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { login, fetchCaptcha } from "../src/auth.js";
+import { login, loginWithPassword, fetchCaptcha } from "../src/auth.js";
 
 const NOW = new Date(2026, 8, 28);
 const ok = (obj) => ({ ok: true, status: 200, text: async () => JSON.stringify(obj) });
@@ -157,4 +157,152 @@ describe("auth", () => {
       assert.equal(opts?.signal, controller.signal);
     }
   });
+
+  it("login preserves portal original tokendate across field variants", async () => {
+    const variants = [
+      { field: "tokendate", value: "2026-10-21 10:00:00" },
+      { field: "TokenDate", value: "2026-10-21 11:00:00" },
+      { field: "tokenDate", value: "2026-10-21 12:00:00" },
+      { field: "token_date", value: "2026-10-21 13:00:00" },
+      { field: "issuedate", value: "2026-10-21 14:00:00" },
+      { field: "issuedAt", value: "2026-10-21 15:00:00" },
+    ];
+
+    for (const { field, value } of variants) {
+      const fakeClient = {
+        async post(endpoint) {
+          if (endpoint === "/token/pretoken-check") {
+            return { response: { random: "R1", otppwd: "PWD" } };
+          }
+          return {
+            response: {
+              regdata: {
+                token: "T",
+                institutelist: [{ value: "i1", label: "L" }],
+                [field]: value,
+              },
+            },
+          };
+        },
+      };
+      const session = await login(fakeClient, {
+        username: "221B001",
+        password: "p",
+        captchaText: "c",
+        captcha: { hidden: "h", image: "i" },
+      });
+      assert.equal(session.tokendate, value, `Failed for field variant ${field}`);
+    }
+  });
+
+  it("login preserves numeric timestamp tokendate as a string", async () => {
+    const fakeClient = {
+      async post(endpoint) {
+        if (endpoint === "/token/pretoken-check") {
+          return { response: { random: "R1", otppwd: "PWD" } };
+        }
+        return {
+          response: {
+            regdata: {
+              token: "T",
+              institutelist: [{ value: "i1", label: "L" }],
+              tokendate: 1729531200000,
+            },
+          },
+        };
+      },
+    };
+    const session = await login(fakeClient, {
+      username: "221B001",
+      password: "p",
+      captchaText: "c",
+      captcha: { hidden: "h", image: "i" },
+    });
+    assert.equal(session.tokendate, "1729531200000");
+  });
+
+  it("login ignores whitespace-only variant and picks next valid variant or fallback", async () => {
+    const fakeClient = {
+      async post(endpoint) {
+        if (endpoint === "/token/pretoken-check") {
+          return { response: { random: "R1", otppwd: "PWD" } };
+        }
+        return {
+          response: {
+            regdata: {
+              token: "T",
+              institutelist: [{ value: "i1", label: "L" }],
+              tokendate: "   ",
+              issuedate: "2026-10-21 18:00:00",
+            },
+          },
+        };
+      },
+    };
+    const session = await login(fakeClient, {
+      username: "221B001",
+      password: "p",
+      captchaText: "c",
+      captcha: { hidden: "h", image: "i" },
+    });
+    assert.equal(session.tokendate, "2026-10-21 18:00:00");
+  });
+
+  it("loginWithPassword is exported as an alias of login", async () => {
+    assert.equal(loginWithPassword, login);
+    const fakeClient = {
+      async post(endpoint) {
+        if (endpoint === "/token/pretoken-check") {
+          return { response: { random: "R1", otppwd: "PWD" } };
+        }
+        return {
+          response: {
+            regdata: {
+              token: "T",
+              institutelist: [{ value: "i1", label: "L" }],
+              tokendate: "2026-10-21 19:00:00",
+            },
+          },
+        };
+      },
+    };
+    const session = await loginWithPassword(fakeClient, {
+      username: "221B001",
+      password: "p",
+      captchaText: "c",
+      captcha: { hidden: "h", image: "i" },
+    });
+    assert.equal(session.tokendate, "2026-10-21 19:00:00");
+  });
+
+  it("login falls back to fresh Date string when regdata does not provide tokendate", async () => {
+    const fakeClient = {
+      async post(endpoint) {
+        if (endpoint === "/token/pretoken-check") {
+          return { response: { random: "R1", otppwd: "PWD" } };
+        }
+        return {
+          response: {
+            regdata: {
+              token: "T",
+              institutelist: [{ value: "i1", label: "L" }],
+            },
+          },
+        };
+      },
+    };
+    const before = Date.now();
+    const session = await login(fakeClient, {
+      username: "221B001",
+      password: "p",
+      captchaText: "c",
+      captcha: { hidden: "h", image: "i" },
+    });
+    const after = Date.now();
+    assert.equal(typeof session.tokendate, "string");
+    const parsed = Date.parse(session.tokendate);
+    assert.ok(!Number.isNaN(parsed));
+    assert.ok(parsed >= before - 1000 && parsed <= after + 1000);
+  });
 });
+

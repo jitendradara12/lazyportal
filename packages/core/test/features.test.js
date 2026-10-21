@@ -403,6 +403,156 @@ describe("features", () => {
     assert.deepEqual(calls[2][1], { instituteid: "i1", studentid: "s1", stynumber: "3" });
   });
 
+  it("getSgpaSemesters catches HTTP 500 error and returns empty array", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("Internal Server Error");
+        err.status = 500;
+        throw err;
+      },
+    };
+    const rows = await getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" });
+    assert.deepEqual(rows, []);
+  });
+
+  it("getSgpaSemesters catches string status '500' or statusCode 500", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("Internal Server Error");
+        err.status = "500";
+        throw err;
+      },
+    };
+    const rows = await getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" });
+    assert.deepEqual(rows, []);
+  });
+
+  it("getSgpaSemesters catches HTTP 500 pattern in error message", async () => {
+    const fake = {
+      async post() {
+        throw new Error("Request failed (HTTP 500)");
+      },
+    };
+    const rows = await getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" });
+    assert.deepEqual(rows, []);
+  });
+
+  it("getSgpaSemesters catches SQLGrammarException error and returns empty array", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("org.hibernate.exception.SQLGrammarException: could not extract ResultSet");
+        throw err;
+      },
+    };
+    const rows = await getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" });
+    assert.deepEqual(rows, []);
+  });
+
+  it("getSgpaSemesters catches SQLGrammarException when errors is a string or array", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("Database query failed");
+        err.errors = "SQLGrammarException: relation does not exist";
+        throw err;
+      },
+    };
+    const rows = await getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" });
+    assert.deepEqual(rows, []);
+  });
+
+  it("getSgpaSemesters safely handles null or non-array semesterList", async () => {
+    const fake = {
+      async post() {
+        return { response: { semesterList: null } };
+      },
+    };
+    const rows = await getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" });
+    assert.deepEqual(rows, []);
+  });
+
+  it("getSgpaSemesters rethrows AbortError without swallowing it", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("This operation was aborted");
+        err.name = "AbortError";
+        err.status = 500;
+        throw err;
+      },
+    };
+    await assert.rejects(
+      () => getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" }),
+      (err) => err?.name === "AbortError"
+    );
+  });
+
+  it("getSgpaSemesters rethrows non-500 non-SQL errors (e.g. 401)", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("Session expired");
+        err.status = 401;
+        err.code = "SESSION_EXPIRED";
+        throw err;
+      },
+    };
+    await assert.rejects(
+      () => getSgpaSemesters(fake, { instituteid: "i1" }, { studentid: "s1", stynumber: "4" }),
+      (err) => err?.status === 401
+    );
+  });
+
+  it("getSgpaLatest degrades gracefully when getallsemesterdata throws 500", async () => {
+    const fake = {
+      async post(endpoint) {
+        if (endpoint.endsWith("/loadData")) {
+          return { response: { studentInfo: [{ studentid: "s1", name: "N", enrollmentno: "E1", stynumber: "3" }] } };
+        }
+        if (endpoint.endsWith("checkIfstudentmasterexist")) {
+          return { response: { studentlov: { currentsemester: "4" } } };
+        }
+        const err = new Error("org.hibernate.exception.SQLGrammarException");
+        err.status = 500;
+        throw err;
+      },
+    };
+    const out = await getSgpaLatest(fake, { instituteid: "i1" });
+    assert.equal(out.currentsem, "4");
+    assert.equal(out.student.studentid, "s1");
+    assert.deepEqual(out.semesters, []);
+  });
+
+  it("getSgpaLatest falls back to stynumber when checkIfstudentmasterexist throws 500", async () => {
+    const fake = {
+      async post(endpoint) {
+        if (endpoint.endsWith("/loadData")) {
+          return { response: { studentInfo: [{ studentid: "s1", name: "N", enrollmentno: "E1", stynumber: "3" }] } };
+        }
+        if (endpoint.endsWith("checkIfstudentmasterexist")) {
+          const err = new Error("Internal Server Error");
+          err.status = 500;
+          throw err;
+        }
+        return { response: { semesterList: [{ stynumber: "3", sgpa: "8.5" }] } };
+      },
+    };
+    const out = await getSgpaLatest(fake, { instituteid: "i1" });
+    assert.equal(out.currentsem, "3");
+    assert.equal(out.student.studentid, "s1");
+    assert.deepEqual(out.semesters, [{ stynumber: "3", sgpa: "8.5" }]);
+  });
+
+  it("getSgpaLatest degrades gracefully when loadData throws 500", async () => {
+    const fake = {
+      async post() {
+        const err = new Error("Portal down");
+        err.status = 500;
+        throw err;
+      },
+    };
+    const out = await getSgpaLatest(fake, { instituteid: "i1" });
+    assert.deepEqual(out, { student: null, currentsem: null, semesters: [] });
+  });
+
+
 
 
 
