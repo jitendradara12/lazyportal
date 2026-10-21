@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { store } from "../lib/portal";
+import { savedCredentials, store } from "../lib/portal";
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -19,9 +19,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
           <button
             onClick={() => {
               store.clear();
-              try {
-                localStorage.removeItem("juet.portal.saved_pw");
-              } catch {}
+              savedCredentials.clear();
               location.reload();
             }}
           >

@@ -87,8 +87,10 @@ icon only.
 ## Session storage
 
 The shell keeps the session in the WebView's `localStorage` (keys prefixed
-`juet.portal.`), exactly like the browser build, and the saved password when the
-user ticks "Remember me". `android:allowBackup="false"` in
+`juet.portal.`), exactly like the browser build. Remembered passwords use the same
+AES-256-GCM credential store as the browser: ciphertext in localStorage and a
+non-exportable per-origin key in WebView IndexedDB (not Android Keystore).
+Existing plaintext passwords migrate on app boot. `android:allowBackup="false"` in
 `app/src/main/AndroidManifest.xml` keeps that out of cloud and device-transfer
 backups; on a new device the user logs in again.
 

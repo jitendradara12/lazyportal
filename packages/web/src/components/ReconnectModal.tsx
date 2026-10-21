@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
-import { client } from "../lib/portal";
+import { client, savedCredentials } from "../lib/portal";
 import { preserveSelectedInstitute } from "../lib/sessionSelection";
 import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Session, Captcha } from "../types";
@@ -16,14 +16,14 @@ export function ReconnectModal({
 }) {
   const [captcha, setCaptcha] = useState<Captcha | null>(null);
   const [captchaText, setCaptchaText] = useState("");
-  const [savedPw] = useState(() => {
+  const [savedUsertype] = useState(() => {
     try {
-      return localStorage.getItem("juet.portal.saved_pw") ?? "";
-    } catch {
-      return "";
-    }
+      return localStorage.getItem("juet.portal.last_usertype") || (session.membertype === "P" ? "P" : "S");
+    } catch { return session.membertype === "P" ? "P" : "S"; }
   });
-  const [password, setPassword] = useState(() => savedPw);
+  const account = { username: String(session.username ?? session.enrollmentno), usertype: savedUsertype };
+  const [hasSavedPassword, setHasSavedPassword] = useState(() => savedCredentials.has(account));
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberPw, setRememberPw] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -84,33 +84,30 @@ export function ReconnectModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!captcha || !password || busy || isCaptchaLoading || isClosing) return;
+    if (!captcha || busy || isCaptchaLoading || isClosing) return;
     setBusy(true);
     setError(null);
     const submitController = new AbortController();
     submitAbortController.current = submitController;
     try {
-      const savedUsertype =
-        (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") ||
-        (session.membertype === "P" ? "P" : "S");
+      const loginPassword = password || await savedCredentials.load(account);
+      if (submitController.signal.aborted) return;
+      if (!loginPassword) {
+        setHasSavedPassword(false);
+        throw new Error("Please enter your password again.");
+      }
       const s = (await auth.login(client, {
         username: String(session.username ?? session.enrollmentno),
-        password,
+        password: loginPassword,
         captchaText: captchaText.trim(),
         captcha,
         usertype: savedUsertype,
       }, { signal: submitController.signal })) as unknown as Session;
       if (submitController.signal.aborted) return;
 
-      if (rememberPw) {
-        try {
-          localStorage.setItem("juet.portal.saved_pw", password);
-        } catch {}
-      } else {
-        try {
-          localStorage.removeItem("juet.portal.saved_pw");
-        } catch {}
-      }
+      if (rememberPw) await savedCredentials.save(loginPassword, account);
+      else savedCredentials.clear();
+      if (submitController.signal.aborted) return;
 
       onRenewed(preserveSelectedInstitute(s, session));
       window.dispatchEvent(new CustomEvent("juet:refresh-all"));
@@ -140,8 +137,7 @@ export function ReconnectModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleClose]);
 
-  const hasSavedPassword = Boolean(savedPw);
-  const ready = captcha !== null && !busy && !isCaptchaLoading && !isClosing && Boolean(password) && Boolean(captchaText.trim());
+  const ready = captcha !== null && !busy && !isCaptchaLoading && !isClosing && Boolean(password || hasSavedPassword) && Boolean(captchaText.trim());
 
   return (
     <div className={`modal-backdrop ${isClosing ? "closing" : ""}`} onClick={handleClose} role="presentation">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { cancelSessionRecovery, getSessionStatus, onSessionStatus, setSessionStatus, store, type SessionStatus } from "../lib/portal";
+import { cancelSessionRecovery, getSessionStatus, onSessionStatus, savedCredentials, setSessionStatus, store, type SessionStatus } from "../lib/portal";
 import { invalidateCacheGeneration } from "./useFeature";
 import type { Session } from "../types";
 
@@ -23,8 +23,8 @@ export function useSession() {
     cancelSessionRecovery();
     invalidateCacheGeneration();
     store.clear();
+    savedCredentials.clear();
     try {
-      localStorage.removeItem("juet.portal.saved_pw");
       localStorage.removeItem("juet.portal.last_refresh_attempt");
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
