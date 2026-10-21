@@ -1,5 +1,5 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
-import { auth, createClient, session } from "@juet/core";
+import { auth, createClient, credentials, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
 import { preserveSelectedInstitute } from "./sessionSelection";
 import type { Session } from "../types";
@@ -21,6 +21,10 @@ export const BASE_URL = resolveApiBase({
   envBase: env.VITE_API_BASE,
   envNativeBase: env.VITE_NATIVE_API_BASE,
 });
+
+export const savedCredentials = credentials.createStore();
+// Migrate on every app boot, even when the current session is still valid.
+void savedCredentials.migrate();
 
 export const store = session.createStore(session.browserLocalAdapter());
 
@@ -78,10 +82,11 @@ export const client = createClient({
     // rate limit, so retry solver low-confidence / bad-captcha up to 5 times
     // before falling through to the manual reconnect modal. Network blips
     // retry too (without clearing the saved password).
-    let savedPw = "";
-    try {
-      savedPw = localStorage.getItem("juet.portal.saved_pw") ?? "";
-    } catch {}
+    let usertype = s.membertype === "P" ? "P" : "S";
+    try { usertype = localStorage.getItem("juet.portal.last_usertype") || usertype; } catch {}
+    const account = { username: String(s.username ?? s.enrollmentno), usertype };
+    const savedPw = await savedCredentials.load(account);
+    if (signal.aborted) return false;
 
     if (savedPw) {
       const maxAttempts = 5;
@@ -110,13 +115,12 @@ export const client = createClient({
         if (signal.aborted) return false;
         if (!captchaText) continue;
         try {
-          const savedUsertype = (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") || (s.membertype === "P" ? "P" : "S");
           const fresh = (await auth.login(client, {
             username: String(s.username ?? s.enrollmentno),
             password: savedPw,
             captchaText,
             captcha: cap,
-            usertype: savedUsertype,
+            usertype: account.usertype,
           }, { signal })) as unknown as Session;
           if (signal.aborted) return false;
 
@@ -139,9 +143,7 @@ export const client = createClient({
           }
           // Explicit credential rejection: clear saved credentials
           if (/invalid (user|password|credential)|wrong password|user id or password/i.test(msg)) {
-            try {
-              localStorage.removeItem("juet.portal.saved_pw");
-            } catch {}
+            savedCredentials.clear();
             return false;
           }
           // Transient: portal down / session race — retry with a fresh captcha.

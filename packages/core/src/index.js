@@ -5,3 +5,4 @@ export { createClient } from "./client.js";
 export * as auth from "./auth.js";
 export * as captcha from "./captcha.js";
 export * as features from "./features.js";
+export * as credentials from "./credentials.js";

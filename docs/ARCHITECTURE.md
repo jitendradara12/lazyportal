@@ -8,6 +8,7 @@ Small interfaces, everything tricky behind them.
 |---|---|---|
 | `crypto.js` | `generateValue`, `encrypt`, `decrypt`, `makeLocalName`, `importKey` | Date-derived AES key, fixed IV, CBC/padding/base64. WebCrypto only, so browsers and Node share it |
 | `errors.js` | `PortalError`, `SessionExpiredError`, `CaptchaError`, `toPortalError` | The portal's `{status:{responseStatus,errors}}` shape |
+| `credentials.js` | `createStore`, `browserCredentialKeys` | AES-256-GCM saved passwords, non-exportable per-origin IndexedDB key, legacy plaintext migration |
 | `session.js` | `createStore`, `memoryAdapter`, `browserLocalAdapter`, `isExpired` | JWT expiry checks, `juet.portal.*` key names |
 | `client.js` | `createClient` gives `{post, postRaw, getPublic}` | AES bodies, `Authorization` + `LocalName` headers, 401 mapping. `postRaw`/`getPublic` exist because some endpoints take plain JSON or no auth headers |
 | `auth.js` | `fetchCaptcha`, `login` | The two-step login, single-use `random`, parent `P` prefix |
@@ -23,6 +24,27 @@ share one refresh attempt; a late 401 reuses a token that attempt already renewe
 A 90-second guard aborts stuck refresh/captcha/login work before publishing
 `expired`. The portal's HTTP 200 `Failure` session-expired payload follows the
 same path as HTTP 401.
+
+### Saved passwords
+
+`credentials.js` encrypts remembered passwords with a random AES-256-GCM key
+stored as a non-exportable `CryptoKey` in IndexedDB. Each save uses a fresh
+96-bit nonce. Only versioned ciphertext, nonce, and account metadata live in
+`juet.portal.credentials.v1` in localStorage; username/role are authenticated and
+normalized to the portal's login identity. This deliberately does not reuse the
+portal's date-derived encryption key.
+
+On app boot, `juet.portal.saved_pw` is removed immediately and migrated to encrypted
+storage, including when the session is still valid. Saved passwords are decrypted
+only for login/recovery and are never populated into form inputs. Logout, clearing
+a profile, and disabling remember remove saved ciphertext and cancel pending writes.
+If persistence is blocked, an encrypted in-memory copy supports the current tab;
+if WebCrypto is unavailable, login still works but remembering a password cannot.
+Missing keys or corrupt ciphertext require password entry again.
+
+This protects against casual inspection of storage, not code or a person able to
+execute JavaScript in the app's origin. Session tokens remain in the existing
+session store. No backend, unlock prompt, or new dependency is introduced.
 
 ## Web (`packages/web`)
 

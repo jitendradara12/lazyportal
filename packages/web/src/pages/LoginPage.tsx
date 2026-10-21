@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { auth, session } from "@juet/core";
-import { client } from "../lib/portal";
+import { client, savedCredentials } from "../lib/portal";
 import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Captcha, Session } from "../types";
 
@@ -13,15 +13,8 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
       return "";
     }
   });
-  const [savedPw] = useState(() => {
-    try {
-      return localStorage.getItem("juet.portal.saved_pw") ?? "";
-    } catch {
-      return "";
-    }
-  });
-  const [hasSavedProfile, setHasSavedProfile] = useState(() => Boolean(savedPw));
-  const [password, setPassword] = useState(() => savedPw);
+  const [hasSavedProfile, setHasSavedProfile] = useState(false);
+  const [password, setPassword] = useState("");
   const [rememberPw, setRememberPw] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [captchaText, setCaptchaText] = useState("");
@@ -38,6 +31,16 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [autoSolveFailed, setAutoSolveFailed] = useState(false);
   const [isAutoSolved, setIsAutoSolved] = useState(false);
   const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const account = { username, usertype };
+    setHasSavedProfile(savedCredentials.has(account));
+    void savedCredentials.migrate().then(() => {
+      if (active) setHasSavedProfile(savedCredentials.has(account));
+    });
+    return () => { active = false; };
+  }, [username, usertype]);
 
   const loading = useRef(false);
   const userRef = useRef<HTMLInputElement>(null);
@@ -86,7 +89,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     if (session.consumeSessionExpired()) setExpired(true);
     load().catch((e) => setError(e instanceof Error ? e.message : String(e)));
     if (username) {
-      if (!savedPw) passRef.current?.focus();
+      if (!savedCredentials.has({ username, usertype })) passRef.current?.focus();
     } else {
       userRef.current?.focus();
     }
@@ -98,14 +101,14 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     setPassword("");
     setRememberPw(false);
     setHasSavedProfile(false);
+    savedCredentials.clear();
     try {
       localStorage.removeItem("juet.portal.last_user");
-      localStorage.removeItem("juet.portal.saved_pw");
     } catch {}
     userRef.current?.focus();
   };
 
-  const ready = captcha !== null && !busy && !isCaptchaLoading && Boolean(username.trim()) && Boolean(password) && Boolean(captchaText.trim());
+  const ready = captcha !== null && !busy && !isCaptchaLoading && Boolean(username.trim()) && Boolean(password || hasSavedProfile) && Boolean(captchaText.trim());
 
   return (
     <main className="auth-canvas">
@@ -118,9 +121,15 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
             setBusy(true);
             setError(null);
             try {
+              const account = { username: username.trim(), usertype };
+              const loginPassword = password || await savedCredentials.load(account);
+              if (!loginPassword) {
+                setHasSavedProfile(false);
+                throw new Error("Please enter your password again.");
+              }
               const s = (await auth.login(client, {
                 username: username.trim(),
-                password,
+                password: loginPassword,
                 captchaText: captchaText.trim(),
                 captcha,
                 usertype,
@@ -128,12 +137,9 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               try {
                 localStorage.setItem("juet.portal.last_user", username.trim());
                 localStorage.setItem("juet.portal.last_usertype", usertype);
-                if (rememberPw) {
-                  localStorage.setItem("juet.portal.saved_pw", password);
-                } else {
-                  localStorage.removeItem("juet.portal.saved_pw");
-                }
               } catch {}
+              if (rememberPw) await savedCredentials.save(loginPassword, account);
+              else savedCredentials.clear();
               onDone(s);
             } catch (err: unknown) {
               setError(err instanceof Error ? err.message : String(err));
@@ -250,12 +256,12 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               <input
                 id="auth-password"
                 ref={passRef}
-                required
+                required={!hasSavedProfile}
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                placeholder="password"
+                placeholder={hasSavedProfile ? "Saved password — leave blank to use" : "password"}
                 className="auth-input has-action"
               />
               <button
