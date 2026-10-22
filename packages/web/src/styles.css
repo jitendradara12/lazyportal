@@ -1053,6 +1053,7 @@ td { padding: 16px 8px; text-align: left; vertical-align: middle; border-bottom:
 
 .num-col, th.num-col { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.num-col { font-size: 16px; font-weight: 600; }
+.marks-score-total { color: var(--muted); font-size: 13px; font-weight: 500; }
 tr:last-child td { border-bottom: 0; }
 
 /* Attendance color tiers: <70 red, <80 amber, <90 neutral, >=90 green */
@@ -1799,6 +1800,12 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 
 @media (max-width: 639px) {
   .att-comp-box { padding: 4px 0 0; background: none; border: 0; border-radius: 0; }
+  .marks-course-code { display: none; }
+  .marks-table { table-layout: fixed; }
+  .marks-table th, .marks-table td { padding-right: 4px; padding-left: 4px; }
+  .marks-table th:first-child { width: 70%; padding-left: 4px; }
+  .marks-table th:nth-child(2) { width: 30%; }
+  .marks-table th { font-size: 12px; }
 }
 
 @media (min-width: 640px) {

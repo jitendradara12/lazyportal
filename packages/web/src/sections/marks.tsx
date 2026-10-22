@@ -68,7 +68,7 @@ export function MarksSection({ session }: SectionProps) {
     : error ? "Couldn't load marks"
     : card.hasExpanded ? "No marks" : "Evaluation & test marks";
 
-  const [filter, setFilter] = useState<string>("All");
+  const [filter, setFilter] = useState<string>("");
 
   const events = useMemo(() => {
     const set = new Set<string>();
@@ -89,10 +89,10 @@ export function MarksSection({ session }: SectionProps) {
     return list;
   }, [rawRows]);
 
-  const activeFilter = events.includes(filter) ? filter : "All";
+  const activeFilter = events.includes(filter) ? filter : events[0] ?? "";
 
   const filteredRows = useMemo(() => {
-    if (activeFilter === "All") return rawRows;
+    if (!activeFilter) return rawRows;
     return rawRows.filter((r) => formatEventCode(r.eventcode) === activeFilter);
   }, [rawRows, activeFilter]);
 
@@ -124,7 +124,7 @@ export function MarksSection({ session }: SectionProps) {
       {loading && <p className="muted">Loading…</p>}
       {rawRows.length > 0 && events.length > 1 && (
         <div className="segmented-pill-toggle att-target-toggle" role="tablist" aria-label="Filter marks" style={{ margin: "0 auto 12px" }}>
-          {["All", ...events].map((ev) => (
+          {events.map((ev) => (
             <button
               key={ev}
               type="button"
@@ -140,29 +140,31 @@ export function MarksSection({ session }: SectionProps) {
       )}
       {filteredRows.length > 0 && (
         <div className="table-scroll">
-          <table>
+          <table className="marks-table">
             <thead>
               <tr>
                 <th>Subject</th>
-                <th className="num-col">Full Marks</th>
-                <th className="num-col">Obtained</th>
+                <th className="num-col">Score</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.map((r, i) => {
-                const tag = formatEventCode(r.eventcode);
                 return (
                   <tr key={i}>
                     <td>
                       <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "6px" }}>
-                        {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
-                        {tag && <span className="att-log-type-tag">{tag}</span>}
+                        {r.subjectcode && <span className="badge marks-course-code">{r.subjectcode}</span>}
+                        {events.length <= 1 && formatEventCode(r.eventcode) && (
+                          <span className="att-log-type-tag">{formatEventCode(r.eventcode)}</span>
+                        )}
                       </div>
                       {titleCase(r.subjectdesc ?? "")}
                     </td>
-                    <td className="num-col">{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</td>
                     <td className="num-col">
-                      <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
+                      <span className="marks-score">
+                        <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
+                        <span className="marks-score-total">/{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</span>
+                      </span>
                     </td>
                   </tr>
                 );
