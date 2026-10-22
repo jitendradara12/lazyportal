@@ -377,6 +377,37 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           </button>
         </form>
 
+        {/* FAQ Section */}
+        <section className="auth-faq-section" aria-label="Frequently Asked Questions">
+          <h2 className="auth-faq-section-title">Frequently Asked Questions</h2>
+          <div className="auth-faq-list">
+            <details className="auth-faq-item">
+              <summary className="auth-faq-question">What is JUET Lazyportal?</summary>
+              <div className="auth-faq-answer">
+                JUET Lazyportal is an independent, mobile-friendly client for Jaypee University of Engineering and Technology (JUET Guna) students to check attendance, calculate bunk margins, and view internal marks faster than the default webkiosk and studentportal.
+              </div>
+            </details>
+            <details className="auth-faq-item">
+              <summary className="auth-faq-question">Can I use this instead of the official JUET Webkiosk and Studentportal?</summary>
+              <div className="auth-faq-answer">
+                Yes. Lazyportal directly queries the official portal APIs while keeping your session alive, providing a faster experience on phones and laptops without daily session expiration.
+              </div>
+            </details>
+            <details className="auth-faq-item">
+              <summary className="auth-faq-question">How does attendance margin calculation work?</summary>
+              <div className="auth-faq-answer">
+                Lazyportal tracks lecture, tutorial, and practical attendance components against the 70% requirement. It calculates how many consecutive classes you can safely skip or need to attend to maintain or restore eligibility.
+              </div>
+            </details>
+            <details className="auth-faq-item">
+              <summary className="auth-faq-question">Are my login credentials safe?</summary>
+              <div className="auth-faq-answer">
+                Your credentials never go to any third-party server. All credentials and sessions are encrypted and stored locally on your device.
+              </div>
+            </details>
+          </div>
+        </section>
+
         {/* Footer */}
         <footer className="app-footer">
           <span className="footer-label">free and open source, always</span>
