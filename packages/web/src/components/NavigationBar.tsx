@@ -7,10 +7,11 @@ export interface NavItem {
   badge?: number;
 }
 
-/** Material 3 bottom navigation bar: pill indicator behind the icon, label below. */
+/** Bottom navigation on mobile, persistent sidebar on desktop. */
 export function NavigationBar({ items, active, onSelect }: { items: NavItem[]; active: string; onSelect: (id: string) => void }) {
   return (
     <nav className="nav-bar" aria-label="Main">
+      <div className="nav-brand">Lazyportal</div>
       {items.map(({ id, label, Icon, badge }) => (
         <button
           key={id}

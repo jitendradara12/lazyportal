@@ -2018,20 +2018,9 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
   padding: 12px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom, 0px) max(8px, env(safe-area-inset-left));
   background: var(--surfaceContainer);
-  transition: width 0.25s var(--motion-standard), bottom 0.25s var(--motion-standard), border-radius 0.25s var(--motion-standard);
 }
 
-@media (min-width: 680px) {
-  .nav-bar {
-    bottom: 20px;
-    width: min(calc(100% - 32px), 480px);
-    height: 72px;
-    padding: 8px 12px;
-    border-radius: var(--r-full);
-    border: 1px solid var(--outlineVariant);
-    box-shadow: var(--shadow-2);
-  }
-}
+.nav-brand { display: none; }
 .nav-item {
   flex: 1;
   max-width: 120px;
@@ -2095,6 +2084,57 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 
 body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 12px); }
 
+@media (min-width: 680px) {
+  .dashboard-shell { --sidebar-w: 200px; padding-left: var(--sidebar-w); }
+  .dashboard-shell .dash { width: 100%; padding-bottom: var(--page-pb); }
+  .nav-bar {
+    inset: 0 auto 0 0;
+    transform: none;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    width: var(--sidebar-w);
+    height: 100dvh;
+    padding: var(--header-pt) 12px max(16px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    border-right: 1px solid var(--outlineVariant);
+    background: var(--surfaceContainerLow);
+  }
+  .nav-brand {
+    display: block;
+    padding: 8px 12px 28px;
+    color: var(--onSurface);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+  .nav-item {
+    flex: none;
+    flex-direction: row;
+    width: 100%;
+    max-width: none;
+    min-height: 52px;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: var(--r-full);
+    text-align: left;
+  }
+  .nav-indicator { flex: none; width: 24px; height: 32px; }
+  .nav-indicator::before { display: none; }
+  .nav-label { font-size: var(--fs-m); line-height: 20px; }
+  .nav-item[aria-current="page"] { background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+  .nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .nav-item:focus-visible .nav-indicator { outline: none; }
+  .nav-badge { left: 16px; }
+  body:has(.nav-bar) .install-banner {
+    left: calc(200px + 16px);
+    bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
+@media (min-width: 680px) and (hover: hover) {
+  .nav-item:hover:not([aria-current="page"]) { background: var(--surfaceContainerHigh); }
+}
+
 /* Attendance row percentages (vertically centered) */
 .att-row-pct {
   flex: none;
@@ -2143,6 +2183,76 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .score-meta { display: flex; gap: 8px; font-size: var(--fs-s); color: var(--onSurfaceVariant); }
 
 /* Exams */
+.exam-timeline { position: relative; list-style: none; margin: 0; padding: 0; }
+/* One continuous rail, with soft ends that carry on beyond the cards. */
+.exam-timeline::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: -24px;
+  bottom: -24px;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, var(--outlineVariant) 24px, var(--outlineVariant) calc(100% - 24px), transparent);
+  opacity: 0.65;
+}
+.exam-stop { position: relative; padding: 0 0 10px 30px; }
+.exam-stop:last-child { padding-bottom: 0; }
+.exam-future-group { padding-bottom: 10px; }
+.exam-future-group summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  margin-left: 30px;
+  padding: 8px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surfaceContainerLow);
+  color: var(--onSurfaceVariant);
+  font-size: var(--fs-s);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+.exam-future-group summary::-webkit-details-marker { display: none; }
+.exam-future-group summary::before { content: "⋮"; position: absolute; left: -30px; width: 20px; text-align: center; background: var(--surface); color: var(--outline); font-size: 20px; line-height: 24px; }
+.exam-future-group summary:hover { background: var(--surfaceContainer); }
+.exam-future-group summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.exam-future-count { color: var(--outline); }
+.exam-future-group summary svg { width: 18px; height: 18px; }
+.exam-future-group details[open] > summary svg { transform: rotate(180deg); }
+.exam-future-list { list-style: none; padding: 10px 0 0; margin: 0; }
+.exam-marker { position: absolute; z-index: 1; left: 0; top: 26px; width: 20px; height: 20px; display: grid; place-items: center; border: 2px solid var(--outlineVariant); border-radius: 50%; background: var(--surface); color: var(--onSurfaceVariant); }
+.exam-marker svg { width: 14px; height: 14px; }
+.is-past > .exam-marker { background: var(--successContainer); border-color: var(--success); color: var(--success); }
+.is-next > .exam-marker, .is-current > .exam-marker { border-color: var(--primary); background: var(--primary); box-shadow: 0 0 0 4px var(--primaryContainer); }
+.is-next > .exam-marker::after { content: ""; width: 6px; height: 6px; background: var(--onPrimary); border-radius: 50%; }
+.exam-marker-live { width: 8px; height: 8px; border: 2px solid var(--onPrimary); border-radius: 50%; }
+.exam-stop.is-past .exam-card { color: var(--onSurfaceVariant); }
+.exam-stop.is-past .exam-date { opacity: 0.65; }
+.exam-stop.is-past .exam-day::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 50%;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+.exam-stop .exam-card { border-radius: var(--r-lg); }
+.exam-calendar { position: relative; margin-left: auto; align-self: center; }
+.exam-calendar-button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.exam-calendar-button svg { width: 21px; height: 21px; }
+.exam-calendar-button:hover { background: color-mix(in srgb, currentColor 9%, transparent); }
+.exam-calendar-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.exam-calendar-button:disabled { opacity: 0.3; cursor: default; }
+.exam-export { margin-left: auto; color: var(--primary); }
+.exam-calendar-options { position: absolute; bottom: calc(100% + 4px); right: 0; z-index: 10; display: flex; flex-direction: column; min-width: 190px; padding: 6px; border: 1px solid var(--outlineVariant); border-radius: var(--r-md); background: var(--surfaceContainerHigh); color: var(--onSurface); box-shadow: 0 6px 24px #0002; }
+.exam-calendar-options a, .exam-calendar-options button { display: block; padding: 12px; border: 0; border-radius: var(--r-sm); background: none; color: inherit; font: inherit; font-size: var(--fs-s); text-align: left; text-decoration: none; cursor: pointer; }
+.exam-calendar-options a:hover, .exam-calendar-options button:hover { background: var(--surfaceContainerHighest); }
+.page-toolbar:empty { display: none; }
 .exam-card {
   display: flex;
   gap: 16px;
@@ -2165,7 +2275,7 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
   padding-top: 2px;
   line-height: 1.1;
 }
-.exam-day { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.exam-day { position: relative; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .is-next .exam-day { font-size: 40px; }
 .exam-month { font-size: var(--fs-s); font-weight: 600; }
 .exam-weekday { font-size: var(--fs-xs); opacity: 0.7; }
@@ -2185,7 +2295,7 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 }
 .is-next .exam-when { background: var(--primary); color: var(--onPrimary); }
 .exam-time { font-size: var(--fs-s); opacity: 0.75; }
-.exam-seat { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.exam-seat { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .exam-tag {
   display: inline-flex;
   align-items: baseline;
@@ -2200,62 +2310,17 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .is-next .exam-tag { background: color-mix(in srgb, var(--onPrimaryContainer) 10%, transparent); }
 .exam-tag-label { font-size: var(--fs-xs); font-weight: 500; opacity: 0.7; }
 
-/* Past exams drawer (M3 Expressive) */
-.past-exams {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap-list-rows);
-  margin-top: 4px;
+@media (max-width: 480px) {
+  .exam-future-group summary { margin-left: 26px; }
+  .exam-future-group summary::before { left: -26px; }
+  .exam-stop { padding-left: 26px; }
+  .exam-stop .exam-card { padding: 14px 10px; gap: 10px; }
+  .exam-stop .exam-date { width: 38px; }
+  .exam-stop .is-next .exam-day { font-size: 32px; }
+  .exam-stop .is-next .exam-subject { font-size: 17px; }
+  .exam-head { flex-wrap: wrap; }
+  .exam-tag { padding: 4px 8px; }
 }
-.past-exams > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 48px;
-  padding: 0 18px;
-  background: var(--surfaceContainerLow);
-  color: var(--onSurfaceVariant);
-  font-size: var(--fs-s);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  border-radius: var(--r-md);
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
-  transition: background-color 0.15s ease, border-radius 0.25s var(--motion-spring);
-}
-.past-exams > summary::-webkit-details-marker,
-.past-exams > summary::marker {
-  display: none;
-}
-.past-exams > summary::after {
-  content: "";
-  display: block;
-  width: 18px;
-  height: 18px;
-  color: var(--outline);
-  background-color: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat center / contain;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat center / contain;
-  transition: transform 0.28s var(--motion-spring), color 0.15s ease;
-}
-.past-exams > summary:hover {
-  background: var(--surfaceContainerHigh);
-  color: var(--onSurface);
-}
-.past-exams > summary:active {
-  border-radius: var(--r-sm);
-}
-.past-exams[open] > summary {
-  background: var(--surfaceContainer);
-  color: var(--onSurface);
-  margin-bottom: 4px;
-}
-.past-exams[open] > summary::after {
-  transform: rotate(180deg);
-  color: var(--onSurface);
-}
-.past-exams .exam-card { opacity: 0.8; }
 
 /* More */
 .profile { display: flex; align-items: center; gap: 16px; padding: 8px 4px 12px; }

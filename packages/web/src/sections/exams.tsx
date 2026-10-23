@@ -9,6 +9,10 @@ import { SectionError, countdown, titleCase, formatSemester } from "../component
 import { TopBar, SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
 import { examTimes, groupExams, formatExamRoom, cleanExamSubject, type ExamRow } from "../lib/exams";
+import { ExamCalendarButton } from "../components/ExamCalendarButton";
+import { CalendarAddIcon } from "../components/icons";
+import { examCalendarEvent } from "../lib/examCalendar";
+import { canExportExamCalendar, exportExamCalendar } from "../lib/examCalendarActions";
 
 interface ExamEvent {
   exameventid?: string;
@@ -76,14 +80,30 @@ export function ExamsSection({ session }: SectionProps) {
 
   const rows = examRows.data ?? [];
   const { upcoming, past, undated } = groupExams(rows, now);
-  const [next, ...later] = upcoming;
+  const [next] = upcoming;
+  const dated = [...past, ...upcoming].sort((a, b) => examTimes(b)!.start - examTimes(a)!.start);
+  const later = dated.filter((row) => row !== next && examTimes(row)!.start > now);
+  const laterSet = new Set(later);
+  const visible = dated.filter((row) => !laterSet.has(row));
+  const exportable = upcoming.filter((row) => examCalendarEvent(row) !== null);
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
   const pageRefresh = usePageRefresh("exams", session, loading);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  async function exportUpcoming() {
+    if (exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try { await exportExamCalendar(exportable); }
+    catch { setExportError("Couldn’t save calendar. Try again."); }
+    finally { setExporting(false); }
+  }
 
   return (
     <div className="page">
-      <TopBar title="Exams" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh exams" />
+      <TopBar title="Exams" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh exams"
+        actions={exportable.length > 0 && canExportExamCalendar() && <button type="button" className="exam-calendar-button exam-export" aria-label="Export upcoming exams" title="Export upcoming exams" disabled={exporting} onClick={exportUpcoming}><CalendarAddIcon /></button>} />
       <div className="page-body">
         {((examEvents.data?.length ?? 0) > 1 || (examSems.data?.length ?? 0) > 1) && (
           <div className="page-toolbar">
@@ -103,33 +123,50 @@ export function ExamsSection({ session }: SectionProps) {
           </div>
         )}
         {loading && rows.length === 0 && <p className="muted page-note">Loading…</p>}
-        {next && <ExamCard row={next} now={now} featured />}
-        {later.length > 0 && <div className="exam-list">{later.map((r, i) => <ExamCard key={i} row={r} now={now} />)}</div>}
-        {rows.length > 0 && upcoming.length === 0 && !loading && (
-          <p className="muted page-note">No upcoming exams. Past schedules are below.</p>
-        )}
+        {dated.length > 0 && <ol className="exam-timeline" aria-label="Exam schedule">
+          {later.length > 0 && <li className="exam-future-group">
+            <details key={`${examSemId}:${activeEventId}:${next ? examTimes(next)!.start : ""}`}>
+              <summary aria-label={`Later exams (${later.length})`}>
+                <span>Later <span className="exam-future-count">· {later.length}</span></span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              </summary>
+              <ol className="exam-future-list" aria-label="Later exams">
+                {later.map((row, i) => <ExamStop key={i} row={row} now={now} />)}
+              </ol>
+            </details>
+          </li>}
+          {visible.map((row, i) => <ExamStop key={i} row={row} now={now} next={row === next} />)}
+        </ol>}
         {undated.length > 0 && (
           <>
             <h2 className="page-subhead">Date not announced</h2>
             <div className="exam-list">{undated.map((r, i) => <ExamCard key={i} row={r} now={now} />)}</div>
           </>
         )}
-        {past.length > 0 && (
-          <details className="past-exams" key={`${examSemId}:${activeEventId}`}>
-            <summary>Past exams ({past.length})</summary>
-            <div className="exam-list">{past.map((r, i) => <ExamCard key={i} row={r} now={now} />)}</div>
-          </details>
-        )}
         {rows.length === 0 && !error && !loading && (
           <p className="muted page-note">No exam schedule published for this semester yet.</p>
         )}
         {error && <SectionError label="Exams" error={error} retry={retry} />}
+        {exportError && <SectionError label="Calendar" error={exportError} retry={exportUpcoming} />}
       </div>
     </div>
   );
 }
 
 const IST = "Asia/Kolkata";
+
+function ExamStop({ row, now, next = false }: { row: ExamRow; now: number; next?: boolean }) {
+  const times = examTimes(row)!;
+  const state = times.end <= now ? "past" : times.start <= now ? "current" : next ? "next" : "later";
+  const label = state === "past" ? "Crushed" : state === "current" ? "In progress" : state === "next" ? "Up next" : "Upcoming";
+  return <li className={`exam-stop is-${state}`} aria-current={state === "current" || state === "next" ? "step" : undefined}>
+    <span className="exam-marker" role="img" aria-label={label} title={label}>
+      {state === "past" && <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m4 8 3 3 5-6" /></svg>}
+      {state === "current" && <span className="exam-marker-live" />}
+    </span>
+    <ExamCard row={row} now={now} featured={state === "next" || state === "current"} />
+  </li>;
+}
 
 function examTimeRange(r: ExamRow): string {
   if (r.datetimeupto && /to/i.test(r.datetimeupto)) return r.datetimeupto;
@@ -164,6 +201,7 @@ function ExamCard({ row, now, featured = false }: { row: ExamRow; now: number; f
         <div className="exam-seat">
           <span className="exam-tag"><span className="exam-tag-label">Room</span> {room}</span>
           <span className="exam-tag"><span className="exam-tag-label">Seat</span> {row.seatno ?? "—"}</span>
+          <ExamCalendarButton row={row} />
         </div>
       </div>
     </article>
