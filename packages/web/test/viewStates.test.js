@@ -70,7 +70,10 @@ test("marks opening and semester-selection gaps show loading rather than No mark
     ],
   });
   const marksHtml = render(MarksSection);
-  assert.match(marksHtml, /aria-selected="true" class="chip-btn active">All<\/button>/);
+  assert.doesNotMatch(marksHtml, /Filter marks by test|role="tablist"/);
+  assert.equal((marksHtml.match(/class="score-card"/g) ?? []).length, 2);
+  assert.equal((marksHtml.match(/aria-expanded="false"/g) ?? []).length, 2);
+  assert.match(marksHtml, /Database Systems exam marks/);
   assert.match(marksHtml, /<strong>22<\/strong><span class="score-total">\/40<\/span>/);
   assert.match(marksHtml, /<strong>10<\/strong><span class="score-total">\/15<\/span>/);
 });
