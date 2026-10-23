@@ -5,6 +5,7 @@ import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurre
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
+import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
 import {
   isCurrentPortalDay,
@@ -272,6 +273,7 @@ export function AttendancePage({
     const requestGeneration = getCacheGeneration();
     const current = () => pageIsLive.current && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     refreshInProgress.current = true;
+    selectionHaptic();
     recordRefreshAttempt("attendance");
     setRefreshError(null);
     setDetailSyncError(null);

@@ -77,7 +77,11 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         setCaptchaText("");
         setAutoSolveFailed(true);
         setIsAutoSolved(false);
-        setTimeout(() => captchaInputRef.current?.focus(), 60);
+        setTimeout(() => {
+          if (!ac.signal.aborted) {
+            captchaInputRef.current?.focus();
+          }
+        }, 60);
       }
     } finally {
       loading.current = false;
@@ -242,6 +246,12 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              enterKeyHint="next"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); passRef.current?.focus(); }
+              }}
               placeholder="e.g. 241b6969"
               className="auth-input"
             />
@@ -261,6 +271,10 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
+                enterKeyHint="next"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); captchaInputRef.current?.focus(); }
+                }}
                 placeholder={hasSavedProfile ? "Saved password — leave blank to use" : "password"}
                 className="auth-input has-action"
               />
@@ -344,6 +358,9 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
                 ref={captchaInputRef}
                 required
                 autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="done"
                 value={captchaText}
                 onChange={(e) => {
                   setCaptchaText(e.target.value);

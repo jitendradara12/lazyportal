@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { selectionHaptic } from "../lib/nativeInteractions";
 
 interface StepperCardProps {
   label: string;
@@ -71,6 +72,7 @@ function StepperCard({
     const cur = countRef.current;
     const next = Math.min(max, Math.max(0, cur + delta));
     if (next === cur) return false;
+    selectionHaptic();
     onChangeRef.current(next);
     return true;
   }, [max]);

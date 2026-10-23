@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { useSession } from "./hooks/useSession";
 import { LoginPage } from "./pages/LoginPage";
@@ -6,9 +7,13 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { InstallBanner } from "./components/InstallBanner";
 import "./styles.css";
+import { initializeNativeInteractions, hideKeyboard } from "./lib/nativeInteractions";
+import { useKeyboardViewport } from "./hooks/useKeyboardViewport";
 
 function App() {
   const { session, isExpired, isRecovering, save, logout } = useSession();
+  useKeyboardViewport();
+  useEffect(() => { if (session) hideKeyboard(); }, [Boolean(session)]);
   return (
     <>
       {!session ? <LoginPage onDone={save} /> : (
@@ -32,6 +37,7 @@ function App() {
 
 const el = document.getElementById("root");
 if (!el) throw new Error("#root element missing");
+void initializeNativeInteractions();
 
 // Sync data-theme attribute with system color scheme preference
 if (typeof window !== "undefined" && window.matchMedia) {

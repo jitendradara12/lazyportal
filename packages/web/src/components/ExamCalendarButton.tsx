@@ -4,6 +4,7 @@ import { examCalendarEvent, googleExamUrl } from "../lib/examCalendar";
 import { nativeExamCalendar, canExportExamCalendar, exportExamCalendar } from "../lib/examCalendarActions";
 import type { ExamRow } from "../lib/exams";
 import { CalendarAddIcon } from "./icons";
+import { useAppBack } from "../hooks/useAppBack";
 
 export function ExamCalendarButton({ row }: { row: ExamRow }) {
   const [open, setOpen] = useState(false);
@@ -14,6 +15,7 @@ export function ExamCalendarButton({ row }: { row: ExamRow }) {
   const id = useId();
   const event = examCalendarEvent(row);
   const googleUrl = googleExamUrl(row);
+  useAppBack(open, () => { setOpen(false); button.current?.focus(); });
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };

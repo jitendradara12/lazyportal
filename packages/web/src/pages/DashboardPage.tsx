@@ -7,6 +7,8 @@ import { NavigationBar, type NavItem } from "../components/NavigationBar";
 import { ShellContext, type Shell } from "../components/AppBar";
 import { AttendanceIcon, MoreIcon } from "../components/icons";
 import type { Session } from "../types";
+import { BackScope, useAppBack } from "../hooks/useAppBack";
+import { selectionHaptic } from "../lib/nativeInteractions";
 
 const HOME = "attendance";
 const tabFromHash = (ids: string[]) => {
@@ -75,6 +77,7 @@ export function DashboardPage({
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    selectionHaptic();
     scrollByTab.current[tab] = window.scrollY;
     if (next === HOME) {
       if (window.location.hash) history.back();
@@ -87,23 +90,36 @@ export function DashboardPage({
     }
   };
 
+  useAppBack(tab !== HOME, () => {
+    // A direct link may have no in-app history entry. Replace rather than leaving the app.
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    setTab(HOME);
+    window.scrollTo({ top: scrollByTab.current[HOME] ?? 0, behavior: "instant" });
+  }, 0);
+
   return (
     <ShellContext.Provider value={shell}>
       <div className="dashboard-shell">
         <main className="dash">
           <div className="tab-panel" hidden={tab !== HOME}>
-            <AttendancePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
+            <BackScope.Provider value={tab === HOME}>
+              <AttendancePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
+            </BackScope.Provider>
           </div>
           {tabs.map(({ id, Component }) =>
             visited.has(id) ? (
               <div key={`${id}:${String(session.instituteid ?? "")}`} className="tab-panel" hidden={tab !== id}>
-                <Component session={session} onLogout={onLogout} />
+                <BackScope.Provider value={tab === id}>
+                  <Component session={session} onLogout={onLogout} />
+                </BackScope.Provider>
               </div>
             ) : null,
           )}
           {visited.has("more") && (
             <div className="tab-panel" hidden={tab !== "more"}>
-              <MorePage session={session} onLogout={onLogout} onSelectInstitute={onSelectInstitute} />
+              <BackScope.Provider value={tab === "more"}>
+                <MorePage session={session} onLogout={onLogout} onSelectInstitute={onSelectInstitute} />
+              </BackScope.Provider>
             </div>
           )}
         </main>
