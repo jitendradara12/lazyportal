@@ -81,10 +81,12 @@ test("all-past schedules are collapsed and no longer counted as scheduled", () =
   selectSemester("exams");
   cache("exams.sems", [semester]);
   cache("exams.events", [{ exameventid: "event1" }], "sem1");
-  cache("exams.rows", [{ datetime: "01/01/2000", datetimeupto: "09:00 am to 11:00 am", subjectdesc: "PAST EXAM", roomcode: "LT-4: LECTURE THEATER 4", seatno: "A-1" }], "sem1", "event1");
+  cache("exams.rows", [{ datetime: "01/01/2000", datetimeupto: "09:00 am to 11:00 am", subjectdesc: "PAST EXAM (CS101)", roomcode: "LT-4: LECTURE THEATER 4", seatno: "A-1" }], "sem1", "event1");
   const html = render(ExamsSection);
   assert.match(html, /No upcoming exams/);
   assert.match(html, /<details class="past-exams"><summary>Past exams \(1\)<\/summary>/);
+  assert.match(html, /<td>Past Exam<\/td>/);
+  assert.doesNotMatch(html, /CS101|Cs101/);
   assert.match(html, /<td>LT-4<\/td>/);
   assert.doesNotMatch(html, /LECTURE THEATER/);
   assert.doesNotMatch(html, /1 scheduled/);
