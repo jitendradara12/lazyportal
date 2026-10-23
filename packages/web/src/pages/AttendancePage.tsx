@@ -253,10 +253,6 @@ export function AttendancePage({
 
   const handleRefresh = async () => {
     if (refreshInProgress.current || isSyncing || refreshFeedback || isExpired) return;
-    // One button, two jobs: marks/exams revalidate for free (throttled), while
-    // attendance below keeps its own daily quota. A spent quota never blocks the rest.
-    shell.refreshDashboard();
-
     if (!isDefault) {
       showNotice("Only current semester updates", 2000);
       return;

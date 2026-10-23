@@ -20,7 +20,6 @@ import {
 import {
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
-  FEATURE_TTL,
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
 
@@ -61,7 +60,6 @@ export function SubjectDetailSheet({
     deps: [session, registrationid, String(row.subjectid), rowChecksum],
     cacheKey,
     enabled,
-    staleTimeMs: FEATURE_TTL.subjects,
     isFresh: (updatedAt) => {
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
       return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);

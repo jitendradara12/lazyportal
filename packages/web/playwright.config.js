@@ -15,12 +15,12 @@ export default defineConfig({
   projects: [
     {
       name: "android-chrome",
-      testMatch: ["**/install-banner.spec.js", "**/android-install.spec.js", "**/credentials.spec.js"],
+      testMatch: ["**/install-banner.spec.js", "**/android-install.spec.js", "**/credentials.spec.js", "**/page-refresh.spec.js"],
       use: { ...devices["Pixel 7"], browserName: "chromium" },
     },
     {
       name: "ios-safari",
-      testMatch: ["**/install-banner.spec.js", "**/ios-guidance.spec.js", "**/credentials.spec.js"],
+      testMatch: ["**/install-banner.spec.js", "**/ios-guidance.spec.js", "**/credentials.spec.js", "**/page-refresh.spec.js"],
       use: { ...devices["iPhone 13"], browserName: "webkit" },
     },
   ],

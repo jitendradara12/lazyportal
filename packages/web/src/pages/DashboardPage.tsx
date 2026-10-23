@@ -1,6 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { getSessionStatus } from "../lib/portal";
-import { shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { TABS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
 import { MorePage } from "./MorePage";
@@ -32,33 +30,18 @@ export function DashboardPage({
   onSelectInstitute: (instituteid: string) => void;
 }) {
   const [showRenewModal, setShowRenewModal] = useState(false);
-  const [dashboardSpinning, setDashboardSpinning] = useState(false);
   const [shorts, setShorts] = useState(0);
-  const spinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Silent recovery takes priority over the manual form.
   useEffect(() => {
     if (isRecovering || !isExpired) setShowRenewModal(false);
   }, [isExpired, isRecovering]);
-  useEffect(() => () => { if (spinTimer.current) clearTimeout(spinTimer.current); }, []);
-
-  const refreshDashboard = useCallback(() => {
-    setDashboardSpinning(true);
-    if (spinTimer.current) clearTimeout(spinTimer.current);
-    spinTimer.current = setTimeout(() => setDashboardSpinning(false), 600);
-    if (shouldThrottleRefresh("dashboard") || navigator.onLine === false) return;
-    window.dispatchEvent(new CustomEvent("juet:refresh-dashboard"));
-    if (getSessionStatus() !== "expired") recordRefreshAttempt("dashboard");
-  }, []);
-
   const shell = useMemo<Shell>(() => ({
     isExpired: Boolean(isExpired),
     isRecovering: Boolean(isRecovering),
     requestRenew: () => setShowRenewModal(true),
-    refreshDashboard,
-    dashboardSpinning,
     setShorts,
-  }), [isExpired, isRecovering, refreshDashboard, dashboardSpinning]);
+  }), [isExpired, isRecovering]);
 
   const tabs = TABS.filter((t) => t.enabled !== false);
   const navItems: NavItem[] = [

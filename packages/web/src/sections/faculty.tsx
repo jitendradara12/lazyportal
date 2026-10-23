@@ -28,6 +28,7 @@ export function FacultySection({ session }: SectionProps) {
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("faculty.lov", session),
     staleTimeMs: FEATURE_TTL.faculty,
+    manualRefreshEnabled: card.isOpen,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "faculty"), lov.data);
   const detail = useFeature<{ rows: FacultyRow[]; totalcreditpoints?: unknown }>({
@@ -36,6 +37,7 @@ export function FacultySection({ session }: SectionProps) {
     enabled: card.hasExpanded && sem !== null,
     cacheKey: semId ? sessionCacheKey("faculty.detail", session, semId) : undefined,
     staleTimeMs: FEATURE_TTL.faculty,
+    manualRefreshEnabled: card.isOpen,
   });
 
   const rows = detail.data?.rows ?? [];
