@@ -2018,20 +2018,9 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
   padding: 12px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom, 0px) max(8px, env(safe-area-inset-left));
   background: var(--surfaceContainer);
-  transition: width 0.25s var(--motion-standard), bottom 0.25s var(--motion-standard), border-radius 0.25s var(--motion-standard);
 }
 
-@media (min-width: 680px) {
-  .nav-bar {
-    bottom: 20px;
-    width: min(calc(100% - 32px), 480px);
-    height: 72px;
-    padding: 8px 12px;
-    border-radius: var(--r-full);
-    border: 1px solid var(--outlineVariant);
-    box-shadow: var(--shadow-2);
-  }
-}
+.nav-brand { display: none; }
 .nav-item {
   flex: 1;
   max-width: 120px;
@@ -2094,6 +2083,57 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 }
 
 body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 12px); }
+
+@media (min-width: 680px) {
+  .dashboard-shell { --sidebar-w: 200px; padding-left: var(--sidebar-w); }
+  .dashboard-shell .dash { width: 100%; padding-bottom: var(--page-pb); }
+  .nav-bar {
+    inset: 0 auto 0 0;
+    transform: none;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    width: var(--sidebar-w);
+    height: 100dvh;
+    padding: var(--header-pt) 12px max(16px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    border-right: 1px solid var(--outlineVariant);
+    background: var(--surfaceContainerLow);
+  }
+  .nav-brand {
+    display: block;
+    padding: 8px 12px 28px;
+    color: var(--onSurface);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+  .nav-item {
+    flex: none;
+    flex-direction: row;
+    width: 100%;
+    max-width: none;
+    min-height: 52px;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: var(--r-full);
+    text-align: left;
+  }
+  .nav-indicator { flex: none; width: 24px; height: 32px; }
+  .nav-indicator::before { display: none; }
+  .nav-label { font-size: var(--fs-m); line-height: 20px; }
+  .nav-item[aria-current="page"] { background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+  .nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .nav-item:focus-visible .nav-indicator { outline: none; }
+  .nav-badge { left: 16px; }
+  body:has(.nav-bar) .install-banner {
+    left: calc(200px + 16px);
+    bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
+@media (min-width: 680px) and (hover: hover) {
+  .nav-item:hover:not([aria-current="page"]) { background: var(--surfaceContainerHigh); }
+}
 
 /* Attendance row percentages (vertically centered) */
 .att-row-pct {

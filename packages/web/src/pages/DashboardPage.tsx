@@ -89,24 +89,26 @@ export function DashboardPage({
 
   return (
     <ShellContext.Provider value={shell}>
-      <main className="dash">
-        <div className="tab-panel" hidden={tab !== HOME}>
-          <AttendancePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
-        </div>
-        {tabs.map(({ id, Component }) =>
-          visited.has(id) ? (
-            <div key={`${id}:${String(session.instituteid ?? "")}`} className="tab-panel" hidden={tab !== id}>
-              <Component session={session} onLogout={onLogout} />
-            </div>
-          ) : null,
-        )}
-        {visited.has("more") && (
-          <div className="tab-panel" hidden={tab !== "more"}>
-            <MorePage session={session} onLogout={onLogout} onSelectInstitute={onSelectInstitute} />
+      <div className="dashboard-shell">
+        <main className="dash">
+          <div className="tab-panel" hidden={tab !== HOME}>
+            <AttendancePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
           </div>
-        )}
-      </main>
-      <NavigationBar items={navItems} active={tab} onSelect={select} />
+          {tabs.map(({ id, Component }) =>
+            visited.has(id) ? (
+              <div key={`${id}:${String(session.instituteid ?? "")}`} className="tab-panel" hidden={tab !== id}>
+                <Component session={session} onLogout={onLogout} />
+              </div>
+            ) : null,
+          )}
+          {visited.has("more") && (
+            <div className="tab-panel" hidden={tab !== "more"}>
+              <MorePage session={session} onLogout={onLogout} onSelectInstitute={onSelectInstitute} />
+            </div>
+          )}
+        </main>
+        <NavigationBar items={navItems} active={tab} onSelect={select} />
+      </div>
       {showRenewModal && onSessionRenewed && (
         <ReconnectModal
           session={session}
