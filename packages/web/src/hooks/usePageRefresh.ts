@@ -3,6 +3,7 @@ import { useShell } from "../components/AppBar";
 import { sessionCacheKey } from "./useFeature";
 import { recordRefreshAttempt, shouldThrottleRefresh, REFRESH_THROTTLE_MS } from "../lib/portalSchedule";
 import type { Session } from "../types";
+import { selectionHaptic } from "../lib/nativeInteractions";
 
 export type RefreshPage = "marks" | "exams" | "more";
 export interface PageRefreshRequest { requests: Promise<unknown>[] }
@@ -22,6 +23,7 @@ export function usePageRefresh(page: RefreshPage, session: Session, busy = false
     const detail: PageRefreshRequest = { requests: [] };
     window.dispatchEvent(new CustomEvent(`juet:refresh-${page}`, { detail }));
     if (detail.requests.length) {
+      selectionHaptic();
       lastAttempt.current = { key, at: Date.now() };
       recordRefreshAttempt(key);
     }

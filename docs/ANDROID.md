@@ -131,6 +131,30 @@ distribute debug builds.
 
 ## Before merging a native change (device QA)
 
+The local `NativeInteractions` plugin handles Android Back and light selection
+haptics. Web overlays register Back handlers only while their tab is visible:
+reconnect dialogs take priority over subject sheets/calendar menus, then other
+tabs return to Attendance. At Attendance without overlays the native callback
+is disabled, leaving Back-to-home to Android. The keyboard gets the first Back
+when visible. Page reloads disable interception until the new page subscribes.
+Haptics respect Android's touch-feedback settings and need no vibration permission;
+they run on tab/target/calculator changes and accepted manual refreshes, with a
+short rate limit. Browsers and older APKs skip the bridge safely.
+
+The activity explicitly uses `adjustResize`; Capacitor's existing IME inset
+handling resizes the WebView. Auth screens also follow the visual viewport,
+scroll obscured inputs into view, and expose Next/Done keyboard actions.
+Shipping the native bridge or resize configuration requires a rebuilt APK;
+the hosted web changes must also be deployed for the remote-page shell.
+
+Native interaction QA: open a subject and press Back (only the subject closes),
+press Back from Marks/Exams/More (Attendance opens), then press Back again
+(Android handles leaving). In login and reconnect, show the keyboard and verify
+Back hides it first, Next moves between fields, the captcha remains visible,
+and closing/reconnecting hides the keyboard. Check light feedback with Android's
+touch-feedback setting enabled and disabled. Run `NativeInteractionsPluginTest`
+for native dispatcher and plugin lifecycle regression coverage.
+
 Exam calendar icons use the local `ExamCalendar` Capacitor plugin to open an
 `ACTION_INSERT` calendar editor with the subject, IST start/end instants, and
 room-seat location. The user saves the event; no calendar permission is requested.

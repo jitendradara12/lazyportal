@@ -903,6 +903,20 @@ details[open] .auth-faq-question::after {
 .renew-modal-card.closing { animation: modalScaleOut 0.2s var(--motion-standard) forwards; }
 
 .renew-form { display: flex; flex-direction: column; gap: 16px; width: 100%; }
+
+/* Capacitor resizes for the IME; browsers may shrink only the visual viewport. */
+:root[data-keyboard-open] .auth-canvas { min-height: var(--keyboard-viewport-height); justify-content: flex-start; }
+:root[data-keyboard-open] .modal-backdrop {
+  top: var(--keyboard-viewport-top);
+  bottom: auto;
+  height: var(--keyboard-viewport-height);
+}
+:root[data-keyboard-open] .renew-modal-card {
+  max-height: calc(var(--keyboard-viewport-height) - env(safe-area-inset-top, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.auth-input { scroll-margin-block: 16px; }
 .renew-modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
 .renew-cancel-btn {
@@ -1244,11 +1258,15 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   box-shadow: var(--shadow-sheet);
   animation: sheetSlideUp 0.3s var(--motion-standard) backwards;
+  transition: translate 0.18s var(--motion-standard);
 }
 
 .att-sheet-card.closing { animation: sheetSlideDown 0.22s var(--motion-standard) forwards; }
+.att-sheet-card.dragging, .att-sheet-card.closing { transition: none; }
 
-.att-sheet-handle { width: 36px; height: 4px; margin: 4px auto; border-radius: var(--r-full); background: var(--outlineVariant); opacity: 0.6; flex-shrink: 0; }
+.att-sheet-handle { min-height: 44px; margin: -8px 0 -12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; touch-action: none; user-select: none; cursor: grab; }
+.att-sheet-handle:active { cursor: grabbing; }
+.att-sheet-handle span { width: 36px; height: 4px; border-radius: var(--r-full); background: var(--outlineVariant); opacity: 0.6; pointer-events: none; }
 .att-sheet-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .att-sheet-title { margin: 0; font-size: var(--fs-xl); font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; }
 
