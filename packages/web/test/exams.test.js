@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { examTimes, groupExams, formatExamRoom } from "../src/lib/exams.ts";
+import { examTimes, groupExams, formatExamRoom, cleanExamSubject } from "../src/lib/exams.ts";
 
 test("portal time ranges are parsed in IST, including noon and midnight", () => {
   assert.deepEqual(examTimes({ datetime: "18/10/2026", datetimeupto: "12:00 pm to 01:30 pm" }), {
@@ -92,4 +92,24 @@ test("formatExamRoom cleans up portal room codes and handles edge cases", () => 
   assert.equal(formatExamRoom("   "), "—");
   assert.equal(formatExamRoom("—"), "—");
   assert.equal(formatExamRoom("-"), "—");
+});
+
+test("cleanExamSubject strips course codes in parentheses", () => {
+  assert.equal(cleanExamSubject("Concepts of Economics (Hs301)"), "Concepts of Economics");
+  assert.equal(cleanExamSubject("Theory of Computation (Cs110)"), "Theory of Computation");
+  assert.equal(cleanExamSubject("Materials Science and Applications (Ph304)"), "Materials Science and Applications");
+  assert.equal(cleanExamSubject("Artificial Intelligence (Cs303)"), "Artificial Intelligence");
+  assert.equal(cleanExamSubject("Probability Theory and Random Processes (Ma106)"), "Probability Theory and Random Processes");
+  assert.equal(cleanExamSubject("Computer Networks (Cs109)"), "Computer Networks");
+
+  // Portal uppercase with/without spaces
+  assert.equal(cleanExamSubject("CONCEPTS OF ECONOMICS (HS301)"), "CONCEPTS OF ECONOMICS");
+  assert.equal(cleanExamSubject("THEORY OF COMPUTATION(CS110)"), "THEORY OF COMPUTATION");
+
+  // Subjects without codes or edge cases
+  assert.equal(cleanExamSubject("Computer Networks"), "Computer Networks");
+  assert.equal(cleanExamSubject("(CS101)"), "(CS101)");
+  assert.equal(cleanExamSubject(null), "");
+  assert.equal(cleanExamSubject(undefined), "");
+  assert.equal(cleanExamSubject(""), "");
 });

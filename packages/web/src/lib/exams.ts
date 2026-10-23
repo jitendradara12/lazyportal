@@ -52,6 +52,17 @@ export function groupExams(rows: ExamRow[], now: number) {
 }
 
 /**
+ * Strip course codes in parentheses from exam subject descriptions.
+ * E.g. "CONCEPTS OF ECONOMICS (HS301)" -> "CONCEPTS OF ECONOMICS".
+ */
+export function cleanExamSubject(subject?: string | null): string {
+  if (!subject) return "";
+  const s = String(subject).trim();
+  const stripped = s.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return stripped || s;
+}
+
+/**
  * Format portal room values (e.g. "LT-4: LECTURE THEATER 4" -> "LT-4").
  * Extracts concise room codes, cleans common labels, and preserves unrecognized text.
  */
