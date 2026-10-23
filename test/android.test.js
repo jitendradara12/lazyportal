@@ -78,6 +78,14 @@ test("CI version codes remain above existing APKs after the workflow rename", ()
   assert.match(workflow, /VERSION_CODE_RUN:\s*\$\{\{\s*github\.run_number\s*\}\}/);
 });
 
+test("CI compiles app device tests without packaging dependency test APKs", () => {
+  const workflow = read(".github/workflows/build-apk.yml");
+  const commands = [...workflow.matchAll(/run:\s*\.\/gradlew\s+([^\n]+)/g)]
+    .map((match) => match[1].trim().split(/\s+/));
+  assert.ok(commands.some((args) => args.includes(":app:assembleDebugAndroidTest")), "app device tests must still compile");
+  assert.ok(commands.every((args) => !args.includes("assembleDebugAndroidTest")), "unqualified device-test tasks package every dependency's test APK");
+});
+
 test("launcher icons are the generated brand assets, at every density", () => {
   // Density bucket → launcher icon px (adaptive foreground is 108dp of the 48dp icon).
   const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
