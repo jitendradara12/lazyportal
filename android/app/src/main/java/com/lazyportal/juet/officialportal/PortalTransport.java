@@ -119,11 +119,7 @@ public final class PortalTransport implements AutoCloseable {
                 cancel(id);
                 if (!mime.equals("text/html")) throw new IOException("Portal returned an invalid page");
                 for (var alias : policy.assetAliases.entrySet()) html = html.replace(alias.getKey(), policy.origin + alias.getValue());
-                // Insert before all upstream scripts without rewriting large JS bundles.
-                String script = "<script>" + bootstrap + "</script>";
-                java.util.regex.Matcher head = java.util.regex.Pattern.compile("<head\\b[^>]*>", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
-                if (!head.find()) throw new IOException("Portal page has no head");
-                html = html.substring(0, head.end()) + script + html.substring(head.end());
+                html = prepareDocument(html, bootstrap);
                 return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers,
                     new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)));
             }
@@ -150,6 +146,20 @@ public final class PortalTransport implements AutoCloseable {
         } catch (Exception ignored) {
             cancel(id); return error(502, "Could not reach the portal. Check your connection and reload.");
         }
+    }
+
+    static String prepareDocument(String html, String bootstrap) throws IOException {
+        // Replace the portal's 100% viewport, rather than fighting it with CSS
+        // transforms or a native scale that varies with screen density.
+        html = java.util.regex.Pattern.compile(
+            "<meta\\b[^>]*\\sname\\s*=\\s*(?:\"viewport\"|'viewport'|viewport(?=\\s|/?>))[^>]*>",
+            java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html).replaceAll("");
+        String prefix = "<meta name=\"viewport\" content=\"width=device-width, initial-scale=0.6, minimum-scale=0.25, maximum-scale=3, user-scalable=yes\">"
+            + "<script>" + bootstrap + "</script>";
+        java.util.regex.Matcher head = java.util.regex.Pattern.compile("<head\\b[^>]*>", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
+        if (!head.find()) throw new IOException("Portal page has no head");
+        // HTML only; large scripts/assets remain byte-identical.
+        return html.substring(0, head.end()) + prefix + html.substring(head.end());
     }
 
     public static WebResourceResponse error(int status, String message) {

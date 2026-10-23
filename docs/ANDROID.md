@@ -142,8 +142,15 @@ not a localhost server. The original portal receives its existing session before
 any scripts run. Passwords are never handed off. Native policy blocks unknown
 endpoints, writes, payments and foreign destinations independently of the UI.
 Some official pages contain editable controls; those cannot submit changes here.
-The persistent banner directs users to the actual portal for changes/submissions
-and payments. File downloads also use the actual portal.
+The read-only notice stays on the More entry; blocked actions show a brief message
+directing users to the actual portal. File downloads also use the actual portal.
+The in-view controls are only two floating corner icons: X to close and refresh
+to reload. There is no title, banner, external-portal button, or reserved header.
+
+The HTML viewport starts at 60% zoom with native WebView pinch-to-zoom enabled
+(25–300%). WebView's legacy on-screen zoom buttons are hidden. The viewport meta
+tag handles density correctly; no CSS scaling, desktop user-agent spoofing, or
+custom gesture handling is involved.
 
 Close destroys the extra view, cancels its requests and deletes its isolated
 storage. Logout/account changes also clear it. Public content-hashed JS/CSS can
@@ -192,10 +199,12 @@ For the CI-built APK, sign in on the device and check:
    another login. Visit attendance, marks and another available read page.
 2. Close/Back returns to More. Reopen, rotate, background/resume, and press Back
    with a filter keyboard open. No blank view, lost account, or trapped Back.
+   The view starts zoomed out; pinch in/out works. The two floating icons stay
+   within the safe screen area and the portal uses all remaining height.
 3. Reload works; offline/unreachable portal shows a retryable message. No hosted
    fallback is attempted. Large cached public bundles load on reopening.
-4. Writes/payments cannot submit. “Open actual portal” opens the external browser
-   without a token in its address; signing in there is separate.
+4. Writes/payments cannot submit. Blocked actions show a brief message directing
+   the user to the actual portal; there is no persistent warning or browser button.
 5. Logout and switch accounts/institutes: reopening shows only the new identity.
    Expired portal sessions ask for reconnect rather than silently using Vercel.
 6. Inspect network traffic: this view reaches JUET (and its exact font asset),
