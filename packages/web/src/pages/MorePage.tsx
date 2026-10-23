@@ -1,4 +1,5 @@
 import { usePageRefresh } from "../hooks/usePageRefresh";
+import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { SECTIONS } from "../sections";
 import { TopBar } from "../components/AppBar";
 import { titleCase } from "../components/DataViews";
@@ -23,6 +24,7 @@ export function MorePage({
   const initial = name.trim().charAt(0) || "S";
 
   const pageRefresh = usePageRefresh("more", session, false);
+  const [defaultTarget, setDefaultTarget] = useDefaultAttendanceTarget();
 
   return (
     <div className="page">
@@ -55,6 +57,25 @@ export function MorePage({
             <Component key={`${id}:${String(session.instituteid ?? "")}`} session={session} onLogout={onLogout} />
           ))}
         </div>
+
+        <section className="more-preference" aria-labelledby="default-attendance-target">
+          <h2 id="default-attendance-target">Default attendance target</h2>
+          <p>Start each subject’s attendance calculator at your preferred target.</p>
+          <div className="segmented-pill-toggle" role="radiogroup" aria-labelledby="default-attendance-target">
+            {ATTENDANCE_TARGETS.map((target) => (
+              <button
+                key={target}
+                type="button"
+                role="radio"
+                aria-checked={defaultTarget === target}
+                className={`segmented-pill ${defaultTarget === target ? "active" : ""}`}
+                onClick={() => setDefaultTarget(target)}
+              >
+                {target}%
+              </button>
+            ))}
+          </div>
+        </section>
 
         <div className="more-actions">
           <a href="https://github.com/jitendradara12/lazyportal/" target="_blank" rel="noopener noreferrer" className="more-action">

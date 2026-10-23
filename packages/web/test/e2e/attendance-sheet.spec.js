@@ -39,6 +39,31 @@ async function pull(page, distance, { cancel = false, slow = false } = {}) {
   await page.mouse.up();
 }
 
+test("More saves the default target across reloads and calculator overrides", async ({ page }) => {
+  const calculator = page.getByRole("radiogroup", { name: "Target percentage", exact: true });
+  await expect(calculator.getByRole("radio", { name: "70%", exact: true })).toBeChecked();
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  for (const target of [80, 90, 70]) {
+    await page.goto("/#more");
+    const preference = page.getByRole("radiogroup", { name: "Default attendance target", exact: true });
+    await preference.getByRole("radio", { name: `${target}%`, exact: true }).click();
+    await page.reload();
+    await expect(preference.getByRole("radio", { name: `${target}%`, exact: true })).toBeChecked();
+    await page.goto("/#attendance");
+    await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+    await expect(calculator.getByRole("radio", { name: `${target}%`, exact: true })).toBeChecked();
+    await calculator.getByRole("radio", { name: `${target === 70 ? 90 : 70}%`, exact: true }).click();
+    await page.getByRole("button", { name: "Close subject details" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+    await expect(calculator.getByRole("radio", { name: `${target}%`, exact: true })).toBeChecked();
+    await page.getByRole("button", { name: "Close subject details" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
+});
+
 test("short pulls and cancelled drags return to position; long pulls dismiss", async ({ page }) => {
   await pull(page, 20, { slow: true });
   await expect.poll(() => page.getByRole("dialog").evaluate((el) => getComputedStyle(el).translate)).toBe("0px");

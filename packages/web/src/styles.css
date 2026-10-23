@@ -2414,6 +2414,9 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .profile-name { margin: 0; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
 .profile-sub { font-size: var(--fs-s); color: var(--onSurfaceVariant); }
 .profile-institute { margin-top: 6px; max-width: 100%; }
+.more-preference { margin-top: 12px; padding: 20px; border-radius: var(--r-lg); background: var(--surfaceContainerLow); }
+.more-preference h2 { margin: 0; font-size: var(--fs-m); font-weight: 500; }
+.more-preference p { margin: 6px 0 16px; font-size: var(--fs-s); color: var(--onSurfaceVariant); }
 .more-actions { display: flex; flex-direction: column; gap: var(--gap-list-rows); margin-top: 12px; }
 .more-action {
   display: flex;

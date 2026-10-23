@@ -23,6 +23,7 @@ import {
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
 import { useAppBack } from "../hooks/useAppBack";
+import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget, type AttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { selectionHaptic } from "../lib/nativeInteractions";
 
 export function SubjectDetailSheet({
@@ -51,7 +52,8 @@ export function SubjectDetailSheet({
   const [isDragging, setIsDragging] = useState(false);
   const drag = useRef<{ pointerId: number; startY: number; startedAt: number } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [target, setTarget] = useState<70 | 80 | 90>(70);
+  const [defaultTarget] = useDefaultAttendanceTarget();
+  const [target, setTarget] = useState<AttendanceTarget>(defaultTarget);
   const [attendCount, setAttendCount] = useState(0);
   const [missCount, setMissCount] = useState(0);
 
@@ -216,7 +218,7 @@ export function SubjectDetailSheet({
               ) : <div />}
 
               <div className="segmented-pill-toggle att-target-toggle" role="radiogroup" aria-label="Target percentage">
-                {([70, 80, 90] as const).map((t) => (
+                {ATTENDANCE_TARGETS.map((t) => (
                   <button
                     key={t}
                     type="button"
