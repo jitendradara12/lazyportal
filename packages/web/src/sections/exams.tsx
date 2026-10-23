@@ -4,14 +4,8 @@ import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
-import {
-  CollapsibleCard,
-  SectionError,
-  useCardState,
-  countdown,
-  titleCase,
-  formatSemester,
-} from "../components/DataViews";
+import { SectionError, countdown, titleCase, formatSemester } from "../components/DataViews";
+import { TopBar, SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
 import { examTimes, groupExams, formatExamRoom, cleanExamSubject, type ExamRow } from "../lib/exams";
 
@@ -20,29 +14,15 @@ interface ExamEvent {
   exameventdesc?: string;
 }
 
-function formatExamDateTime(r: ExamRow): string {
-  const date = r.datetime ?? "";
-  let timeStr = "";
-  if (r.datetimeupto && /to/i.test(r.datetimeupto)) {
-    timeStr = r.datetimeupto;
-  } else if (r.datetimefrom && r.datetimeupto) {
-    timeStr = `${r.datetimefrom} to ${r.datetimeupto}`;
-  } else {
-    timeStr = r.datetimefrom ?? r.datetimeupto ?? "";
-  }
-  return [date, timeStr].filter(Boolean).join(" – ");
-}
-
 function examEventLabel(e: ExamEvent): string {
   return e.exameventdesc ?? String(e.exameventid ?? "");
 }
 
 export function ExamsSection({ session }: SectionProps) {
-  const card = useCardState("exams", false);
   const examSems = useFeature<Semester[]>({
     run: () => features.getExamSemesters(client, session),
     deps: [session],
-    enabled: card.hasExpanded,
+    enabled: true,
     cacheKey: sessionCacheKey("exams.sems", session),
     staleTimeMs: FEATURE_TTL.exams,
   });
@@ -50,7 +30,7 @@ export function ExamsSection({ session }: SectionProps) {
   const examEvents = useFeature<ExamEvent[]>({
     run: () => features.getExamEvents(client, session, { registrationid: examSemId }),
     deps: [session, examSemId],
-    enabled: card.hasExpanded && examSem !== null,
+    enabled: examSem !== null,
     cacheKey: examSem ? sessionCacheKey("exams.events", session, examSemId) : undefined,
     staleTimeMs: FEATURE_TTL.exams,
   });
@@ -66,13 +46,13 @@ export function ExamsSection({ session }: SectionProps) {
     run: () =>
       features.getExamSchedule(client, session, { registrationid: examSemId, exameventid: activeEventId }),
     deps: [session, examSemId, activeEventId],
-    enabled: card.hasExpanded && examSem !== null && activeEventId !== null,
+    enabled: examSem !== null && activeEventId !== null,
     cacheKey: examSem && activeEventId ? sessionCacheKey("exams.rows", session, examSemId, activeEventId) : undefined,
     staleTimeMs: FEATURE_TTL.exams,
   });
 
   const error = examSems.error ?? examEvents.error ?? examRows.error;
-  const loading = examSems.loading || examEvents.loading || examRows.loading || (card.hasExpanded && !error && (
+  const loading = examSems.loading || examEvents.loading || examRows.loading || (!error && (
     examSems.data === null || (examSems.data.length > 0 && examSem === null) ||
     (examSem !== null && examEvents.data === null) ||
     (activeEventId !== null && examRows.data === null)
@@ -85,7 +65,6 @@ export function ExamsSection({ session }: SectionProps) {
 
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    if (!card.hasExpanded) return;
     const update = () => setNow(Date.now());
     update();
     const timer = setInterval(update, 60_000);
@@ -96,114 +75,98 @@ export function ExamsSection({ session }: SectionProps) {
       window.removeEventListener("focus", update);
       document.removeEventListener("visibilitychange", update);
     };
-  }, [card.hasExpanded]);
+  }, []);
 
   const rows = examRows.data ?? [];
   const { upcoming, past, undated } = groupExams(rows, now);
-  const badgeText = upcoming.length > 0 ? `${upcoming.length} scheduled`
-    : loading ? "Loading…"
-    : error ? "Couldn't load schedules"
-    : undated.length > 0 ? "Dates unavailable"
-    : rows.length > 0 ? "No upcoming exams"
-    : card.hasExpanded ? "No schedules" : "Seating & dates";
+  const [next, ...later] = upcoming;
+  const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
   return (
-    <CollapsibleCard
-      id="exams"
-      title="Exam schedules"
-      badge={badgeText}
-      defaultOpen={false}
-      isOpen={card.isOpen}
-      onToggle={card.toggle}
-      action={
-        examSems.data && examSems.data.length > 1 ? (
-          <select
-            value={examSemId ?? ""}
-            onChange={(e) => {
-              setExamSemId(e.target.value);
-              setExamEventId(null);
-            }}
-            disabled={loading}
-            className="sem-picker"
-          >
-            {examSems.data.map((s) => (
-              <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                {formatSemester(s.registrationcode ?? s.registrationdesc)}
-              </option>
-            ))}
-          </select>
-        ) : undefined
-      }
-    >
-      {examEvents.data && examEvents.data.length > 1 && (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "4px 0 12px" }}>
-          <span className="muted" style={{ fontSize: "14px", fontWeight: 500 }}>Event:</span>
-          <select
-            value={activeEventId ?? ""}
-            onChange={(e) => setExamEventId(e.target.value)}
-            disabled={loading}
-            className="sem-picker"
-            style={{ maxWidth: "200px" }}
-          >
-            {examEvents.data.map((e) => (
-              <option key={String(e.exameventid)} value={String(e.exameventid)}>
-                {examEventLabel(e)}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      {loading && <p className="muted">Loading…</p>}
-      {upcoming.length > 0 && <ExamTable rows={upcoming} now={now} />}
-      {undated.length > 0 && (
-        <>
-          <p className="muted">Dates unavailable</p>
-          <ExamTable rows={undated} now={now} />
-        </>
-      )}
-      {past.length > 0 && (
-        <details className="past-exams" key={`${examSemId}:${activeEventId}`}>
-          <summary>Past exams ({past.length})</summary>
-          <ExamTable rows={past} now={now} />
-        </details>
-      )}
-      {rows.length === 0 && !error && !loading && (
-        <p className="muted">No exam schedule published for this semester yet.</p>
-      )}
-      {error && <SectionError label="Exams" error={error} retry={retry} />}
-    </CollapsibleCard>
+    <div className="page">
+      <TopBar title="Exams" subtitle={semLabel || undefined} busy={loading} refreshLabel="Refresh exams" />
+      <div className="page-body">
+        {((examEvents.data?.length ?? 0) > 1 || (examSems.data?.length ?? 0) > 1) && (
+          <div className="page-toolbar">
+            {examEvents.data && examEvents.data.length > 1 && (
+              <div className="chip-row" role="tablist" aria-label="Exam event">
+                {examEvents.data.map((e) => (
+                  <button key={String(e.exameventid)} type="button" role="tab" aria-selected={String(e.exameventid) === activeEventId}
+                    className={`chip-btn ${String(e.exameventid) === activeEventId ? "active" : ""}`}
+                    onClick={() => setExamEventId(String(e.exameventid))} disabled={loading}>
+                    {examEventLabel(e)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <SemesterPicker semesters={examSems.data ?? []} value={examSemId} disabled={loading} format={formatSemester}
+              onChange={(id) => { setExamSemId(id); setExamEventId(null); }} />
+          </div>
+        )}
+        {loading && rows.length === 0 && <p className="muted page-note">Loading…</p>}
+        {next && <ExamCard row={next} now={now} featured />}
+        {later.length > 0 && <div className="exam-list">{later.map((r, i) => <ExamCard key={i} row={r} now={now} />)}</div>}
+        {rows.length > 0 && upcoming.length === 0 && !loading && (
+          <p className="muted page-note">No upcoming exams. Past schedules are below.</p>
+        )}
+        {undated.length > 0 && (
+          <>
+            <h2 className="page-subhead">Date not announced</h2>
+            <div className="exam-list">{undated.map((r, i) => <ExamCard key={i} row={r} now={now} />)}</div>
+          </>
+        )}
+        {past.length > 0 && (
+          <details className="past-exams" key={`${examSemId}:${activeEventId}`}>
+            <summary>Past exams ({past.length})</summary>
+            <div className="exam-list">{past.map((r, i) => <ExamCard key={i} row={r} now={now} />)}</div>
+          </details>
+        )}
+        {rows.length === 0 && !error && !loading && (
+          <p className="muted page-note">No exam schedule published for this semester yet.</p>
+        )}
+        {error && <SectionError label="Exams" error={error} retry={retry} />}
+      </div>
+    </div>
   );
 }
 
-function ExamTable({ rows, now }: { rows: ExamRow[]; now: number }) {
+const IST = "Asia/Kolkata";
+
+function examTimeRange(r: ExamRow): string {
+  if (r.datetimeupto && /to/i.test(r.datetimeupto)) return r.datetimeupto;
+  if (r.datetimefrom && r.datetimeupto) return `${r.datetimefrom} to ${r.datetimeupto}`;
+  return r.datetimefrom ?? r.datetimeupto ?? "";
+}
+
+function ExamCard({ row, now, featured = false }: { row: ExamRow; now: number; featured?: boolean }) {
+  const times = examTimes(row);
+  const d = times ? new Date(times.start) : null;
+  const when = !times ? null : now >= times.start && now < times.end ? "Now" : times.start > now ? countdown(times.start - now) : null;
+  const room = formatExamRoom(row.roomcode);
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Date / Time</th>
-            <th>Subject</th>
-            <th>Room</th>
-            <th>Seat</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => {
-            const start = examTimes(r)?.start;
-            return (
-              <tr key={i}>
-                <td>
-                  {formatExamDateTime(r)}
-                  {start != null && start > now ? ` (${countdown(start - now)})` : ""}
-                </td>
-                <td>{titleCase(cleanExamSubject(r.subjectdesc))}</td>
-                <td>{formatExamRoom(r.roomcode)}</td>
-                <td>{r.seatno ?? "—"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <article className={`exam-card ${featured ? "is-next" : ""}`}>
+      <div className="exam-date" aria-hidden={d ? "true" : undefined}>
+        {d ? (
+          <>
+            <span className="exam-day">{d.toLocaleDateString("en-IN", { day: "numeric", timeZone: IST })}</span>
+            <span className="exam-month">{d.toLocaleDateString("en-IN", { month: "short", timeZone: IST })}</span>
+            <span className="exam-weekday">{d.toLocaleDateString("en-IN", { weekday: "short", timeZone: IST })}</span>
+          </>
+        ) : (
+          <span className="exam-month">TBA</span>
+        )}
+      </div>
+      <div className="exam-body">
+        <div className="exam-head">
+          <h3 className="exam-subject">{titleCase(cleanExamSubject(row.subjectdesc))}</h3>
+          {when && <span className="exam-when">{when}</span>}
+        </div>
+        <span className="exam-time">{d ? examTimeRange(row) : row.datetime ?? "Date not announced"}</span>
+        <div className="exam-seat">
+          <span className="exam-tag"><span className="exam-tag-label">Room</span> {room}</span>
+          <span className="exam-tag"><span className="exam-tag-label">Seat</span> {row.seatno ?? "—"}</span>
+        </div>
+      </div>
+    </article>
   );
 }

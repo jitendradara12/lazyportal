@@ -5,6 +5,7 @@ import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurre
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
+import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
 import {
   isCurrentPortalDay,
   computeSubjectRowChecksum,
@@ -30,18 +31,14 @@ import { runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanc
 export function AttendancePage({
   session,
   isExpired,
-  isRecovering,
-  onBack,
   onLogout,
-  onRequestRenew,
 }: {
   session: Session;
   isExpired?: boolean;
   isRecovering?: boolean;
-  onBack: () => void;
   onLogout: () => void;
-  onRequestRenew?: () => void;
 }) {
+  const shell = useShell();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshFeedback, setRefreshFeedback] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -251,8 +248,14 @@ export function AttendancePage({
     return { shortsCount: count, filteredRows: filtered };
   }, [rows, visibleDetailsMap, filter]);
 
+  const { setShorts } = shell;
+  useEffect(() => setShorts(shortsCount), [shortsCount, setShorts]);
+
   const handleRefresh = async () => {
     if (refreshInProgress.current || isSyncing || refreshFeedback || isExpired) return;
+    // One button, two jobs: marks/exams revalidate for free (throttled), while
+    // attendance below keeps its own daily quota. A spent quota never blocks the rest.
+    shell.refreshDashboard();
 
     if (!isDefault) {
       showNotice("Only current semester updates", 2000);
@@ -312,123 +315,52 @@ export function AttendancePage({
   const retry = refreshError ? () => handleRefresh() : att.error ? att.retry
     : detail.error ? detail.retry : () => setDetailSyncAttempt((attempt) => attempt + 1);
 
+  const status = isSyncing ? (
+    <span className="att-sync-pill is-syncing" role="status" aria-live="polite">
+      <span className="att-sync-dot" aria-hidden="true" />
+      <span>{syncProgress.total > 0 ? `Refreshing ${syncProgress.done}/${syncProgress.total}…` : "Refreshing…"}</span>
+    </span>
+  ) : quotaNotice ? (
+    <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">{quotaNotice}</span>
+  ) : lastSync ? (
+    <span className="att-sync-pill">{formatLastSync(lastSync)}</span>
+  ) : null;
+
   return (
-    <main className="dash att-page dash-view-enter">
-      {/* Top Navigation Bar */}
-      <header className="dash-top-bar att-top-bar">
-        <div className="att-top-left">
-          <button
-            type="button"
-            onClick={onBack}
-            className="dash-refresh-btn"
-            aria-label="Back to dashboard"
-            title="Back to dashboard"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-          </button>
+    <div className="page att-page">
+      <TopBar
+        title="Attendance"
+        subtitle={status}
+        busy={isSyncing}
+        onRefresh={() => void handleRefresh()}
+        feedback={refreshFeedback}
+        onFeedbackEnd={() => setRefreshFeedback(false)}
+        refreshLabel="Refresh attendance"
+        refreshTitle={
+          isSyncing
+            ? "Refreshing attendance…"
+            : isHardBlocked
+            ? getRefreshQuotaNotice(getManualRefreshQuota(session))
+            : shouldThrottleRefresh("attendance") && lastSync
+            ? formatLastSync(lastSync)
+            : "Refresh attendance"
+        }
+      />
 
-          <div className="att-header-titles">
-            <h1 className="att-header-title">Attendance</h1>
-            {isSyncing ? (
-              <span className="att-sync-pill is-syncing" role="status" aria-live="polite">
-                <span className="att-sync-dot" aria-hidden="true" />
-                <span>
-                  {syncProgress.total > 0
-                    ? `Refreshing ${syncProgress.done}/${syncProgress.total}…`
-                    : "Refreshing…"}
-                </span>
-              </span>
-            ) : quotaNotice ? (
-              <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">
-                {quotaNotice}
-              </span>
-            ) : lastSync ? (
-              <span className="att-sync-pill">
-                {formatLastSync(lastSync)}
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="att-top-actions">
-          {semesters.length > 1 && (
-            <select
-              value={semId ?? ""}
-              onChange={(e) => setSemId(e.target.value)}
-              disabled={loading || isSyncing}
-              className="sem-picker"
-              aria-label="Select Semester"
-            >
-              {semesters.map((s) => (
-                <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                  {formatSemester(s.registrationcode ?? s.registrationdesc)}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {isExpired && !isRecovering && (
-            <button
-              onClick={onRequestRenew}
-              className="m3-reconnect-pill"
-              title="Session expired — tap to reconnect"
-            >
-              <span className="reconnect-dot" />
-              <span>Reconnect</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => void handleRefresh()}
-            className={`dash-refresh-btn ${isSyncing ? "is-spinning" : refreshFeedback ? "is-feedback-spinning" : ""}`}
-            onAnimationEnd={() => setRefreshFeedback(false)}
-            aria-label="Refresh attendance"
-            title={
-              isSyncing
-                ? "Refreshing attendance…"
-                : isHardBlocked
-                ? getRefreshQuotaNotice(getManualRefreshQuota(session))
-                : shouldThrottleRefresh("attendance") && lastSync
-                ? formatLastSync(lastSync)
-                : "Refresh attendance"
-            }
-            disabled={isSyncing}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="23 4 23 10 17 10" />
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      <div className="att-content">
-        {/* Segmented Pill Toggle (only when subjects are short) */}
-        {shortsCount > 0 && rows.length > 0 && (
-          <div className="att-filter-bar">
-            <div className="segmented-pill-toggle" role="tablist" aria-label="Filter subjects">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={filter === "all"}
-                className={`segmented-pill ${filter === "all" ? "active" : ""}`}
-                onClick={() => setFilter("all")}
-              >
-                All {rows.length}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={filter === "short"}
-                className={`segmented-pill ${filter === "short" ? "active" : ""}`}
-                onClick={() => setFilter("short")}
-              >
-                Short {shortsCount}
-              </button>
-            </div>
+      <div className="page-body">
+        {((shortsCount > 0 && rows.length > 0) || semesters.length > 1) && (
+          <div className="page-toolbar">
+            {shortsCount > 0 && rows.length > 0 && (
+              <div className="segmented-pill-toggle att-filter" role="tablist" aria-label="Filter subjects">
+                <button type="button" role="tab" aria-selected={filter === "all"} className={`segmented-pill ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>
+                  All {rows.length}
+                </button>
+                <button type="button" role="tab" aria-selected={filter === "short"} className={`segmented-pill ${filter === "short" ? "active" : ""}`} onClick={() => setFilter("short")}>
+                  Short {shortsCount}
+                </button>
+              </div>
+            )}
+            <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading || isSyncing} format={formatSemester} />
           </div>
         )}
 
@@ -451,12 +383,12 @@ export function AttendancePage({
                 <button
                   key={String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? i)}
                   type="button"
-                  className={`m3-list-item att-subject-row ${attInfo.isShort ? "is-short-row" : ""}`}
+                  className={`att-subject-row ${attInfo.isShort ? "is-short-row" : ""}`}
                   onClick={() => setSelectedSubject(r as AttRow & Record<string, unknown>)}
                   aria-label={`${name}, ${attInfo.pct} attendance`}
                 >
-                  <div className="m3-item-content">
-                    <span className="m3-item-headline att-subject-name">{name}</span>
+                  <div className="att-subject-info">
+                    <span className="att-subject-name">{name}</span>
                     <span className="att-subject-supporting">
                       {badge && <span className="att-code">{badge}</span>}
                       {badge && " · "}
@@ -475,7 +407,9 @@ export function AttendancePage({
                     </span>
                   </div>
                   <span className={`att-row-pct ${hasPercentage ? attInfo.colorClass : "is-empty"}`}>
-                    {hasPercentage ? attInfo.pct : "--"}
+                    {hasPercentage ? (
+                      <>{attInfo.pct.replace("%", "")}<span className="att-pct-sign">%</span></>
+                    ) : "--"}
                   </span>
                 </button>
               );
@@ -514,37 +448,6 @@ export function AttendancePage({
         />
       )}
 
-      {/* Connected Button Group Footer */}
-      <footer className="dash-footer">
-        <span className="dash-footer-tagline">free and open source, always</span>
-        <div className="m3-connected-button-group" role="group" aria-label="Quick links">
-          <a
-            href="https://github.com/jitendradara12/lazyportal/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="m3-connected-btn"
-            aria-label="View source on GitHub"
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
-            </svg>
-            <span>GitHub</span>
-          </a>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="m3-connected-btn logout-action"
-            aria-label="Logout"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            <span>Logout</span>
-          </button>
-        </div>
-      </footer>
-    </main>
+    </div>
   );
 }

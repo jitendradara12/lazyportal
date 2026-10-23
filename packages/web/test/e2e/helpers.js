@@ -50,7 +50,7 @@ export async function renewSession(page) {
   // The dashboard's attendance hero. Its accessible name carries live data
   // ("Attendance, Loading…" → "Attendance, 78% attendance"), so match the
   // stable prefix instead of the full label.
-  await expect(page.getByRole("button", { name: /^Attendance,/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
 }
 
 export async function emitNativePrompt(page, { outcome = "accepted", fail = false, pending = false } = {}) {

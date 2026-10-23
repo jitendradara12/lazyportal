@@ -4,24 +4,12 @@ import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
-import { formatEventCode } from "../lib/marks.ts";
-import {
-  CollapsibleCard,
-  SectionError,
-  useCardState,
-  titleCase,
-  formatSemester,
-} from "../components/DataViews";
+import { formatEventCode, extractEvents, combineSubjectMarks, type MarkRow } from "../lib/marks.ts";
+import { SectionError, titleCase, formatSemester } from "../components/DataViews";
+import { TopBar, SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
 
-export interface MarkRow {
-  subjectcode?: string;
-  subjectdesc?: string;
-  eventcode?: string;
-  fullmarks?: string | number;
-  obtainedmarks?: string | number;
-  [key: string]: unknown;
-}
+export type { MarkRow };
 
 interface MarksDetail {
   rows: MarkRow[];
@@ -33,11 +21,10 @@ interface MarksLatest extends MarksDetail {
 }
 
 export function MarksSection({ session }: SectionProps) {
-  const card = useCardState("marks", false);
   const lov = useFeature<MarksLatest>({
     run: () => features.getMarksLatest(client, session),
     deps: [session],
-    enabled: card.hasExpanded,
+    enabled: true,
     cacheKey: sessionCacheKey("marks.latest", session),
     staleTimeMs: FEATURE_TTL.marks,
   });
@@ -46,7 +33,7 @@ export function MarksSection({ session }: SectionProps) {
   const detail = useFeature<MarksDetail>({
     run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: card.hasExpanded && sem !== null && !isDefault,
+    enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("marks.detail", session, semId) : undefined,
     staleTimeMs: FEATURE_TTL.marks,
   });
@@ -58,125 +45,72 @@ export function MarksSection({ session }: SectionProps) {
   const error = lov.error ?? detail.error;
   // Include the gaps between chained reads/semester selection, before their
   // effects start the next request. Those are still loading, not empty results.
-  const loading = lov.loading || detail.loading || (card.hasExpanded && !error && (
+  const loading = lov.loading || detail.loading || (!error && (
     lov.data === null || (semesters.length > 0 && sem === null) ||
     (sem !== null && !isDefault && detail.data === null)
   ));
   const retry = lov.error ? lov.retry : detail.retry;
-  const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects`
-    : loading ? "Loading…"
-    : error ? "Couldn't load marks"
-    : card.hasExpanded ? "No marks" : "Evaluation & test marks";
+  const [filter, setFilter] = useState<string>("All");
 
-  const [filter, setFilter] = useState<string>("");
+  const events = useMemo(() => extractEvents(rawRows), [rawRows]);
 
-  const events = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rawRows) {
-      const formatted = formatEventCode(r.eventcode);
-      if (formatted) set.add(formatted);
-    }
-    const list = Array.from(set);
-    list.sort((a, b) => {
-      const aP = a[0];
-      const bP = b[0];
-      if (aP !== bP) {
-        if (aP === "T") return -1;
-        if (bP === "T") return 1;
-      }
-      return a.localeCompare(b, undefined, { numeric: true });
-    });
-    return list;
-  }, [rawRows]);
-
-  const activeFilter = events.includes(filter) ? filter : events[0] ?? "";
+  const activeFilter = events.length > 1 && events.includes(filter) ? filter : "All";
 
   const filteredRows = useMemo(() => {
-    if (!activeFilter) return rawRows;
+    if (activeFilter === "All") return combineSubjectMarks(rawRows);
     return rawRows.filter((r) => formatEventCode(r.eventcode) === activeFilter);
   }, [rawRows, activeFilter]);
 
+  const num = (v: unknown) => (v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+
   return (
-    <CollapsibleCard
-      id="marks"
-      title="Marks"
-      badge={badgeText}
-      defaultOpen={false}
-      isOpen={card.isOpen}
-      onToggle={card.toggle}
-      action={
-        semesters.length > 1 ? (
-          <select
-            value={semId ?? ""}
-            onChange={(e) => setSemId(e.target.value)}
-            disabled={loading}
-            className="sem-picker"
-          >
-            {semesters.map((s) => (
-              <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                {formatSemester(s.registrationcode ?? s.registrationdesc)}
-              </option>
-            ))}
-          </select>
-        ) : undefined
-      }
-    >
-      {loading && <p className="muted">Loading…</p>}
-      {rawRows.length > 0 && events.length > 1 && (
-        <div className="segmented-pill-toggle att-target-toggle" role="tablist" aria-label="Filter marks" style={{ margin: "0 auto 12px" }}>
-          {events.map((ev) => (
-            <button
-              key={ev}
-              type="button"
-              role="tab"
-              aria-selected={activeFilter === ev}
-              className={`segmented-pill ${activeFilter === ev ? "active" : ""}`}
-              onClick={() => setFilter(ev)}
-            >
-              {ev}
-            </button>
-          ))}
-        </div>
-      )}
-      {filteredRows.length > 0 && (
-        <div className="table-scroll">
-          <table className="marks-table">
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th className="num-col">Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((r, i) => {
-                return (
-                  <tr key={i}>
-                    <td>
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "6px" }}>
-                        {r.subjectcode && <span className="badge marks-course-code">{r.subjectcode}</span>}
-                        {events.length <= 1 && formatEventCode(r.eventcode) && (
-                          <span className="att-log-type-tag">{formatEventCode(r.eventcode)}</span>
-                        )}
-                      </div>
-                      {titleCase(r.subjectdesc ?? "")}
-                    </td>
-                    <td className="num-col">
-                      <span className="marks-score">
-                        <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
-                        <span className="marks-score-total">/{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</span>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {lov.data && rawRows.length === 0 && !error && !loading && (
-        <p className="muted">No marks records found for {semLabel || "this semester"}.</p>
-      )}
-      {error && <SectionError label="Marks" error={error} retry={retry} />}
-    </CollapsibleCard>
+    <div className="page">
+      <TopBar title="Marks" subtitle={semLabel || undefined} busy={loading} refreshLabel="Refresh marks" />
+      <div className="page-body">
+        {(events.length > 1 || semesters.length > 1) && (
+          <div className="page-toolbar">
+            {events.length > 1 && (
+              <div className="chip-row" role="tablist" aria-label="Filter marks by test">
+                {["All", ...events].map((ev) => (
+                  <button key={ev} type="button" role="tab" aria-selected={activeFilter === ev}
+                    className={`chip-btn ${activeFilter === ev ? "active" : ""}`} onClick={() => setFilter(ev)}>
+                    {ev}
+                  </button>
+                ))}
+              </div>
+            )}
+            <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading} format={formatSemester} />
+          </div>
+        )}
+        {loading && rawRows.length === 0 && <p className="muted page-note">Loading…</p>}
+        {filteredRows.length > 0 && (
+          <ul className="score-list">
+            {filteredRows.map((r, i) => {
+              const got = num(r.obtainedmarks);
+              const full = num(r.fullmarks);
+              return (
+                <li key={i} className="score-row">
+                  <div className="score-info">
+                    <span className="score-subject">{titleCase(r.subjectdesc ?? "")}</span>
+                    <span className="score-meta">
+                      {r.subjectcode && <span className="att-code">{r.subjectcode}</span>}
+                      {activeFilter === "All" && r.eventcode}
+                    </span>
+                  </div>
+                  <span className="score-value">
+                    <strong>{got ?? (r.obtainedmarks ? String(r.obtainedmarks) : "—")}</strong>
+                    <span className="score-total">/{full ?? "—"}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {lov.data && rawRows.length === 0 && !error && !loading && (
+          <p className="muted page-note">No marks records found for {semLabel || "this semester"}. They show up here once faculty upload them.</p>
+        )}
+        {error && <SectionError label="Marks" error={error} retry={retry} />}
+      </div>
+    </div>
   );
 }
