@@ -125,3 +125,76 @@ test("desktop timeline and calendar picker fit without overflow", async ({ page 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `/tmp/exams-desktop-${test.info().project.name}.png`, fullPage: true });
 });
+
+async function nativeExportBridge(page, { legacy = false } = {}) {
+  await page.addInitScript(({ legacy }) => {
+    window.androidBridge = {};
+    window.__calendarCalls = [];
+    // A native export must never try a WebView blob download.
+    URL.createObjectURL = () => { throw new Error("Blob downloads are unavailable in WebView"); };
+    window.Capacitor = {
+      PluginHeaders: legacy ? [] : [{ name: "ExamCalendar", methods: [
+        { name: "insert", rtype: "promise" }, { name: "exportCalendar", rtype: "promise" },
+      ] }],
+      nativePromise: async (plugin, method, data) => {
+        window.__calendarCalls.push({ plugin, method, data });
+        if (method === "insert") throw new Error("No calendar app");
+        if (window.__exportFail) throw new Error("Could not save file");
+        return { cancelled: Boolean(window.__exportCancelled) };
+      },
+    };
+  }, { legacy });
+}
+
+test("native bulk and single-exam files use the save bridge, including cancellation", async ({ page }) => {
+  await nativeExportBridge(page);
+  await setup(page);
+  const bulk = page.getByRole("button", { name: "Export upcoming exams", exact: true });
+  await bulk.click();
+  await expect(bulk).toBeEnabled();
+  const [call] = await page.evaluate(() => window.__calendarCalls);
+  expect(call.method).toBe("exportCalendar");
+  expect(call.data.content.match(/BEGIN:VEVENT/g)).toHaveLength(2);
+  expect(call.data.content).toContain("LOCATION:LT3-B5");
+  await page.getByRole("button", { name: "Add Artificial Intelligence to calendar", exact: true }).click();
+  await page.getByRole("button", { name: "Calendar file (.ics)", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Google Calendar" })).not.toBeVisible();
+  const calls = await page.evaluate(() => window.__calendarCalls);
+  expect(calls.map((call) => call.method)).toEqual(["exportCalendar", "insert", "exportCalendar"]);
+  expect(calls[2].data.content.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  await page.evaluate(() => { window.__exportCancelled = true; });
+  await bulk.click();
+  await expect(bulk).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("native write failures show a retryable error instead of pretending to download", async ({ page }) => {
+  await nativeExportBridge(page);
+  await setup(page);
+  await page.evaluate(() => { window.__exportFail = true; });
+  const bulk = page.getByRole("button", { name: "Export upcoming exams", exact: true });
+  await bulk.click();
+  await expect(page.getByRole("alert")).toContainText("Couldn’t save calendar");
+  await expect(bulk).toBeEnabled();
+  await page.evaluate(() => { window.__exportFail = false; });
+  await bulk.click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.evaluate(() => { window.__exportFail = true; });
+  await page.getByRole("button", { name: "Add Artificial Intelligence to calendar", exact: true }).click();
+  const single = page.getByRole("button", { name: "Calendar file (.ics)", exact: true });
+  await single.click();
+  await expect(page.getByRole("alert")).toContainText("Couldn’t save calendar");
+  await expect(single).toBeEnabled();
+  await page.evaluate(() => { window.__exportFail = false; });
+  await single.click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("legacy APKs offer Google Calendar without broken file-export actions", async ({ page }) => {
+  await nativeExportBridge(page, { legacy: true });
+  await setup(page);
+  await expect(page.getByRole("button", { name: "Export upcoming exams", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add Artificial Intelligence to calendar", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Google Calendar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Calendar file (.ics)", exact: true })).toHaveCount(0);
+});

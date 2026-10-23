@@ -11,7 +11,8 @@ import type { SectionProps, Semester } from "../types";
 import { examTimes, groupExams, formatExamRoom, cleanExamSubject, type ExamRow } from "../lib/exams";
 import { ExamCalendarButton } from "../components/ExamCalendarButton";
 import { CalendarAddIcon } from "../components/icons";
-import { examCalendarEvent, downloadExamsCalendar } from "../lib/examCalendar";
+import { examCalendarEvent } from "../lib/examCalendar";
+import { canExportExamCalendar, exportExamCalendar } from "../lib/examCalendarActions";
 
 interface ExamEvent {
   exameventid?: string;
@@ -88,11 +89,21 @@ export function ExamsSection({ session }: SectionProps) {
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
   const pageRefresh = usePageRefresh("exams", session, loading);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  async function exportUpcoming() {
+    if (exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try { await exportExamCalendar(exportable); }
+    catch { setExportError("Couldn’t save calendar. Try again."); }
+    finally { setExporting(false); }
+  }
 
   return (
     <div className="page">
       <TopBar title="Exams" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh exams"
-        actions={exportable.length > 0 && <button type="button" className="exam-calendar-button exam-export" aria-label="Export upcoming exams" title="Export upcoming exams" onClick={() => downloadExamsCalendar(exportable)}><CalendarAddIcon /></button>} />
+        actions={exportable.length > 0 && canExportExamCalendar() && <button type="button" className="exam-calendar-button exam-export" aria-label="Export upcoming exams" title="Export upcoming exams" disabled={exporting} onClick={exportUpcoming}><CalendarAddIcon /></button>} />
       <div className="page-body">
         {((examEvents.data?.length ?? 0) > 1 || (examSems.data?.length ?? 0) > 1) && (
           <div className="page-toolbar">
@@ -136,6 +147,7 @@ export function ExamsSection({ session }: SectionProps) {
           <p className="muted page-note">No exam schedule published for this semester yet.</p>
         )}
         {error && <SectionError label="Exams" error={error} retry={retry} />}
+        {exportError && <SectionError label="Calendar" error={exportError} retry={exportUpcoming} />}
       </div>
     </div>
   );

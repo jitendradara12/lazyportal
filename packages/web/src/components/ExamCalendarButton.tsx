@@ -1,14 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Capacitor, registerPlugin } from "@capacitor/core";
-import { examCalendarEvent, googleExamUrl, downloadExamsCalendar } from "../lib/examCalendar";
+import { Capacitor } from "@capacitor/core";
+import { examCalendarEvent, googleExamUrl } from "../lib/examCalendar";
+import { nativeExamCalendar, canExportExamCalendar, exportExamCalendar } from "../lib/examCalendarActions";
 import type { ExamRow } from "../lib/exams";
 import { CalendarAddIcon } from "./icons";
-
-const calendar = registerPlugin<{ insert(event: NonNullable<ReturnType<typeof examCalendarEvent>>): Promise<void> }>("ExamCalendar");
 
 export function ExamCalendarButton({ row }: { row: ExamRow }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [exportError, setExportError] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const id = useId();
@@ -32,10 +32,21 @@ export function ExamCalendarButton({ row }: { row: ExamRow }) {
     if (!event || busy) return;
     if (Capacitor.isPluginAvailable("ExamCalendar")) {
       setBusy(true);
-      try { await calendar.insert(event); }
+      try { await nativeExamCalendar.insert(event); }
       catch { setOpen(true); }
       finally { setBusy(false); }
     } else setOpen(!open);
+  }
+
+  async function exportFile() {
+    setBusy(true);
+    setExportError(false);
+    try {
+      await exportExamCalendar([row]);
+      setOpen(false);
+      button.current?.focus();
+    } catch { setExportError(true); }
+    finally { setBusy(false); }
   }
 
   const label = event ? `Add ${event.title} to calendar` : "Calendar unavailable until exam times are announced";
@@ -48,7 +59,8 @@ export function ExamCalendarButton({ row }: { row: ExamRow }) {
       {open && googleUrl && (
         <div className="exam-calendar-options" id={id} role="group" aria-label="Add to calendar">
           <a href={googleUrl} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Google Calendar</a>
-          <button type="button" onClick={() => { downloadExamsCalendar([row]); setOpen(false); button.current?.focus(); }}>Calendar file (.ics)</button>
+          {canExportExamCalendar() && <button type="button" disabled={busy} onClick={exportFile}>Calendar file (.ics)</button>}
+          {exportError && <p role="alert">Couldn’t save calendar. Try again.</p>}
         </div>
       )}
     </div>
