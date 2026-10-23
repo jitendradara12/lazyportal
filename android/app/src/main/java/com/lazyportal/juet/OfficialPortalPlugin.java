@@ -11,6 +11,7 @@ import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.lazyportal.juet.officialportal.OfficialPortalView;
 import com.lazyportal.juet.officialportal.PortalPolicy;
+import com.lazyportal.juet.officialportal.PortalStorage;
 
 /** Thin platform entry point. The live web app supplies the versioned bootstrap;
  * the packaged policy independently confines every network operation. */
@@ -24,7 +25,9 @@ public class OfficialPortalPlugin extends Plugin {
         try { policy = PortalPolicy.load(getContext()); }
         catch (Exception ignored) { /* open() reports a missing/broken policy. */ }
         // Also remove storage left by a process kill, which may skip dismiss.
-        getActivity().runOnUiThread(this::closeView);
+        getActivity().runOnUiThread(() -> {
+            if (policy != null) PortalStorage.clear(getActivity(), policy.origin, success -> {});
+        });
         pageListener = new WebViewListener() {
             @Override public void onPageStarted(WebView view) { closeView(); }
         };
@@ -57,7 +60,14 @@ public class OfficialPortalPlugin extends Plugin {
     }
 
     @PluginMethod public void clear(PluginCall call) {
-        getActivity().runOnUiThread(() -> { closeView(); call.resolve(); });
+        getActivity().runOnUiThread(() -> {
+            closeView();
+            if (policy == null) call.resolve();
+            else PortalStorage.clear(getActivity(), policy.origin, success -> {
+                if (success) call.resolve();
+                else call.reject("Could not clear the old portal session. Please restart the app.");
+            });
+        });
     }
 
     private void closeView() {

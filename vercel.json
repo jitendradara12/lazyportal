@@ -6,6 +6,12 @@
   "regions": ["bom1"],
   "headers": [
     {
+      "source": "/",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://localhost" }
+      ]
+    },
+    {
       "source": "/assets/:path*",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }

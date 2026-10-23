@@ -152,8 +152,13 @@ The HTML viewport starts at 60% zoom with native WebView pinch-to-zoom enabled
 tag handles density correctly; no CSS scaling, desktop user-agent spoofing, or
 custom gesture handling is involved.
 
-Close destroys the extra view, cancels its requests and deletes its isolated
-storage. Logout/account changes also clear it. Public content-hashed JS/CSS can
+The APK injects memory-backed localStorage/sessionStorage before the live
+bootstrap and official scripts. Tokens, refreshed tokens and subsequent portal
+storage writes never reach disk, including when the process dies without closing
+the view. A local, network-disabled cleanup document also removes legacy tokens
+left by older builds at startup/logout; it touches only the private portal origin.
+Close synchronously cancels requests, destroys the extra view and drops its
+in-memory storage. Logout/account changes also close it. Public content-hashed JS/CSS can
 remain in a private 32 MiB cache; student responses and HTML are never cached.
 API requests have a 512 KiB body cap, an 8 MiB response cap, four workers and a
 32-request queue. Timeouts/cancellation never fall back to Vercel.
@@ -188,10 +193,32 @@ with a permissive trust manager.
 
 ### Verification
 
-CI runs native policy/cache/TLS/negative-transport unit tests and compiles the
-device tests alongside the debug APK. It does not boot a device. JavaScript tests
+CI runs native policy/cache/TLS/negative-transport unit tests, compiles the
+device tests alongside the debug APK, and executes those APKs on API24 and API36
+emulators. Release publication requires both device jobs to pass. The older
+emulator exercises legacy cleanup and the other native plugins; the official
+view requires a sufficiently recent System WebView and skips on an old provider,
+matching the app's update prompt. API36 must exercise the view rather than skip.
+Storage tests verify legacy cleanup, preservation of the hosted origin, and no
+token persistence after destroying a document without dismissal. The view test
+uses the generated production bootstrap with fake upstream responses and checks
+clear/reopen ordering and synthetic cutout insets. JavaScript tests
 exercise the official session/bootstrap adapter, XHR/fetch, cancellations,
 blocked actions and the More entry's zero-hosted-API lifecycle.
+
+Offline TLS device tests run the supplemental-chain logic through Android's real
+trust manager using public artificial certificates and a test-only in-memory CA
+store, then verify the real system roots still reject that chain. No test CA is
+packaged with the production app and no private keys are committed. Live JUET
+connectivity and hostname verification remain part of final-device QA.
+
+The bundled offline page probes only the static live entry document with HEAD,
+checks readable HTTP success/HTML, and backs off from 5 seconds to 60 seconds.
+It pauses while hidden/disconnected. The `/` static CORS header in `vercel.json`
+permits the local `https://localhost` error page to read status; deploy that header
+before distributing the new APK. No recovery endpoint or serverless invocation is
+added. An older deployment without the header fails safely and leaves manual
+Retry available until the hosted deployment is updated.
 
 For the CI-built APK, sign in on the device and check:
 

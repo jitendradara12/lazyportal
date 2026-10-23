@@ -45,10 +45,11 @@ public final class OfficialPortalView {
     private final PortalPolicy policy;
     private final PortalTransport transport;
     private final ComponentDialog dialog;
+    private final Closed onClosed;
     final WebView webView;
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(4, 4, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(32));
     private final Map<String, FutureTask<Void>> pending = new ConcurrentHashMap<>();
-    private boolean closed, expired;
+    private boolean closed, expired, closeDelivered;
     private volatile String bootstrap;
 
     public OfficialPortalView(Activity activity, PortalPolicy policy, String bootstrap, Closed onClosed) throws Exception {
@@ -58,7 +59,9 @@ public final class OfficialPortalView {
     // The transport seam lets device tests exercise actual WebView messaging
     // and interception using fake upstream connections, with no student account.
     OfficialPortalView(Activity activity, PortalPolicy policy, String bootstrap, Closed onClosed, PortalTransport transport) {
-        this.activity = activity; this.policy = policy; this.bootstrap = bootstrap; this.transport = transport;
+        this.activity = activity; this.policy = policy; this.transport = transport; this.onClosed = onClosed;
+        try { this.bootstrap = PortalStorage.bootstrap(activity) + bootstrap; }
+        catch (Exception error) { throw new IllegalStateException("Portal storage isolation unavailable", error); }
         dialog = new ComponentDialog(activity, android.R.style.Theme_Material_NoActionBar);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         boolean dark = (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
@@ -78,7 +81,7 @@ public final class OfficialPortalView {
         dialog.setContentView(root);
         WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), false);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
-            var bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.ime());
+            var bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom); return insets;
         });
         WebSettings settings = webView.getSettings();
@@ -173,20 +176,27 @@ public final class OfficialPortalView {
                 else close();
             }
         });
-        dialog.setOnDismissListener(ignored -> {
-            dispose(); onClosed.accept(expired);
-        });
+        dialog.setOnDismissListener(ignored -> finishClose());
     }
 
     public void show() {
-        // Clear this view's origin before the first official script runs. Never
-        // deleteAllData(), clear all cookies, or touch Vercel's credential store.
+        // IndexedDB cleanup; the injected storage prelude clears old Web Storage
+        // and keeps all subsequent localStorage/sessionStorage writes in memory.
         WebStorage.getInstance().deleteOrigin(policy.origin);
         dialog.show(); dialog.getWindow().setLayout(-1, -1);
         webView.loadUrl(policy.origin + policy.entry);
     }
 
-    public void close() { if (dialog.isShowing()) dialog.dismiss(); else dispose(); }
+    public void close() {
+        if (dialog.isShowing()) dialog.dismiss();
+        // Android posts OnDismissListener asynchronously. Complete now so an
+        // old callback cannot clear the plugin's reference to a newer view.
+        finishClose();
+    }
+    private void finishClose() {
+        dispose();
+        if (!closeDelivered) { closeDelivered = true; onClosed.accept(expired); }
+    }
     private void cancelRequests() {
         for (var entry : pending.entrySet()) { entry.getValue().cancel(true); transport.cancel(entry.getKey()); }
         pending.clear(); executor.purge();
