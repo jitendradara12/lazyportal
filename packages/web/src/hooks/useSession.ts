@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cancelSessionRecovery, getSessionStatus, onSessionStatus, savedCredentials, setSessionStatus, store, type SessionStatus } from "../lib/portal";
 import { invalidateCacheGeneration } from "./useFeature";
 import type { Session } from "../types";
+import { clearOfficialPortal } from "../lib/officialPortal";
 
 function restore(): Session | null {
   return store.load();
@@ -12,6 +13,7 @@ export function useSession() {
   const [status, setStatus] = useState<SessionStatus>(() => (restore() ? getSessionStatus() : "expired"));
 
   const save = useCallback((s: Session) => {
+    clearOfficialPortal();
     cancelSessionRecovery();
     store.save(s);
     setSession(s);
@@ -20,6 +22,7 @@ export function useSession() {
   }, []);
 
   const logout = useCallback(() => {
+    clearOfficialPortal();
     cancelSessionRecovery();
     invalidateCacheGeneration();
     store.clear();

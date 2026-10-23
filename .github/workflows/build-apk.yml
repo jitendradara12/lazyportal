@@ -64,7 +64,9 @@ jobs:
 
       - name: Build debug APK and run Android unit tests
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+        # An unqualified device-test task also packages dependency test APKs.
+        # Only our app's instrumentation APK is needed for device verification.
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest :app:assembleDebugAndroidTest
 
       - name: Upload debug APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

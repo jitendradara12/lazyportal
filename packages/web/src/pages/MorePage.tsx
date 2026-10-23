@@ -3,6 +3,7 @@ import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget } from "../hooks/useDefa
 import { SECTIONS } from "../sections";
 import { TopBar } from "../components/AppBar";
 import { titleCase } from "../components/DataViews";
+import { OfficialPortalEntry } from "../components/OfficialPortalEntry";
 import type { Session } from "../types";
 
 interface InstituteOption {
@@ -51,6 +52,8 @@ export function MorePage({
             ) : null}
           </div>
         </section>
+
+        <OfficialPortalEntry session={session} />
 
         <div className="m3-stacked-sections" role="list">
           {SECTIONS.filter((s) => s.enabled !== false).map(({ id, Component }) => (
