@@ -6,6 +6,7 @@ import { CgpaSection } from "./cgpa";
 import { ExamsSection } from "./exams";
 import { FacultySection } from "./faculty";
 import { SubjectsSection } from "./subjects";
+import { MarksIcon, ExamsIcon } from "../components/icons";
 
 export interface SectionEntry {
   id: string;
@@ -15,18 +16,27 @@ export interface SectionEntry {
   enabled?: boolean;
 }
 
+export interface TabEntry extends SectionEntry {
+  Icon: ComponentType;
+}
+
 /**
- * Dashboard registry. One line per section, rendered in order.
+ * Bottom-nav tabs between Attendance (always first, the landing tab) and More.
+ * Each tab is a full page that renders its own TopBar.
+ */
+export const TABS: TabEntry[] = [
+  { id: "marks", label: "Marks", Component: MarksSection, Icon: MarksIcon },
+  { id: "exams", label: "Exams", Component: ExamsSection, Icon: ExamsIcon },
+];
+
+/**
+ * Sections listed on the More page, rendered in order.
  * To turn a section off, set enabled: false. To drop it, delete its line + file.
- * Attendance is not listed: the dashboard hero card links to the full
- * AttendancePage (see pages/AttendancePage.tsx) instead of a dashboard card.
  * Grades/CGPA are off: new portal returns 500/empty even officially. Flip on when fixed.
  */
 export const SECTIONS: SectionEntry[] = [
-  { id: "marks", label: "Marks", Component: MarksSection },
   { id: "grades", label: "Grades", Component: GradesSection, enabled: false },
   { id: "cgpa", label: "CGPA", Component: CgpaSection, enabled: false },
-  { id: "exams", label: "Exams", Component: ExamsSection },
   { id: "faculty", label: "Faculty", Component: FacultySection },
   { id: "subjects", label: "Subjects", Component: SubjectsSection },
 ];

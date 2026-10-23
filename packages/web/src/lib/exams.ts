@@ -50,3 +50,88 @@ export function groupExams(rows: ExamRow[], now: number) {
   }
   return { upcoming, past, undated };
 }
+
+/**
+ * Strip course codes in parentheses from exam subject descriptions.
+ * E.g. "CONCEPTS OF ECONOMICS (HS301)" -> "CONCEPTS OF ECONOMICS".
+ */
+export function cleanExamSubject(subject?: string | null): string {
+  if (!subject) return "";
+  const s = String(subject).trim();
+  const stripped = s.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return stripped || s;
+}
+
+/**
+ * Format portal room values (e.g. "LT-4: LECTURE THEATER 4" -> "LT-4").
+ * Extracts concise room codes, cleans common labels, and preserves unrecognized text.
+ */
+export function formatExamRoom(room?: string | null): string {
+  if (room == null) return "—";
+  let s = String(room).trim();
+  if (!s || s === "—" || s === "-") return "—";
+
+  // Strip leading label like "Room:" or "Venue:" or "Location:"
+  s = s.replace(/^(?:room|venue|location)\s*:\s*/i, "").trim();
+  if (!s) return "—";
+
+  // Full descriptive room names without code: "LECTURE THEATER 4" -> "LT-4"
+  const descMatch = s.match(
+    /^(lecture\s+theat(?:er|re)|class\s*room|computer\s+lab|tutorial\s+room)\s*[-#]?\s*(\d+[a-z]?)$/i
+  );
+  if (descMatch) {
+    const kind = descMatch[1].toLowerCase();
+    const num = descMatch[2].toUpperCase();
+    if (kind.startsWith("lecture")) return `LT-${num}`;
+    if (kind.startsWith("class")) return `CR-${num}`;
+    if (kind.startsWith("computer")) return `CL-${num}`;
+    if (kind.startsWith("tutorial")) return `TR-${num}`;
+  }
+
+  const colonIndex = s.indexOf(":");
+  if (colonIndex !== -1) {
+    const prefix = s.slice(0, colonIndex).trim();
+    const rest = s.slice(colonIndex + 1).trim();
+
+    if (!prefix) {
+      return rest ? formatExamRoom(rest) : "—";
+    }
+
+    if (/^(?:note|notice|info|warning|alert)$/i.test(prefix)) {
+      return s;
+    }
+
+    const words = prefix.split(/\s+/);
+    if (prefix.length <= 20 && words.length <= 3) {
+      const normMatch = prefix.match(/^([a-z]+)\s+(\d+[a-z]?)$/i);
+      if (normMatch && /^(lt|cr|cl|tr)$/i.test(normMatch[1])) {
+        return `${normMatch[1].toUpperCase()}-${normMatch[2].toUpperCase()}`;
+      }
+      const codeMatch = prefix.match(/^([a-z]+)-(\d+[a-z]?)$/i);
+      if (codeMatch && /^(lt|cr|cl|tr)$/i.test(codeMatch[1])) {
+        return `${codeMatch[1].toUpperCase()}-${codeMatch[2].toUpperCase()}`;
+      }
+      return prefix;
+    }
+
+    if (rest) {
+      const cleanedRest = formatExamRoom(rest);
+      if (cleanedRest !== "—" && cleanedRest.length <= 15) {
+        return cleanedRest;
+      }
+    }
+
+    return prefix.length <= 30 ? prefix : s;
+  }
+
+  const normMatch = s.match(/^([a-z]+)\s+(\d+[a-z]?)$/i);
+  if (normMatch && /^(lt|cr|cl|tr)$/i.test(normMatch[1])) {
+    return `${normMatch[1].toUpperCase()}-${normMatch[2].toUpperCase()}`;
+  }
+  const codeMatch = s.match(/^([a-z]+)-(\d+[a-z]?)$/i);
+  if (codeMatch && /^(lt|cr|cl|tr)$/i.test(codeMatch[1])) {
+    return `${codeMatch[1].toUpperCase()}-${codeMatch[2].toUpperCase()}`;
+  }
+
+  return s;
+}

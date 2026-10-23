@@ -60,6 +60,22 @@ test("marks opening and semester-selection gaps show loading rather than No mark
   }
   selectSemester("marks");
   assert.match(render(MarksSection), /No marks records found/);
+
+  cache("marks.latest", {
+    semesters: [semester],
+    rows: [
+      { subjectcode: "CS104", subjectdesc: "DATABASE SYSTEMS", eventcode: "TEST-1", obtainedmarks: 9, fullmarks: 15 },
+      { subjectcode: "CS104", subjectdesc: "DATABASE SYSTEMS", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 },
+      { subjectcode: "CS204", subjectdesc: "DATABASE SYSTEMS LAB", eventcode: "P-1", obtainedmarks: 10, fullmarks: 15 },
+    ],
+  });
+  const marksHtml = render(MarksSection);
+  assert.doesNotMatch(marksHtml, /Filter marks by test|role="tablist"/);
+  assert.equal((marksHtml.match(/class="score-card"/g) ?? []).length, 2);
+  assert.equal((marksHtml.match(/aria-expanded="false"/g) ?? []).length, 2);
+  assert.match(marksHtml, /Database Systems exam marks/);
+  assert.match(marksHtml, /<strong>22<\/strong><span class="score-total">\/40<\/span>/);
+  assert.match(marksHtml, /<strong>10<\/strong><span class="score-total">\/15<\/span>/);
 });
 
 test("exams stay loading through the semester/events/schedule chain", () => {
@@ -76,15 +92,20 @@ test("exams stay loading through the semester/events/schedule chain", () => {
   assert.match(render(ExamsSection), /No exam schedule published/);
 });
 
-test("all-past schedules are collapsed and no longer counted as scheduled", () => {
+test("all-past schedules remain visible as completed timeline stops", () => {
   values.set("juet.portal.card.exams", "1");
   selectSemester("exams");
   cache("exams.sems", [semester]);
   cache("exams.events", [{ exameventid: "event1" }], "sem1");
-  cache("exams.rows", [{ datetime: "01/01/2000", datetimeupto: "09:00 am to 11:00 am", subjectdesc: "PAST EXAM" }], "sem1", "event1");
+  cache("exams.rows", [{ datetime: "01/01/2000", datetimeupto: "09:00 am to 11:00 am", subjectdesc: "PAST EXAM (CS101)", roomcode: "LT-4: LECTURE THEATER 4", seatno: "A-1" }], "sem1", "event1");
   const html = render(ExamsSection);
-  assert.match(html, /No upcoming exams/);
-  assert.match(html, /<details class="past-exams"><summary>Past exams \(1\)<\/summary>/);
+  assert.match(html, /class="exam-stop is-past"/);
+  assert.match(html, /aria-label="Crushed"/);
+  assert.doesNotMatch(html, /<details|Export upcoming exams/);
+  assert.match(html, /<h3 class="exam-subject">Past Exam<\/h3>/);
+  assert.doesNotMatch(html, /CS101|Cs101/);
+  assert.match(html, /Room<\/span> LT-4/);
+  assert.doesNotMatch(html, /LECTURE THEATER/);
   assert.doesNotMatch(html, /1 scheduled/);
 });
 
@@ -95,7 +116,7 @@ test("attendance displays overview percentages before class logs arrive", () => 
     Psubjectcomponentid: "p1", Ppercentage: 83.3,
   }] });
   const html = render(AttendancePage);
-  assert.match(html, /83\.3%<\/span>/);
+  assert.match(html, /83\.3<span class="att-pct-sign">%<\/span>/);
   assert.doesNotMatch(html, /No classes yet/);
   // An empty log response still must not contradict a known overview percent.
   cache("att.subject", { P: { student_attdsummarylist: [] } }, "sem1", "subject1");
@@ -111,7 +132,7 @@ test("attendance keeps cached counts and percentages on returning to the page", 
   cache("att.subject", { P: { student_attdsummarylist: [{ present: "Y" }, { present: "N" }] } }, "sem1", "subject1");
   const html = render(AttendancePage);
   assert.match(html, /1\/2 classes/);
-  assert.match(html, /50\.0%<\/span>/);
+  assert.match(html, /50\.0<span class="att-pct-sign">%<\/span>/);
 });
 
 test("subject sheet never calls a known attendance percentage No classes held", () => {

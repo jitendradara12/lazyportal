@@ -2,11 +2,19 @@ package com.lazyportal.juet;
 
 import android.content.res.Configuration;
 import android.os.Build;
+import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(ExamCalendarPlugin.class);
+        registerPlugin(NativeInteractionsPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
+
     @Override
     public void onStart() {
         super.onStart();

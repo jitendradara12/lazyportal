@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, type PointerEvent } from "react";
 import { useFeature } from "../hooks/useFeature";
 import { SectionError } from "./DataViews";
 import type { Session } from "../types";
@@ -20,9 +20,11 @@ import {
 import {
   computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
-  FEATURE_TTL,
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
+import { useAppBack } from "../hooks/useAppBack";
+import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget, type AttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
+import { selectionHaptic } from "../lib/nativeInteractions";
 
 export function SubjectDetailSheet({
   row,
@@ -46,7 +48,12 @@ export function SubjectDetailSheet({
   onLogout: () => void;
 }) {
   const [isClosing, setIsClosing] = useState(false);
-  const [target, setTarget] = useState<70 | 80 | 90>(70);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const drag = useRef<{ pointerId: number; startY: number; startedAt: number } | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [defaultTarget] = useDefaultAttendanceTarget();
+  const [target, setTarget] = useState<AttendanceTarget>(defaultTarget);
   const [attendCount, setAttendCount] = useState(0);
   const [missCount, setMissCount] = useState(0);
 
@@ -61,7 +68,6 @@ export function SubjectDetailSheet({
     deps: [session, registrationid, String(row.subjectid), rowChecksum],
     cacheKey,
     enabled,
-    staleTimeMs: FEATURE_TTL.subjects,
     isFresh: (updatedAt) => {
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
       return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
@@ -92,10 +98,50 @@ export function SubjectDetailSheet({
   const simColorClass = getColorClass(simPctNum);
   const simMargin = computeBunkMargin(totalSimPresent, totalSimClasses, target / 100);
 
-  const handleClose = () => {
-    if (isClosing) return;
+  const handleClose = useCallback(() => {
+    if (closeTimer.current !== null) return;
     setIsClosing(true);
-    setTimeout(onClose, 220);
+    closeTimer.current = setTimeout(onClose, 220);
+  }, [onClose]);
+
+  useAppBack(true, handleClose);
+
+  useEffect(() => () => {
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+  }, []);
+
+  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0 || isClosing ||
+        window.matchMedia("(min-width: 640px)").matches) return;
+    drag.current = { pointerId: event.pointerId, startY: event.clientY, startedAt: event.timeStamp };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsDragging(true);
+  };
+
+  const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    setDragOffset(Math.max(0, event.clientY - drag.current.startY));
+  };
+
+  const endDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    const distance = Math.max(0, event.clientY - drag.current.startY);
+    const speed = distance / Math.max(1, event.timeStamp - drag.current.startedAt);
+    drag.current = null;
+    setIsDragging(false);
+    if (distance >= 96 || (distance >= 24 && speed > 0.65)) {
+      setDragOffset(distance);
+      handleClose();
+    } else {
+      setDragOffset(0);
+    }
+  };
+
+  const cancelDrag = () => {
+    if (!drag.current) return;
+    drag.current = null;
+    setIsDragging(false);
+    setDragOffset(0);
   };
 
   useEffect(() => {
@@ -104,19 +150,28 @@ export function SubjectDetailSheet({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [handleClose]);
 
   return (
     <div className={`att-sheet-backdrop ${isClosing ? "closing" : ""}`} onClick={handleClose} role="presentation">
       <div
-        className={`att-sheet-card ${isClosing ? "closing" : ""}`}
+        className={`att-sheet-card ${isClosing ? "closing" : ""} ${isDragging ? "dragging" : ""}`}
+        style={{ translate: `0 ${dragOffset}px` }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="att-sheet-title"
       >
         {/* Mobile Drag Indicator Handle */}
-        <div className="att-sheet-handle" aria-hidden="true" />
+        <div
+          className="att-sheet-handle"
+          aria-hidden="true"
+          onPointerDown={startDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={cancelDrag}
+          onLostPointerCapture={cancelDrag}
+        ><span /></div>
 
         {/* Sheet Header */}
         <div className="att-sheet-header">
@@ -163,14 +218,14 @@ export function SubjectDetailSheet({
               ) : <div />}
 
               <div className="segmented-pill-toggle att-target-toggle" role="radiogroup" aria-label="Target percentage">
-                {([70, 80, 90] as const).map((t) => (
+                {ATTENDANCE_TARGETS.map((t) => (
                   <button
                     key={t}
                     type="button"
                     role="radio"
                     aria-checked={target === t}
                     className={`segmented-pill ${target === t ? "active" : ""}`}
-                    onClick={() => setTarget(t)}
+                    onClick={() => { if (target !== t) { selectionHaptic(); setTarget(t); } }}
                   >
                     {t}%
                   </button>

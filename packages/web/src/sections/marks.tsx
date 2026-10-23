@@ -1,27 +1,17 @@
-import { useState, useMemo } from "react";
+import { usePageRefresh } from "../hooks/usePageRefresh";
+import { useId, useMemo, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
-import { formatEventCode } from "../lib/marks.ts";
-import {
-  CollapsibleCard,
-  SectionError,
-  useCardState,
-  titleCase,
-  formatSemester,
-} from "../components/DataViews";
+import { formatEventCode, groupSubjectMarks, type MarkRow, type SubjectMarks } from "../lib/marks.ts";
+import { SectionError, titleCase, formatSemester } from "../components/DataViews";
+import { TopBar, SemesterPicker } from "../components/AppBar";
+import { ChevronRight } from "../components/icons";
 import type { SectionProps, Semester } from "../types";
 
-export interface MarkRow {
-  subjectcode?: string;
-  subjectdesc?: string;
-  eventcode?: string;
-  fullmarks?: string | number;
-  obtainedmarks?: string | number;
-  [key: string]: unknown;
-}
+export type { MarkRow };
 
 interface MarksDetail {
   rows: MarkRow[];
@@ -32,21 +22,87 @@ interface MarksLatest extends MarksDetail {
   registrationcode?: string | null;
 }
 
+function formatMark(value: unknown) {
+  if (value == null || String(value).trim() === "") return "—";
+  return Number.isFinite(Number(value)) ? Number(value) : String(value);
+}
+
+function MarkScore({ row }: { row: MarkRow }) {
+  return (
+    <span className="score-value">
+      <strong>{formatMark(row.obtainedmarks)}</strong>
+      <span className="score-total">/{formatMark(row.fullmarks)}</span>
+    </span>
+  );
+}
+
+function CourseHeader({ course }: { course: SubjectMarks }) {
+  return (
+    <>
+      <span className="score-info">
+        <span className="score-subject">{titleCase(course.subjectdesc || course.subjectcode || "Course")}</span>
+        <span className="score-meta">
+          {course.subjectcode && <span className="att-code">{course.subjectcode}</span>}
+        </span>
+      </span>
+      <MarkScore row={course} />
+      <span className="score-chevron" aria-hidden="true"><ChevronRight /></span>
+    </>
+  );
+}
+
+function CourseCard({ course }: { course: SubjectMarks }) {
+  const [open, setOpen] = useState(false);
+  const breakdownId = useId();
+  const earned = Number(course.obtainedmarks);
+  const maximum = Number(course.fullmarks);
+  const percentage = maximum > 0 && Number.isFinite(earned) && String(course.obtainedmarks ?? "").trim() !== ""
+    ? Math.min(100, Math.max(0, earned / maximum * 100))
+    : null;
+  const band = percentage === null ? "neutral" : percentage >= 80 ? "good" : percentage >= 60 ? "neutral" : percentage >= 40 ? "warning" : "low";
+  return (
+    <li className="score-card">
+      <div className={`score-course${open ? " is-open" : ""}`}>
+        <button type="button" className="score-header" aria-expanded={open} aria-controls={breakdownId} onClick={() => setOpen((value) => !value)}>
+          <CourseHeader course={course} />
+        </button>
+        {percentage !== null && (
+          <div className="score-progress" data-band={band} aria-hidden="true">
+            <span style={{ width: `${percentage}%` }} />
+          </div>
+        )}
+        <div id={breakdownId} className="score-expansion" aria-hidden={!open}>
+          <div className="score-expansion-inner">
+            <ul className="score-breakdown" aria-label={`${titleCase(course.subjectdesc || course.subjectcode || "Course")} exam marks`}>
+              {course.exams.map((exam, index) => (
+                <li key={index} className="score-exam">
+                  <span className="score-exam-label">{formatEventCode(exam.eventcode) || "Exam"}</span>
+                  <MarkScore row={exam} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 export function MarksSection({ session }: SectionProps) {
-  const card = useCardState("marks", false);
   const lov = useFeature<MarksLatest>({
     run: () => features.getMarksLatest(client, session),
     deps: [session],
-    enabled: card.hasExpanded,
+    enabled: true,
     cacheKey: sessionCacheKey("marks.latest", session),
     staleTimeMs: FEATURE_TTL.marks,
+    manualRefreshEnabled: () => semId === null || isDefault,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
   const detail = useFeature<MarksDetail>({
     run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: card.hasExpanded && sem !== null && !isDefault,
+    enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("marks.detail", session, semId) : undefined,
     staleTimeMs: FEATURE_TTL.marks,
   });
@@ -58,123 +114,37 @@ export function MarksSection({ session }: SectionProps) {
   const error = lov.error ?? detail.error;
   // Include the gaps between chained reads/semester selection, before their
   // effects start the next request. Those are still loading, not empty results.
-  const loading = lov.loading || detail.loading || (card.hasExpanded && !error && (
+  const loading = lov.loading || detail.loading || (!error && (
     lov.data === null || (semesters.length > 0 && sem === null) ||
     (sem !== null && !isDefault && detail.data === null)
   ));
   const retry = lov.error ? lov.retry : detail.retry;
-  const badgeText = rawRows.length > 0 ? `${rawRows.length} subjects`
-    : loading ? "Loading…"
-    : error ? "Couldn't load marks"
-    : card.hasExpanded ? "No marks" : "Evaluation & test marks";
+  const courses = useMemo(() => groupSubjectMarks(rawRows), [rawRows]);
 
-  const [filter, setFilter] = useState<string>("All");
-
-  const events = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rawRows) {
-      const formatted = formatEventCode(r.eventcode);
-      if (formatted) set.add(formatted);
-    }
-    const list = Array.from(set);
-    list.sort((a, b) => {
-      const aP = a[0];
-      const bP = b[0];
-      if (aP !== bP) {
-        if (aP === "T") return -1;
-        if (bP === "T") return 1;
-      }
-      return a.localeCompare(b, undefined, { numeric: true });
-    });
-    return list;
-  }, [rawRows]);
-
-  const activeFilter = events.includes(filter) ? filter : "All";
-
-  const filteredRows = useMemo(() => {
-    if (activeFilter === "All") return rawRows;
-    return rawRows.filter((r) => formatEventCode(r.eventcode) === activeFilter);
-  }, [rawRows, activeFilter]);
+  const pageRefresh = usePageRefresh("marks", session, loading);
 
   return (
-    <CollapsibleCard
-      id="marks"
-      title="Marks"
-      badge={badgeText}
-      defaultOpen={false}
-      isOpen={card.isOpen}
-      onToggle={card.toggle}
-      action={
-        semesters.length > 1 ? (
-          <select
-            value={semId ?? ""}
-            onChange={(e) => setSemId(e.target.value)}
-            disabled={loading}
-            className="sem-picker"
-          >
-            {semesters.map((s) => (
-              <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                {formatSemester(s.registrationcode ?? s.registrationdesc)}
-              </option>
+    <div className="page">
+      <TopBar title="Marks" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh marks" />
+      <div className="page-body">
+        {semesters.length > 1 && (
+          <div className="page-toolbar">
+            <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading} format={formatSemester} />
+          </div>
+        )}
+        {loading && rawRows.length === 0 && <p className="muted page-note">Loading…</p>}
+        {courses.length > 0 && (
+          <ul className="score-list" aria-label="Marks by course">
+            {courses.map((course, i) => (
+              <CourseCard key={`${semId}:${course.subjectcode || course.subjectdesc || i}`} course={course} />
             ))}
-          </select>
-        ) : undefined
-      }
-    >
-      {loading && <p className="muted">Loading…</p>}
-      {rawRows.length > 0 && events.length > 1 && (
-        <div className="segmented-pill-toggle att-target-toggle" role="tablist" aria-label="Filter marks" style={{ margin: "0 auto 12px" }}>
-          {["All", ...events].map((ev) => (
-            <button
-              key={ev}
-              type="button"
-              role="tab"
-              aria-selected={activeFilter === ev}
-              className={`segmented-pill ${activeFilter === ev ? "active" : ""}`}
-              onClick={() => setFilter(ev)}
-            >
-              {ev}
-            </button>
-          ))}
-        </div>
-      )}
-      {filteredRows.length > 0 && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th className="num-col">Full Marks</th>
-                <th className="num-col">Obtained</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((r, i) => {
-                const tag = formatEventCode(r.eventcode);
-                return (
-                  <tr key={i}>
-                    <td>
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "6px" }}>
-                        {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
-                        {tag && <span className="att-log-type-tag">{tag}</span>}
-                      </div>
-                      {titleCase(r.subjectdesc ?? "")}
-                    </td>
-                    <td className="num-col">{r.fullmarks != null && r.fullmarks !== "" ? String(r.fullmarks) : "—"}</td>
-                    <td className="num-col">
-                      <strong>{r.obtainedmarks != null && r.obtainedmarks !== "" ? String(r.obtainedmarks) : "—"}</strong>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {lov.data && rawRows.length === 0 && !error && !loading && (
-        <p className="muted">No marks records found for {semLabel || "this semester"}.</p>
-      )}
-      {error && <SectionError label="Marks" error={error} retry={retry} />}
-    </CollapsibleCard>
+          </ul>
+        )}
+        {lov.data && rawRows.length === 0 && !error && !loading && (
+          <p className="muted page-note">No marks records found for {semLabel || "this semester"}. They show up here once faculty upload them.</p>
+        )}
+        {error && <SectionError label="Marks" error={error} retry={retry} />}
+      </div>
+    </div>
   );
 }

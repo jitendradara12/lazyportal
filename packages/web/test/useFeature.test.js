@@ -194,8 +194,10 @@ test("STALE_MS is configured to 2 hours", () => {
 test("resolveTargetScope isolates att.subject keys to subject scope", () => {
   assert.equal(resolveTargetScope(undefined, "att.subject:u1:cs101"), "subject");
   assert.equal(resolveTargetScope(undefined, "att.initial:u1"), "attendance");
-  assert.equal(resolveTargetScope(undefined, "dashboard:u1"), "dashboard");
-  assert.equal(resolveTargetScope("all", "att.subject:u1:cs101"), "all");
+  assert.equal(resolveTargetScope(undefined, "marks.latest:u1"), "marks");
+  assert.equal(resolveTargetScope(undefined, "exams.rows:u1"), "exams");
+  assert.equal(resolveTargetScope(undefined, "faculty.detail:u1"), "more");
+  assert.equal(resolveTargetScope("more", "att.subject:u1:cs101"), "more");
 });
 
 test("getCached returns isolated wrapper copy so caller mutation does not corrupt memory cache", () => {

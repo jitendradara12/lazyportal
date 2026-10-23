@@ -82,8 +82,9 @@ test("saved login submits the decrypted password and logout removes it", async (
   const submitted = await mockLogin(page);
   await page.getByLabel("Captcha", { exact: true }).fill("abcde");
   await page.getByRole("button", { name: "Enter portal" }).click();
-  await expect(page.getByRole("button", { name: "Logout", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
   expect(submitted).toEqual([password]);
+  await page.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
   expect(await readSaved(page)).toBe("");
@@ -99,7 +100,7 @@ test("new logins encrypt passwords and disabling remember removes them", async (
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Captcha", { exact: true }).fill("abcde");
   await page.getByRole("button", { name: "Enter portal" }).click();
-  await expect(page.getByRole("button", { name: "Logout", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
   expect(await readSaved(page)).toBe(password);
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain(password);
 
@@ -111,7 +112,7 @@ test("new logins encrypt passwords and disabling remember removes them", async (
   await expect(page.getByLabel("Remember me (only saved locally)")).not.toBeChecked();
   await page.getByLabel("Captcha", { exact: true }).fill("abcde");
   await page.getByRole("button", { name: "Enter portal" }).click();
-  await expect(page.getByRole("button", { name: "Logout", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
   expect(submitted).toEqual([password, password]);
   expect(await readSaved(page)).toBe("");
 });
@@ -132,7 +133,7 @@ async function showExpiredDashboard(page) {
     store.save(session);
     window.dispatchEvent(new CustomEvent("juet:renewed", { detail: session }));
   }, account);
-  await expect(page.getByRole("button", { name: "Logout", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
   await page.evaluate(async () => {
     const { setSessionStatus } = await import(performance.getEntriesByType("resource").find((r) => new URL(r.name).pathname === "/src/lib/portal.ts").name);
     setSessionStatus("expired");

@@ -4,6 +4,8 @@ import { client, savedCredentials } from "../lib/portal";
 import { preserveSelectedInstitute } from "../lib/sessionSelection";
 import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Session, Captcha } from "../types";
+import { useAppBack } from "../hooks/useAppBack";
+import { hideKeyboard } from "../lib/nativeInteractions";
 
 export function ReconnectModal({
   session,
@@ -36,11 +38,15 @@ export function ReconnectModal({
   const loading = useRef(false);
   const abortController = useRef<AbortController | null>(null);
   const submitAbortController = useRef<AbortController | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       abortController.current?.abort();
       submitAbortController.current?.abort();
+      if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+      if (focusTimer.current !== null) clearTimeout(focusTimer.current);
     };
   }, []);
 
@@ -68,7 +74,11 @@ export function ReconnectModal({
         setAutoSolveFailed(true);
         setIsAutoSolved(false);
       }
-      setTimeout(() => captchaInputRef.current?.focus(), 60);
+      focusTimer.current = setTimeout(() => {
+        if (closeTimer.current === null && !(document.activeElement instanceof HTMLInputElement)) {
+          captchaInputRef.current?.focus();
+        }
+      }, 60);
     } catch (error) {
       if (!ac.signal.aborted) setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -110,7 +120,8 @@ export function ReconnectModal({
       if (submitController.signal.aborted) return;
 
       onRenewed(preserveSelectedInstitute(s, session));
-      window.dispatchEvent(new CustomEvent("juet:refresh-all"));
+      hideKeyboard();
+      window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
       onClose();
     } catch (err: unknown) {
       if (!submitController.signal.aborted) {
@@ -124,10 +135,14 @@ export function ReconnectModal({
   };
 
   const handleClose = () => {
-    if (isClosing || busy) return;
+    if (closeTimer.current !== null || busy) return;
+    if (focusTimer.current !== null) clearTimeout(focusTimer.current);
+    hideKeyboard();
     setIsClosing(true);
-    setTimeout(onClose, 200);
+    closeTimer.current = setTimeout(onClose, 200);
   };
+
+  useAppBack(true, handleClose, 200);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -192,6 +207,11 @@ export function ReconnectModal({
               <div className="auth-input-action-wrapper">
                 <input
                   id="renew-password"
+                  autoComplete="current-password"
+                  enterKeyHint="next"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); captchaInputRef.current?.focus(); }
+                  }}
                   required
                   type={showPassword ? "text" : "password"}
                   value={password}
@@ -278,6 +298,9 @@ export function ReconnectModal({
                 ref={captchaInputRef}
                 required
                 autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="done"
                 value={captchaText}
                 onChange={(e) => {
                   setCaptchaText(e.target.value);

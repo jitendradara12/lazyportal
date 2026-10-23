@@ -5,7 +5,6 @@ import { useFeature, setCached, getCached, sessionCacheKey, requestFeature } fro
 import {
   isCurrentPortalDay,
   computeSubjectRowChecksum,
-  doesSubjectNeedDeepFetch,
   FEATURE_TTL,
   type SessionRef,
 } from "../lib/portalSchedule";
@@ -18,7 +17,6 @@ import {
   cleanDateTime,
   isSubjectDetailComplete,
   parseClassLogs,
-  combinedAttendance,
 } from "../lib/attendanceCalc";
 import type { SectionProps, Semester } from "../types";
 
@@ -292,20 +290,4 @@ export function useAttendanceInitial(session: SectionProps["session"]) {
     isFresh: isCurrentPortalDay,
     scope: "attendance",
   });
-}
-
-export function useAttendanceSummary(session: SectionProps["session"]) {
-  const att = useAttendanceInitial(session);
-  const rows = att.data?.rows ?? [];
-  const semId = att.data?.semesters?.[0]?.registrationid;
-  const shortsCount = rows.filter((r) => {
-    const entry = getCachedSubjectDetailEntry(session.username, semId != null ? String(semId) : null, r, session.instituteid);
-    const isStale = doesSubjectNeedDeepFetch(r, entry.data, entry.updatedAt, entry.checksum);
-    const detail = isStale ? null : entry.data;
-    return combinedAttendance(r, detail).isShort;
-  }).length;
-  const badgeText = rows.length > 0
-    ? (shortsCount > 0 ? `${shortsCount} short` : "All clear")
-    : (att.loading ? "Loading…" : "Subject breakdown");
-  return { shortsCount, badgeText, loading: att.loading };
 }
