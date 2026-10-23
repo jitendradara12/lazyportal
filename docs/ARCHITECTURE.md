@@ -114,7 +114,14 @@ with a 14-day dismissal cooldown in `localStorage`.
 - Attendance registration LOV expiry is measured from its actual portal lookup,
   not subsequent overview reads. Malformed registration/overview/detail payloads
   cannot replace a good cache entry with an empty result.
-- In-memory read-through cache for features and sessions, with 20s cooldowns on manual refresh buttons.
+- Marks, exams, faculty, and registered subjects use persistent, manual-only caches.
+  Missing selections fetch once; returning to a page, reopening the app, focus,
+  and attendance day rollover do not revalidate cached entries.
+- Refresh buttons target only their page, with independent 20s cooldowns per
+  account/institute/page. Marks refreshes only the selected semester; More
+  refreshes only expanded sections. Hidden tabs and collapsed sections do no work.
+  Reconnecting revalidates attendance without broadcasting other page reads.
+- In-memory read-through cache for features and sessions, with shared in-flight reads.
   Successful feature reads remain available in the tab when localStorage is full
   or blocked; volatile entries are cleared on logout and storage invalidation.
 

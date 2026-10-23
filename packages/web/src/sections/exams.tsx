@@ -1,3 +1,4 @@
+import { usePageRefresh } from "../hooks/usePageRefresh";
 import { useEffect, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
@@ -57,11 +58,7 @@ export function ExamsSection({ session }: SectionProps) {
     (examSem !== null && examEvents.data === null) ||
     (activeEventId !== null && examRows.data === null)
   ));
-  const retry = () => {
-    examSems.retry();
-    examEvents.retry();
-    examRows.retry();
-  };
+  const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
 
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -82,9 +79,11 @@ export function ExamsSection({ session }: SectionProps) {
   const [next, ...later] = upcoming;
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
+  const pageRefresh = usePageRefresh("exams", session, loading);
+
   return (
     <div className="page">
-      <TopBar title="Exams" subtitle={semLabel || undefined} busy={loading} refreshLabel="Refresh exams" />
+      <TopBar title="Exams" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh exams" />
       <div className="page-body">
         {((examEvents.data?.length ?? 0) > 1 || (examSems.data?.length ?? 0) > 1) && (
           <div className="page-toolbar">

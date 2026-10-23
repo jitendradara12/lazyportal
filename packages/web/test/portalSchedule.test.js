@@ -266,11 +266,11 @@ test("isCurrentPortalDay defaults to now for single-arg freshness checks", () =>
   assert.equal(isCurrentPortalDay(yesterday), false);
 });
 
-test("FEATURE_TTL keeps marks cached until explicit refresh", () => {
+test("FEATURE_TTL keeps non-attendance pages cached until explicit refresh", () => {
   assert.equal(FEATURE_TTL.marks, Number.POSITIVE_INFINITY);
-  assert.equal(FEATURE_TTL.exams, 24 * 60 * 60 * 1000);
-  assert.equal(FEATURE_TTL.faculty, 7 * 24 * 60 * 60 * 1000);
-  assert.equal(FEATURE_TTL.subjects, 7 * 24 * 60 * 60 * 1000);
+  assert.equal(FEATURE_TTL.exams, Number.POSITIVE_INFINITY);
+  assert.equal(FEATURE_TTL.faculty, Number.POSITIVE_INFINITY);
+  assert.equal(FEATURE_TTL.subjects, Number.POSITIVE_INFINITY);
   assert.equal(FEATURE_TTL.pastDetail, 30 * 24 * 60 * 60 * 1000);
 });
 

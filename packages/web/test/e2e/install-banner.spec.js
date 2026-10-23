@@ -19,6 +19,7 @@ test("dismissal survives login, logout, and reload without clearing session data
   const dismissedAt = await page.evaluate((key) => localStorage.getItem(key), DISMISSAL_KEY);
   expect(Number(dismissedAt)).toBeGreaterThan(0);
   await renewSession(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
   await expect(banner(page)).toHaveCount(0);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("juet.portal.session.v1")).username)).toBe("test-student");
   await page.getByRole("button", { name: "Logout", exact: true }).click();
@@ -119,6 +120,7 @@ test("the keyboard temporarily hides the card without persisting a dismissal", a
 
 test("reserves enough scroll space to keep footer controls above expanded guidance", async ({ page }) => {
   await openApp(page, { dashboard: true });
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
   await banner(page).getByRole("button", { name: "How to install" }).click();
   await expect(banner(page).locator(".install-banner-guide")).toBeVisible();
   await expect.poll(async () => {

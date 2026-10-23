@@ -6,9 +6,6 @@ export interface Shell {
   isExpired: boolean;
   isRecovering: boolean;
   requestRenew: () => void;
-  /** Revalidates mounted marks/exams/etc. Throttled; never spends the attendance quota. */
-  refreshDashboard: () => void;
-  dashboardSpinning: boolean;
   setShorts: (n: number) => void;
 }
 
@@ -16,8 +13,6 @@ export const ShellContext = createContext<Shell>({
   isExpired: false,
   isRecovering: false,
   requestRenew() {},
-  refreshDashboard() {},
-  dashboardSpinning: false,
   setShorts() {},
 });
 
@@ -45,7 +40,7 @@ export function TopBar({
   onFeedbackEnd?: () => void;
 }) {
   const shell = useShell();
-  const spinning = busy || shell.dashboardSpinning;
+  const spinning = busy;
   return (
     <header className="app-bar">
       <div className="app-bar-titles">
@@ -59,10 +54,10 @@ export function TopBar({
             <span>Reconnect</span>
           </button>
         )}
-        {!noRefresh && (
+        {!noRefresh && onRefresh && (
           <button
             type="button"
-            onClick={onRefresh ?? shell.refreshDashboard}
+            onClick={onRefresh}
             onAnimationEnd={onFeedbackEnd}
             className={`dash-refresh-btn ${spinning ? "is-spinning" : feedback ? "is-feedback-spinning" : ""}`}
             aria-label={refreshLabel}

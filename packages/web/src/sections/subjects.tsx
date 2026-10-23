@@ -32,6 +32,7 @@ export function SubjectsSection({ session }: SectionProps) {
     enabled: card.hasExpanded,
     cacheKey: sessionCacheKey("subjects.latest", session),
     staleTimeMs: FEATURE_TTL.subjects,
+    manualRefreshEnabled: card.isOpen,
   });
 
   const rows = latest.data?.rows ?? [];

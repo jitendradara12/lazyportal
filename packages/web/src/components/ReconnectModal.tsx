@@ -110,7 +110,7 @@ export function ReconnectModal({
       if (submitController.signal.aborted) return;
 
       onRenewed(preserveSelectedInstitute(s, session));
-      window.dispatchEvent(new CustomEvent("juet:refresh-all"));
+      window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
       onClose();
     } catch (err: unknown) {
       if (!submitController.signal.aborted) {

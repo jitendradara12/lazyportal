@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { PageRefreshRequest, RefreshPage } from "./usePageRefresh";
+
+type FeatureScope = RefreshPage | "attendance" | "subject";
 
 interface UseFeatureOptions<T> {
   run: () => Promise<T>;
@@ -12,7 +15,9 @@ interface UseFeatureOptions<T> {
   staleTimeMs?: number;
   /** Custom freshness check (e.g. portal day schedule). Overrides staleTimeMs when provided. */
   isFresh?: (updatedAt: number | null) => boolean;
-  scope?: "dashboard" | "attendance" | "subject" | "all";
+  scope?: FeatureScope;
+  /** Keep cached discovery data available without refreshing an inactive semester. */
+  manualRefreshEnabled?: boolean | (() => boolean);
   /** Optional extra metadata to persist in the cache entry (e.g. checksum). */
   writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>);
 }
@@ -147,15 +152,17 @@ export function getCached<T>(key?: string): { data: T | null; updatedAt: number 
 }
 
 export function resolveTargetScope(
-  scope?: "dashboard" | "attendance" | "subject" | "all",
+  scope?: FeatureScope,
   cacheKey?: string,
-): "dashboard" | "attendance" | "subject" | "all" {
+): FeatureScope {
   return scope ?? (
     cacheKey?.startsWith("att.subject")
       ? "subject"
       : cacheKey?.startsWith("att.")
       ? "attendance"
-      : "dashboard"
+      : cacheKey?.startsWith("marks.") ? "marks"
+      : cacheKey?.startsWith("exams.") ? "exams"
+      : "more"
   );
 }
 
@@ -213,6 +220,7 @@ export function useFeature<T>({
   staleTimeMs = STALE_MS,
   isFresh,
   scope,
+  manualRefreshEnabled = enabled,
   writeExtra,
 }: UseFeatureOptions<T>) {
   const targetScope = resolveTargetScope(scope, cacheKey);
@@ -223,6 +231,8 @@ export function useFeature<T>({
   const [retryKey, setRetryKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const mounted = useRef(false);
+  const activeKey = useRef(cacheKey);
+  activeKey.current = cacheKey;
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -254,14 +264,19 @@ export function useFeature<T>({
   }, []);
 
   const refresh = useCallback(async () => {
+    const generation = getCacheGeneration();
+    const current = () => mounted.current && activeKey.current === cacheKey && isCacheGenerationCurrent(generation);
     setRefreshing(true);
     setStateForKey(cacheKey, { error: null });
     try {
       const result = await requestFeature(cacheKey, runRef.current, writeExtraRef.current);
-      if (mounted.current) setStateForKey(cacheKey, { ...result, loading: false, error: null });
+      if (current()) setStateForKey(cacheKey, { ...result, loading: false, error: null });
       return result.data;
+    } catch (error) {
+      if (current()) setStateForKey(cacheKey, { error: toMessage(error), loading: false });
+      throw error;
     } finally {
-      if (mounted.current) setRefreshing(false);
+      if (current()) setRefreshing(false);
     }
   }, [cacheKey, setStateForKey]);
 
@@ -278,24 +293,26 @@ export function useFeature<T>({
     return () => window.removeEventListener("juet:cache-updated", update);
   }, [cacheKey, setStateForKey]);
 
-  // Re-fetch live data when a scoped or global refresh is requested
+  // Attendance's day rollover remains independent of manual page refreshes.
   useEffect(() => {
-    const handleRefresh = () => {
+    const handleRefresh = (event: Event) => {
+      if (!enabled) return;
+      if (targetScope !== "attendance") {
+        if (!(typeof manualRefreshEnabled === "function" ? manualRefreshEnabled() : manualRefreshEnabled)) return;
+        const detail = (event as CustomEvent<PageRefreshRequest>).detail;
+        if (detail?.requests) detail.requests.push(refresh());
+        return;
+      }
       forceRef.current = true;
       setStateForKey(cacheKey, { error: null });
       setRetryKey((k) => k + 1);
     };
 
-    const events = [
-      "juet:refresh-all",
-      ...(targetScope === "attendance" || targetScope === "all" ? ["juet:refresh-attendance"] : []),
-      ...(targetScope === "dashboard" || targetScope === "all" ? ["juet:refresh-dashboard"] : []),
-    ];
-    for (const name of events) window.addEventListener(name, handleRefresh);
-    return () => {
-      for (const name of events) window.removeEventListener(name, handleRefresh);
-    };
-  }, [cacheKey, setStateForKey, targetScope]);
+    if (targetScope === "subject") return;
+    const name = `juet:refresh-${targetScope}`;
+    window.addEventListener(name, handleRefresh);
+    return () => window.removeEventListener(name, handleRefresh);
+  }, [cacheKey, setStateForKey, targetScope, enabled, manualRefreshEnabled, refresh]);
 
   useEffect(() => {
     if (!enabled) {

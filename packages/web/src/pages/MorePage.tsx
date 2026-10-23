@@ -1,3 +1,4 @@
+import { usePageRefresh } from "../hooks/usePageRefresh";
 import { SECTIONS } from "../sections";
 import { TopBar } from "../components/AppBar";
 import { titleCase } from "../components/DataViews";
@@ -21,9 +22,11 @@ export function MorePage({
   const name = titleCase(session.name ?? session.enrollmentno ?? "Student");
   const initial = name.trim().charAt(0) || "S";
 
+  const pageRefresh = usePageRefresh("more", session, false);
+
   return (
     <div className="page">
-      <TopBar title="More" />
+      <TopBar title="More" {...pageRefresh} />
       <div className="page-body">
         <section className="profile">
           <span className="profile-avatar" aria-hidden="true">{initial}</span>

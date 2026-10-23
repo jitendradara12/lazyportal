@@ -1,3 +1,4 @@
+import { usePageRefresh } from "../hooks/usePageRefresh";
 import { useState, useMemo } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
@@ -27,6 +28,7 @@ export function MarksSection({ session }: SectionProps) {
     enabled: true,
     cacheKey: sessionCacheKey("marks.latest", session),
     staleTimeMs: FEATURE_TTL.marks,
+    manualRefreshEnabled: () => semId === null || isDefault,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
@@ -63,9 +65,11 @@ export function MarksSection({ session }: SectionProps) {
 
   const num = (v: unknown) => (v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 
+  const pageRefresh = usePageRefresh("marks", session, loading);
+
   return (
     <div className="page">
-      <TopBar title="Marks" subtitle={semLabel || undefined} busy={loading} refreshLabel="Refresh marks" />
+      <TopBar title="Marks" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh marks" />
       <div className="page-body">
         {(events.length > 1 || semesters.length > 1) && (
           <div className="page-toolbar">

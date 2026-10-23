@@ -67,11 +67,12 @@ export interface SessionRef {
 
 /** Centralized TTL policies across features to avoid shotgun updates */
 export const FEATURE_TTL = {
-  // Marks remain cached until the user explicitly refreshes the dashboard.
+  // Non-attendance pages fetch missing entries, then update only on manual refresh.
   marks: Number.POSITIVE_INFINITY,
-  exams: 24 * 60 * 60 * 1000, // 24 hours (published days before exams)
-  faculty: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration)
-  subjects: 7 * 24 * 60 * 60 * 1000, // 7 days (static course catalog)
+  exams: Number.POSITIVE_INFINITY,
+  faculty: Number.POSITIVE_INFINITY,
+  subjects: Number.POSITIVE_INFINITY,
+  legacySubjectDetail: 7 * 24 * 60 * 60 * 1000, // migrate old attendance entries without checksums
   pastDetail: 30 * 24 * 60 * 60 * 1000, // 30 days (immutable past-semester history)
   lov: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration LOV)
 } as const;
@@ -370,7 +371,7 @@ export function doesSubjectNeedDeepFetch(
   }
   // Legacy detail entries have no checksum. Keep their age limit so they are
   // eventually refreshed and rewritten with checksum metadata.
-  if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.subjects) {
+  if (!cachedUpdatedAt || now - cachedUpdatedAt > FEATURE_TTL.legacySubjectDetail) {
     return true;
   }
   return false;
