@@ -131,12 +131,22 @@ distribute debug builds.
 
 ## Before merging a native change (device QA)
 
+Exam calendar icons use the local `ExamCalendar` Capacitor plugin to open an
+`ACTION_INSERT` calendar editor with the subject, IST start/end instants, and
+room-seat location. The user saves the event; no calendar permission is requested.
+This bridge requires a rebuilt APK. Older APKs and devices without a calendar
+handler fall back to the Google Calendar / `.ics` picker. Bulk export downloads
+an `.ics` file of upcoming exams with published start and end times.
+
 CI only compiles the APK; it never boots the WebView. Manual signoff on a
 physical device or emulator, against the deployed proxy:
 
 1. Fresh install, log in, open attendance — no CORS/`NETWORK_ERROR`.
 2. Rotate, background 1 min, foreground — session holds, no white screen.
 3. Lock/unlock — no re-login prompt unless the token truly expired.
+4. Exams: tap a calendar icon, check date/time and room-seat location in the
+   native editor, then cancel and return. Save a test event and verify it in
+   Calendar. Without a calendar handler, verify the fallback picker opens.
 
 ## Live reload (dev only)
 

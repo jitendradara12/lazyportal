@@ -28,6 +28,7 @@ export function TopBar({
   refreshTitle,
   feedback = false,
   onFeedbackEnd,
+  actions,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -38,6 +39,7 @@ export function TopBar({
   refreshTitle?: string;
   feedback?: boolean;
   onFeedbackEnd?: () => void;
+  actions?: ReactNode;
 }) {
   const shell = useShell();
   const spinning = busy;
@@ -48,6 +50,7 @@ export function TopBar({
         {subtitle && <div className="app-bar-sub">{subtitle}</div>}
       </div>
       <div className="app-bar-actions">
+        {actions}
         {shell.isExpired && !shell.isRecovering && (
           <button type="button" onClick={shell.requestRenew} className="m3-reconnect-pill" title="Session expired, tap to reconnect">
             <span className="reconnect-dot" />

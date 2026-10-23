@@ -89,15 +89,16 @@ test("exams stay loading through the semester/events/schedule chain", () => {
   assert.match(render(ExamsSection), /No exam schedule published/);
 });
 
-test("all-past schedules are collapsed and no longer counted as scheduled", () => {
+test("all-past schedules remain visible as completed timeline stops", () => {
   values.set("juet.portal.card.exams", "1");
   selectSemester("exams");
   cache("exams.sems", [semester]);
   cache("exams.events", [{ exameventid: "event1" }], "sem1");
   cache("exams.rows", [{ datetime: "01/01/2000", datetimeupto: "09:00 am to 11:00 am", subjectdesc: "PAST EXAM (CS101)", roomcode: "LT-4: LECTURE THEATER 4", seatno: "A-1" }], "sem1", "event1");
   const html = render(ExamsSection);
-  assert.match(html, /No upcoming exams/);
-  assert.match(html, /<details class="past-exams"><summary>Past exams \(1\)<\/summary>/);
+  assert.match(html, /class="exam-stop is-past"/);
+  assert.match(html, /aria-label="Crushed"/);
+  assert.doesNotMatch(html, /<details|Export upcoming exams/);
   assert.match(html, /<h3 class="exam-subject">Past Exam<\/h3>/);
   assert.doesNotMatch(html, /CS101|Cs101/);
   assert.match(html, /Room<\/span> LT-4/);
