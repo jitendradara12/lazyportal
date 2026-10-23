@@ -12,8 +12,12 @@ export interface MarkRow {
   [key: string]: unknown;
 }
 
+export interface SubjectMarks extends MarkRow {
+  exams: MarkRow[];
+}
+
 const num = (v: unknown): number | null =>
-  v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
+  v != null && String(v).trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 
 const round = (n: number): number => Math.round(n * 100) / 100;
 
@@ -42,24 +46,14 @@ export function compareEventCodes(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
-/** Extract unique formatted event codes from mark rows in canonical order. */
-export function extractEvents(rows: MarkRow[]): string[] {
-  const set = new Set<string>();
-  for (const r of rows) {
-    const formatted = formatEventCode(r.eventcode);
-    if (formatted) set.add(formatted);
-  }
-  return Array.from(set).sort(compareEventCodes);
-}
-
-/** Combine mark rows per course/subject by summing obtained and full marks across events. */
-export function combineSubjectMarks(rows: MarkRow[]): MarkRow[] {
+/** Sum the recorded exams per course, retaining their rows in exam order. */
+export function groupSubjectMarks(rows: MarkRow[]): SubjectMarks[] {
   const map = new Map<
     string,
     {
       subjectcode?: string;
       subjectdesc?: string;
-      events: Set<string>;
+      exams: MarkRow[];
       gotSum: number;
       hasGot: boolean;
       fallbackGot?: string | number;
@@ -77,7 +71,7 @@ export function combineSubjectMarks(rows: MarkRow[]): MarkRow[] {
       entry = {
         subjectcode: code ?? r.subjectcode,
         subjectdesc: desc ?? r.subjectdesc,
-        events: new Set<string>(),
+        exams: [],
         gotSum: 0,
         hasGot: false,
         fallbackGot: r.obtainedmarks,
@@ -89,8 +83,7 @@ export function combineSubjectMarks(rows: MarkRow[]): MarkRow[] {
       if (!entry.subjectcode && code) entry.subjectcode = code;
       if (!entry.subjectdesc && desc) entry.subjectdesc = desc;
     }
-    const ev = formatEventCode(r.eventcode);
-    if (ev) entry.events.add(ev);
+    entry.exams.push(r);
     const got = num(r.obtainedmarks);
     if (got !== null) {
       entry.gotSum = round(entry.gotSum + got);
@@ -106,8 +99,8 @@ export function combineSubjectMarks(rows: MarkRow[]): MarkRow[] {
   return Array.from(map.values(), (entry) => ({
     subjectcode: entry.subjectcode,
     subjectdesc: entry.subjectdesc,
-    eventcode: Array.from(entry.events).sort(compareEventCodes).join(" · "),
     obtainedmarks: entry.hasGot ? entry.gotSum : entry.fallbackGot,
     fullmarks: entry.hasFull ? entry.fullSum : undefined,
+    exams: entry.exams.sort((a, b) => compareEventCodes(formatEventCode(a.eventcode), formatEventCode(b.eventcode))),
   }));
 }
