@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { examTimes, groupExams } from "../src/lib/exams.ts";
+import { examTimes, groupExams, formatExamRoom } from "../src/lib/exams.ts";
 
 test("portal time ranges are parsed in IST, including noon and midnight", () => {
   assert.deepEqual(examTimes({ datetime: "18/10/2026", datetimeupto: "12:00 pm to 01:30 pm" }), {
@@ -38,4 +38,58 @@ test("mixed schedules are sorted, and unknown dates remain accessible without be
   });
   assert.equal(examTimes({ datetime: "31/02/2026" }), null);
   assert.equal(examTimes({ datetime: "18/10/2026", datetimeupto: "25:00" }), null);
+});
+
+test("formatExamRoom cleans up portal room codes and handles edge cases", () => {
+  // Standard portal formats
+  assert.equal(formatExamRoom("LT-4: LECTURE THEATER 4"), "LT-4");
+  assert.equal(formatExamRoom("CR-3: whatever"), "CR-3");
+  assert.equal(formatExamRoom("CL-5: whatever"), "CL-5");
+  assert.equal(formatExamRoom("cl-5: whatever"), "CL-5");
+  assert.equal(formatExamRoom("lt-4: whatever"), "LT-4");
+  assert.equal(formatExamRoom("TR-1: TUTORIAL ROOM 1"), "TR-1");
+  assert.equal(formatExamRoom("MPH: MULTI PURPOSE HALL"), "MPH");
+  assert.equal(formatExamRoom("AUDI: AUDITORIUM"), "AUDI");
+  assert.equal(formatExamRoom("EC-LAB: ELECTRONICS LAB"), "EC-LAB");
+
+  // Spaces around colon / unhyphenated codes
+  assert.equal(formatExamRoom("LT 4: LECTURE THEATER 4"), "LT-4");
+  assert.equal(formatExamRoom("  CR-3   :   CLASS ROOM 3  "), "CR-3");
+  assert.equal(formatExamRoom("CR 3 : CLASS ROOM 3"), "CR-3");
+
+  // Already concise code or plain venue
+  assert.equal(formatExamRoom("LT-4"), "LT-4");
+  assert.equal(formatExamRoom("CR-3"), "CR-3");
+  assert.equal(formatExamRoom("CL-5"), "CL-5");
+  assert.equal(formatExamRoom("Auditorium"), "Auditorium");
+  assert.equal(formatExamRoom("To be announced"), "To be announced");
+
+  // Full descriptions without code
+  assert.equal(formatExamRoom("LECTURE THEATER 4"), "LT-4");
+  assert.equal(formatExamRoom("Lecture Theatre-4"), "LT-4");
+  assert.equal(formatExamRoom("CLASS ROOM 3"), "CR-3");
+  assert.equal(formatExamRoom("Classroom 3"), "CR-3");
+  assert.equal(formatExamRoom("COMPUTER LAB 5"), "CL-5");
+  assert.equal(formatExamRoom("Tutorial Room 2"), "TR-2");
+
+  // Label prefixes
+  assert.equal(formatExamRoom("Room: LT-4: LECTURE THEATER 4"), "LT-4");
+  assert.equal(formatExamRoom("Room: CR-3"), "CR-3");
+  assert.equal(formatExamRoom("Venue: CL-5"), "CL-5");
+
+  // Colon edge cases
+  assert.equal(formatExamRoom(": LECTURE THEATER 4"), "LT-4");
+  assert.equal(formatExamRoom("LT-4:"), "LT-4");
+  assert.equal(formatExamRoom("Note: Exam conducted online"), "Note: Exam conducted online");
+  assert.equal(formatExamRoom("Exams for batch A will be in: LT-4"), "LT-4");
+  assert.equal(formatExamRoom("Random Hall"), "Random Hall");
+  assert.equal(formatExamRoom("Random Prefix: Some details"), "Random Prefix");
+
+  // Empty / nullish
+  assert.equal(formatExamRoom(null), "—");
+  assert.equal(formatExamRoom(undefined), "—");
+  assert.equal(formatExamRoom(""), "—");
+  assert.equal(formatExamRoom("   "), "—");
+  assert.equal(formatExamRoom("—"), "—");
+  assert.equal(formatExamRoom("-"), "—");
 });

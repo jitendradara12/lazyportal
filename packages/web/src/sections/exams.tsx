@@ -13,7 +13,7 @@ import {
   formatSemester,
 } from "../components/DataViews";
 import type { SectionProps, Semester } from "../types";
-import { examTimes, groupExams, type ExamRow } from "../lib/exams";
+import { examTimes, groupExams, formatExamRoom, type ExamRow } from "../lib/exams";
 
 interface ExamEvent {
   exameventid?: string;
@@ -197,7 +197,7 @@ function ExamTable({ rows, now }: { rows: ExamRow[]; now: number }) {
                   {start != null && start > now ? ` (${countdown(start - now)})` : ""}
                 </td>
                 <td>{titleCase(r.subjectdesc ?? "")}</td>
-                <td>{r.roomcode ?? "—"}</td>
+                <td>{formatExamRoom(r.roomcode)}</td>
                 <td>{r.seatno ?? "—"}</td>
               </tr>
             );
