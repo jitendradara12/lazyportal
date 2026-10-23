@@ -36,6 +36,7 @@ async function runtime({ answer, staticFetch } = {}) {
   class ProgressEvent extends Event {}
   const sandbox = {
     location, localStorage, sessionStorage, crypto: globalThis.crypto,
+    Storage: class Storage {},
     URL, Uint32Array, Uint8Array, TextEncoder, TextDecoder, Headers, Request: BrowserRequest, Response,
     Blob, EventTarget, Event, ProgressEvent, DOMException, AbortController, atob, btoa, setTimeout, clearTimeout,
     navigator: {}, OfficialPortalNative: native,
@@ -44,9 +45,34 @@ async function runtime({ answer, staticFetch } = {}) {
   };
   sandbox.window = sandbox;
   const prepared = await prepareOfficialPortal(SESSION, { now: NOW });
+  // The APK injects its own storage prelude before even older live bootstraps.
+  const isolation = await readFile(new URL("../../../android/app/src/main/assets/official-portal-storage.js", import.meta.url), "utf8");
+  vm.runInNewContext(isolation, sandbox);
   vm.runInNewContext(prepared.bootstrap, sandbox);
-  return { sandbox, calls, staticCalls, localStorage, sessionStorage, prepared, events, native };
+  return { sandbox, calls, staticCalls, localStorage: sandbox.localStorage, sessionStorage: sandbox.sessionStorage,
+    diskLocalStorage: localStorage, diskSessionStorage: sessionStorage, prepared, events, native };
 }
+
+test("APK storage prelude removes legacy credentials and keeps all portal writes off disk", async () => {
+  const { sandbox, localStorage, sessionStorage, diskLocalStorage, diskSessionStorage } = await runtime();
+  for (const disk of [diskLocalStorage, diskSessionStorage]) assert.equal(disk.values.size, 0);
+  localStorage.setItem("Token", "refreshed-token");
+  localStorage.updated = 123;
+  assert.equal(localStorage.updated, "123");
+  assert.equal(localStorage.getItem("updated"), "123");
+  assert.ok(Object.keys(localStorage).includes("updated"));
+  assert.equal(localStorage.key(localStorage.length - 1), "updated");
+  delete localStorage.updated;
+  assert.equal(localStorage.getItem("updated"), null);
+  assert.equal(localStorage.updated, undefined);
+  assert.equal(sessionStorage.getItem("Token"), SESSION.token, "the two stores are independent");
+  assert.ok(localStorage instanceof sandbox.Storage);
+  assert.deepEqual(Object.getOwnPropertyNames(sandbox.Storage.prototype), ["constructor"], "never patch the shared Storage prototype");
+  assert.throws(() => { sandbox.localStorage = diskLocalStorage; }, TypeError);
+  for (const disk of [diskLocalStorage, diskSessionStorage]) assert.equal(disk.values.size, 0, "refresh/named writes must stay in memory");
+  localStorage.clear();
+  assert.equal(localStorage.length, 0);
+});
 
 test("handoff seeds exact official keys, encrypts bypass, excludes credentials, and escapes HTML", async () => {
   const { localStorage, sessionStorage, prepared } = await runtime();

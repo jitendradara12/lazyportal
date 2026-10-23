@@ -86,6 +86,14 @@ test("CI compiles app device tests without packaging dependency test APKs", () =
   assert.ok(commands.every((args) => !args.includes("assembleDebugAndroidTest")), "unqualified device-test tasks package every dependency's test APK");
 });
 
+test("release publication waits for device execution on old and current Android", () => {
+  const workflow = read(".github/workflows/build-apk.yml");
+  assert.match(workflow, /api:\s*\[24,\s*36\]/);
+  assert.match(workflow, /adb shell am instrument -w -r com\.lazyportal\.juet\.test\/androidx\.test\.runner\.AndroidJUnitRunner/);
+  assert.match(workflow, /publish:[\s\S]*needs:\s*\[build,\s*device-tests\]/);
+  assert.match(workflow, /INSTRUMENTATION_FAILED\|Process crashed/);
+});
+
 test("launcher icons are the generated brand assets, at every density", () => {
   // Density bucket → launcher icon px (adaptive foreground is 108dp of the 48dp icon).
   const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };

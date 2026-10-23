@@ -1,12 +1,12 @@
 package com.lazyportal.juet.officialportal;
 
 import android.app.Activity;
-import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
-import android.net.Uri;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
-import android.view.View;
-import android.view.ViewGroup;
+import android.view.Gravity;
 import android.view.Window;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
@@ -16,10 +16,9 @@ import android.webkit.WebSettings;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
-import android.widget.TextView;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.Toast;
 import androidx.activity.ComponentDialog;
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.ViewCompat;
@@ -27,6 +26,7 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebMessageCompat;
+import com.lazyportal.juet.R;
 import java.util.Map;
 import java.util.Collections;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -45,12 +45,11 @@ public final class OfficialPortalView {
     private final PortalPolicy policy;
     private final PortalTransport transport;
     private final ComponentDialog dialog;
+    private final Closed onClosed;
     final WebView webView;
-    private final TextView notice;
-    private final ProgressBar progress;
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(4, 4, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(32));
     private final Map<String, FutureTask<Void>> pending = new ConcurrentHashMap<>();
-    private boolean closed, expired;
+    private boolean closed, expired, closeDelivered;
     private volatile String bootstrap;
 
     public OfficialPortalView(Activity activity, PortalPolicy policy, String bootstrap, Closed onClosed) throws Exception {
@@ -60,46 +59,38 @@ public final class OfficialPortalView {
     // The transport seam lets device tests exercise actual WebView messaging
     // and interception using fake upstream connections, with no student account.
     OfficialPortalView(Activity activity, PortalPolicy policy, String bootstrap, Closed onClosed, PortalTransport transport) {
-        this.activity = activity; this.policy = policy; this.bootstrap = bootstrap; this.transport = transport;
+        this.activity = activity; this.policy = policy; this.transport = transport; this.onClosed = onClosed;
+        try { this.bootstrap = PortalStorage.bootstrap(activity) + bootstrap; }
+        catch (Exception error) { throw new IllegalStateException("Portal storage isolation unavailable", error); }
         dialog = new ComponentDialog(activity, android.R.style.Theme_Material_NoActionBar);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         boolean dark = (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         int foreground = dark ? 0xFFF1EDF2 : 0xFF1D1B20;
         int background = dark ? 0xFF141316 : 0xFFFCF8FD;
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(background);
-        LinearLayout bar = new LinearLayout(activity);
-        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        Button close = button("Close", foreground); close.setOnClickListener(view -> close()); bar.addView(close);
-        TextView title = new TextView(activity);
-        title.setText("Official portal"); title.setTextSize(18); title.setTextColor(foreground);
-        bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        Button reload = button("Reload", foreground);
-        bar.addView(reload);
-        root.addView(bar);
-        notice = new TextView(activity); notice.setText(readOnlyNotice()); notice.setTextColor(foreground);
-        notice.setPadding(dp(16), dp(4), dp(16), dp(4)); root.addView(notice);
-        Button actual = button("Open actual portal ↗", foreground);
-        actual.setOnClickListener(view -> {
-            // Explicit user action, in the external browser. Never append a
-            // token, session, or credentials to this URL or Intent.
-            try { activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(policy.upstream + policy.pagePrefix))); }
-            catch (android.content.ActivityNotFoundException ignored) { notice.setText("No browser is available to open the actual portal."); }
-        });
-        root.addView(actual);
-        progress = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setIndeterminate(true); root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
+        FrameLayout root = new FrameLayout(activity);
+        root.setBackgroundColor(background);
         webView = new WebView(activity); webView.setBackgroundColor(background);
-        reload.setOnClickListener(view -> { notice.setText(readOnlyNotice()); webView.reload(); });
-        root.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
+        // Overlay two accessible touch targets; no header consumes page height.
+        ImageButton close = iconButton(R.drawable.ic_portal_close, "Close official portal", foreground, background);
+        close.setOnClickListener(view -> close());
+        root.addView(close, corner(Gravity.START));
+        ImageButton reload = iconButton(R.drawable.ic_portal_refresh, "Refresh official portal", foreground, background);
+        reload.setOnClickListener(view -> webView.reload());
+        root.addView(reload, corner(Gravity.END));
         dialog.setContentView(root);
         WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), false);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
-            var bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.ime());
+            var bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom); return insets;
         });
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true);
+        // The density-aware HTML viewport starts at 60%. Let WebView handle
+        // pinch gestures itself; hide its obsolete on-screen +/- controls.
+        settings.setUseWideViewPort(true); settings.setLoadWithOverviewMode(false);
+        settings.setSupportZoom(true); settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
         settings.setAllowFileAccess(false); settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setGeolocationEnabled(false); settings.setMediaPlaybackRequiresUserGesture(true);
@@ -116,9 +107,9 @@ public final class OfficialPortalView {
                     JSONObject request = new JSONObject(data);
                     String event = request.optString("event");
                     if ("close".equals(event)) { close(); return; }
-                    if ("blocked".equals(event)) { notice.setText(readOnlyNotice()); return; }
+                    if ("blocked".equals(event)) { message(readOnlyNotice()); return; }
                     if ("expired".equals(event)) {
-                        expired = true; notice.setText("Session expired. Close this view, reconnect in Lazyportal, then reopen."); return;
+                        expired = true; message("Session expired. Close this view, reconnect in Lazyportal, then reopen."); return;
                     }
                     String cancel = request.optString("cancel");
                     if (!cancel.isEmpty()) {
@@ -137,7 +128,7 @@ public final class OfficialPortalView {
                         final String error = response.optString("error", "");
                         activity.runOnUiThread(() -> {
                             if (!closed && pending.containsKey(id)) {
-                                if (!error.isEmpty()) notice.setText(error);
+                                if (!error.isEmpty()) message(error);
                                 reply.postMessage(result);
                             }
                             pending.remove(id);
@@ -160,25 +151,22 @@ public final class OfficialPortalView {
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (policy.allowsNavigation(request.getUrl().toString())) return false;
-                notice.setText(readOnlyNotice()); return true;
+                message(readOnlyNotice()); return true;
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 cancelRequests();
-                progress.setVisibility(View.VISIBLE);
             }
-            @Override public void onPageFinished(WebView view, String url) { progress.setVisibility(View.GONE); }
             @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
                 close(); return true;
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public void onPermissionRequest(PermissionRequest request) { request.deny(); }
-            @Override public void onProgressChanged(WebView view, int value) { progress.setVisibility(value == 100 ? View.GONE : View.VISIBLE); }
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message result) {
-                notice.setText(readOnlyNotice()); return false;
+                message(readOnlyNotice()); return false;
             }
         });
-        webView.setDownloadListener((url, userAgent, disposition, type, length) -> notice.setText("Use the actual portal to download files."));
+        webView.setDownloadListener((url, userAgent, disposition, type, length) -> message("Use the actual portal to download files."));
         dialog.getOnBackPressedDispatcher().addCallback(new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
@@ -188,20 +176,27 @@ public final class OfficialPortalView {
                 else close();
             }
         });
-        dialog.setOnDismissListener(ignored -> {
-            dispose(); onClosed.accept(expired);
-        });
+        dialog.setOnDismissListener(ignored -> finishClose());
     }
 
     public void show() {
-        // Clear this view's origin before the first official script runs. Never
-        // deleteAllData(), clear all cookies, or touch Vercel's credential store.
+        // IndexedDB cleanup; the injected storage prelude clears old Web Storage
+        // and keeps all subsequent localStorage/sessionStorage writes in memory.
         WebStorage.getInstance().deleteOrigin(policy.origin);
         dialog.show(); dialog.getWindow().setLayout(-1, -1);
         webView.loadUrl(policy.origin + policy.entry);
     }
 
-    public void close() { if (dialog.isShowing()) dialog.dismiss(); else dispose(); }
+    public void close() {
+        if (dialog.isShowing()) dialog.dismiss();
+        // Android posts OnDismissListener asynchronously. Complete now so an
+        // old callback cannot clear the plugin's reference to a newer view.
+        finishClose();
+    }
+    private void finishClose() {
+        dispose();
+        if (!closeDelivered) { closeDelivered = true; onClosed.accept(expired); }
+    }
     private void cancelRequests() {
         for (var entry : pending.entrySet()) { entry.getValue().cancel(true); transport.cancel(entry.getKey()); }
         pending.clear(); executor.purge();
@@ -214,9 +209,23 @@ public final class OfficialPortalView {
         webView.clearHistory(); webView.removeAllViews(); webView.destroy();
         WebStorage.getInstance().deleteOrigin(policy.origin);
     }
-    private Button button(String label, int color) {
-        Button button = new Button(activity); button.setText(label); button.setTextColor(color); button.setAllCaps(false); return button;
+    private ImageButton iconButton(int drawable, String label, int foreground, int background) {
+        ImageButton button = new ImageButton(activity);
+        button.setImageResource(drawable); button.setImageTintList(ColorStateList.valueOf(foreground));
+        button.setContentDescription(label); button.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable circle = new GradientDrawable(); circle.setShape(GradientDrawable.OVAL);
+        circle.setColor((background & 0x00FFFFFF) | 0xE6000000);
+        GradientDrawable mask = new GradientDrawable(); mask.setShape(GradientDrawable.OVAL); mask.setColor(0xFFFFFFFF);
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf((foreground & 0x00FFFFFF) | 0x33000000), circle, mask));
+        button.setElevation(dp(4));
+        if (Build.VERSION.SDK_INT >= 26) button.setTooltipText(label);
+        return button;
     }
+    private FrameLayout.LayoutParams corner(int gravity) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP | gravity);
+        params.setMargins(dp(8), dp(8), dp(8), dp(8)); return params;
+    }
+    private void message(String text) { Toast.makeText(activity, text, Toast.LENGTH_LONG).show(); }
     private int dp(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
     private static String readOnlyNotice() { return "Read-only. Use the actual portal for submissions, changes or payments."; }
     private static JSONObject errorReply(String id, String error) {

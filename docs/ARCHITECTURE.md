@@ -157,7 +157,7 @@ on open**. Existing feature caches and the hosted proxy are unchanged.
 | `core/officialPortalRuntime.js` | Bootstrap serialized by the live UI into the isolated view before Angular; seed exact official storage keys, adapt fetch/XHR to native messages, filter navigation to read pages |
 | `web/lib/officialPortal.ts` | Capability check, handoff, cancellation on account changes/logout, manual reconnect signal; no network or credential persistence |
 | `OfficialPortalPlugin` | Narrow `open({version, bootstrap})` / `clear()` interface; closes on main-page reload/destruction |
-| `officialportal/OfficialPortalView` | Disposable WebView on `https://official.lazyportal.invalid`, native Close/Reload/actual-portal controls, origin-scoped message bridge |
+| `officialportal/OfficialPortalView` | Disposable WebView on `https://official.lazyportal.invalid`, floating close/refresh icons, native pinch-to-zoom, origin-scoped message bridge |
 | `officialportal/PortalPolicy` | APK-pinned contract; validates exact API path/method, static-resource targets, redirects and navigation independently of remote JavaScript |
 | `officialportal/PortalTransport` | Direct JUET networking with fixed Origin/Referer, header allowlist, timeouts, size limits, bounded API concurrency and cancellation; HTML-only bootstrap injection, streaming assets |
 | `officialportal/PortalAssetCache` | Up to 32 MiB of public content-hashed JS/CSS, atomically published after EOF; no HTML, tokens or API responses |
@@ -169,6 +169,9 @@ bodies that ordinary interception cannot read. Every intercepted network request
 returns a response, including denials; none falls through to another network
 stack or Vercel. The CSP blocks third-party scripts, frames, forms, workers and
 connections. An exact alias serves the shell's Material Icons font locally.
+The HTML shell receives a 60% initial viewport with native pinch zoom enabled;
+the overlay controls consume no page height. Read-only guidance lives on More
+and appears as a brief message for blocked actions, rather than a header/banner.
 
 The generated `android/app/src/main/assets/official-portal-policy.json` comes from
 core (`node scripts/sync-official-portal.mjs`, also run by `cap:sync`). A test
@@ -186,7 +189,6 @@ IndexedDB key and cookies remain intact. In-view refresh calls go directly to
 JUET. A failed refresh asks the user to close and reconnect through the existing
 UI; it does not silently retry through Vercel. Submissions and payment operations
 are denied by native policy, even if a form is reachable in the original SPA.
-The explicit “Open actual portal” button opens the browser without session data.
 
 ## Portal bundle
 

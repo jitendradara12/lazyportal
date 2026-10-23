@@ -187,27 +187,44 @@
     const btnText = document.getElementById("btn-text");
 
     let isChecking = false;
+    let retryTimer;
+    let retryDelay = 5000;
+
+    function scheduleRetry() {
+      clearTimeout(retryTimer);
+      if (!document.hidden && navigator.onLine) {
+        retryTimer = setTimeout(() => checkConnection(false), retryDelay);
+      }
+    }
 
     async function canReachPortal() {
       if (!navigator.onLine) return false;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
       try {
-        await fetch(LIVE_URL, {
-          mode: "no-cors",
+        // HEAD checks the actual entry document without downloading the app.
+        // Its static CORS header allows the local https://localhost error page
+        // to inspect status; no API/function or opaque-response fallback.
+        const response = await fetch(LIVE_URL, {
+          method: "HEAD",
+          mode: "cors",
           cache: "no-store",
+          credentials: "omit",
           signal: controller.signal
         });
-        clearTimeout(timeout);
-        return true;
+        return response.ok && response.type !== "opaque" &&
+          (response.headers.get("content-type") || "").includes("text/html");
       } catch {
-        clearTimeout(timeout);
         return false;
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
     async function checkConnection(manual = false) {
       if (isChecking) return;
+      if (!manual && document.hidden) return;
+      clearTimeout(retryTimer);
       isChecking = true;
 
       if (manual) {
@@ -239,16 +256,21 @@
       } else {
         isChecking = false;
       }
+      retryDelay = Math.min(retryDelay * 2, 60000);
+      scheduleRetry();
     }
 
     retryBtn.addEventListener("click", () => checkConnection(true));
-    window.addEventListener("online", () => checkConnection(false));
+    window.addEventListener("online", scheduleRetry);
+    window.addEventListener("offline", () => clearTimeout(retryTimer));
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) checkConnection(false);
+      if (document.hidden) clearTimeout(retryTimer);
+      else scheduleRetry();
     });
 
-    // Silent background poll so the app auto-recovers when Wi-Fi or 5G comes back
-    setInterval(() => checkConnection(false), 2500);
+    // Bounded recovery checks: 5s initially, then 10/20/40/60s. Pause while
+    // hidden/offline. Manual Retry stays available without background polling.
+    scheduleRetry();
   </script>
 </body>
 </html>

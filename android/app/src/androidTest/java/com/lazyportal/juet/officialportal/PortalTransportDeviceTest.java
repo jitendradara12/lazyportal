@@ -38,6 +38,8 @@ public class PortalTransportDeviceTest {
         String body = new String(read(html.getData()), StandardCharsets.UTF_8);
         assertEquals(200, html.getStatusCode());
         assertTrue(body.indexOf("window.booted=true") < body.indexOf("main.abcdef0123456789.js"));
+        assertTrue(body.contains("initial-scale=0.6"));
+        assertTrue(body.contains("user-scalable=yes"));
         assertTrue(html.getResponseHeaders().get("Content-Security-Policy").contains("form-action 'none'"));
         assertEquals("no-store", html.getResponseHeaders().get("Cache-Control"));
         assertFalse(html.getResponseHeaders().containsKey("Set-Cookie"));

@@ -6,6 +6,10 @@ import static org.junit.Assume.assumeTrue;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.webkit.WebViewFeature;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.test.platform.app.InstrumentationRegistry;
 import com.lazyportal.juet.MainActivity;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -18,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import android.view.View;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -26,7 +31,7 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class OfficialPortalViewDeviceTest {
     @Test public void isolatedViewDeliversReadsRejectsWritesAndClosesCleanly() throws Exception {
-        assumeTrue(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER));
+        requireBridge();
         AtomicInteger connections = new AtomicInteger();
         AtomicReference<OfficialPortalView> portal = new AtomicReference<>();
         CountDownLatch closed = new CountDownLatch(1);
@@ -43,6 +48,10 @@ public class OfficialPortalViewDeviceTest {
                 } catch (Exception error) { throw new AssertionError(error); }
             });
             waitFor(scenario, portal.get(), "window.replies?.[0]?.status === 200");
+            // Check actual rendering scale, independent of device pixel density.
+            waitFor(scenario, portal.get(), "Math.abs(window.visualViewport.scale - 0.6) < 0.05");
+            scenario.onActivity(activity -> portal.get().webView.zoomBy(1.5f));
+            waitFor(scenario, portal.get(), "window.visualViewport.scale > 0.8");
             int before = connections.get();
             scenario.onActivity(activity -> portal.get().webView.evaluateJavascript(
                 "OfficialPortalNative.postMessage(JSON.stringify({id:'1:2',method:'POST',path:'/onlinefeepayment/paynow',body:'blocked'}));", null));
@@ -51,6 +60,71 @@ public class OfficialPortalViewDeviceTest {
             scenario.onActivity(activity -> portal.get().close());
             assertTrue(closed.await(3, TimeUnit.SECONDS));
         }
+    }
+
+    @Test public void packagedRuntimeWorksAndDismissalCannotOrphanAReopenedView() throws Exception {
+        requireBridge();
+        String bootstrap;
+        try (InputStream input = InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("official-portal-bootstrap.js");
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            bootstrap = output.toString("UTF-8") + "\nwindow.runtimeLoaded=false;fetch('/StudentPortalAPI/clxuser/getmenulist',{method:'POST',body:'encrypted'}).then(r=>r.json()).then(()=>window.runtimeLoaded=true);";
+        }
+        AtomicReference<OfficialPortalView> active = new AtomicReference<>();
+        AtomicInteger closed = new AtomicInteger();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                activity.getBridge().getWebView().stopLoading();
+                try {
+                    PortalPolicy policy = PortalPolicy.load(activity);
+                    active.set(new OfficialPortalView(activity, policy, bootstrap, expired -> {
+                        active.set(null); closed.incrementAndGet();
+                    }, new PortalTransport(policy, FakeConnection::new)));
+                    active.get().show();
+                } catch (Exception error) { throw new AssertionError(error); }
+            });
+            waitFor(scenario, active.get(), "window.runtimeLoaded === true && localStorage.getItem('Token') === 'instrumentation-token'");
+            scenario.onActivity(activity -> {
+                // Artificial side cutout: verify the same inset callback used
+                // by landscape phones, independent of emulator hardware.
+                View root = (View) active.get().webView.getParent();
+                WindowInsetsCompat cutout = new WindowInsetsCompat.Builder()
+                    .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.of(0, 24, 0, 24))
+                    .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.of(70, 0, 0, 0)).build();
+                ViewCompat.dispatchApplyWindowInsets(root, cutout);
+                assertEquals(70, root.getPaddingLeft());
+                assertEquals(24, root.getPaddingTop());
+                OfficialPortalView previous = active.get();
+                previous.close();
+                assertNull(active.get());
+                assertEquals(1, closed.get());
+                try {
+                    PortalPolicy policy = PortalPolicy.load(activity);
+                    active.set(new OfficialPortalView(activity, policy, bootstrap, expired -> {
+                        active.set(null); closed.incrementAndGet();
+                    }, new PortalTransport(policy, FakeConnection::new)));
+                    active.get().show();
+                } catch (Exception error) { throw new AssertionError(error); }
+                // Redundant close/delayed dismiss must not deliver A's callback
+                // twice and erase the reference to B.
+                previous.close();
+            });
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            assertNotNull(active.get());
+            assertEquals(1, closed.get());
+            waitFor(scenario, active.get(), "window.runtimeLoaded === true");
+            scenario.onActivity(activity -> active.get().close());
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            assertNull(active.get());
+            assertEquals(2, closed.get());
+        }
+    }
+
+    private static void requireBridge() {
+        boolean supported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+        if (android.os.Build.VERSION.SDK_INT >= 36) assertTrue("Current Android must exercise the native bridge, not skip it", supported);
+        else assumeTrue(supported); // Older devices show the production WebView-update prompt.
     }
     private static void waitFor(ActivityScenario<MainActivity> scenario, OfficialPortalView portal, String expression) throws Exception {
         for (int attempt = 0; attempt < 50; attempt++) {

@@ -14,8 +14,8 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginCall;
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.io.FileInputStream;
+import java.io.ByteArrayOutputStream;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -90,7 +90,12 @@ public class ExamCalendarPluginTest {
             plugin.saveCalendar(call, new ActivityResult(Activity.RESULT_OK, new Intent().setData(uri)));
             assertNull(call.error);
             assertTrue(call.resolved);
-            assertEquals(CALENDAR, new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+            // java.nio.file is API26+, while the app supports API24.
+            try (FileInputStream input = new FileInputStream(file); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[1024]; int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                assertEquals(CALENDAR, output.toString("UTF-8"));
+            }
         } finally { file.delete(); }
     }
 
