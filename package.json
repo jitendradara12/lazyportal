@@ -11,7 +11,7 @@
     "build": "npm --workspace @juet/web run build",
     "bench:proxy": "node --expose-gc scripts/benchmark-proxy.mjs",
     "cap:assets": "node scripts/generate-app-assets.mjs",
-    "cap:sync": "npm run build && cap sync android",
+    "cap:sync": "node scripts/sync-official-portal.mjs && npm run build && cap sync android",
     "cap:open": "cap open android",
     "android:apk": "npm run cap:sync && cd android && ./gradlew assembleDebug"
   },

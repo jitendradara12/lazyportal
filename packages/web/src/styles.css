@@ -2397,6 +2397,17 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 }
 
 /* More */
+.official-portal-entry { margin: 4px 0 16px; border-radius: var(--r-lg); background: var(--surfaceContainerLow); overflow: hidden; }
+.official-portal-open { display: flex; align-items: center; gap: 14px; width: 100%; padding: 20px; border: 0; background: transparent; color: var(--onSurface); text-align: left; cursor: pointer; }
+.official-portal-open:active { background: var(--surfaceContainerHigh); }
+.official-portal-open:disabled { cursor: progress; opacity: 0.65; }
+.official-portal-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--r-md); background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+.official-portal-copy { flex: 1; min-width: 0; }
+.official-portal-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: var(--fs-m); font-weight: 600; }
+.official-portal-badge { padding: 2px 8px; border-radius: var(--r-full); background: var(--secondaryContainer); color: var(--onSecondaryContainer); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+.official-portal-description { display: block; margin-top: 6px; color: var(--onSurfaceVariant); font-size: var(--fs-s); line-height: 1.5; }
+.official-portal-hint { margin: 0; padding: 0 20px 18px; color: var(--onSurfaceVariant); font-size: var(--fs-xs); line-height: 1.5; }
+.official-portal-error { margin: 0; padding: 0 20px 18px; color: var(--error); font-size: var(--fs-s); }
 .profile { display: flex; align-items: center; gap: 16px; padding: 8px 4px 12px; }
 .profile-avatar {
   flex: none;

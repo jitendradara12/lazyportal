@@ -129,6 +129,82 @@ Repository Actions secrets, added before pushing a version tag:
 The keystore is git-ignored; never commit it or share the encoded value. Never
 distribute debug builds.
 
+## Official student portal (Android only)
+
+More → **Official student portal** opens a separate read-only view. The main app
+continues loading the live Vercel deployment. JUET HTML, assets and approved API
+reads travel directly between the phone and JUET; this feature adds no serverless
+route, Vercel API call on open, or hosted fallback. Browsers and APKs without the
+plugin do not show the entry.
+
+The native module uses a private HTTPS WebView origin and request interception,
+not a localhost server. The original portal receives its existing session before
+any scripts run. Passwords are never handed off. Native policy blocks unknown
+endpoints, writes, payments and foreign destinations independently of the UI.
+Some official pages contain editable controls; those cannot submit changes here.
+The persistent banner directs users to the actual portal for changes/submissions
+and payments. File downloads also use the actual portal.
+
+Close destroys the extra view, cancels its requests and deletes its isolated
+storage. Logout/account changes also clear it. Public content-hashed JS/CSS can
+remain in a private 32 MiB cache; student responses and HTML are never cached.
+API requests have a 512 KiB body cap, an 8 MiB response cap, four workers and a
+32-request queue. Timeouts/cancellation never fall back to Vercel.
+
+Native implementation lives under `officialportal/`, behind `OfficialPortalPlugin`.
+Core owns the protocol contract and the live session/bootstrap adapter. See
+`docs/ARCHITECTURE.md` for the boundaries. `cap:sync` regenerates the native policy;
+`npm test` catches stale generated policy. New native transport capabilities or
+allowlist entries need an APK; normal UI/bootstrap updates still deploy live.
+
+### JUET certificate chain
+
+On 2026-10-24 JUET served only its leaf certificate, omitting the GoDaddy G2
+intermediate. `PortalTls` supplies the missing intermediate to Android's **normal
+system-root and hostname validation** for JUET connections only. It never trusts
+the intermediate as a new root, disables TLS checks, installs a global socket
+factory, or relaxes WebView SSL errors. Complete valid chains work normally.
+
+The public intermediate is bundled as `official-portal-intermediate.pem`, from
+[GoDaddy's repository](https://certs.godaddy.com/repository),
+`https://certs.godaddy.com/repository/gdig2.crt.pem`:
+
+- SHA-256: `973A41276FFD01E027A2AAD49E34C37846D3E976FF6A620B6712E33832041AA6`
+- Expires: 2031-05-03. This is an intermediate chain repair, not a pin to JUET's
+  expiring leaf certificate. A valid rotated leaf/complete chain remains valid.
+- The public leaf under `src/test/resources` is a signature/chain test fixture,
+  contains no private key, and is never used to establish production trust.
+
+If JUET changes issuers and still omits a different intermediate, update this
+repair and rebuild the APK, or have JUET fix its server chain. Never replace it
+with a permissive trust manager.
+
+### Verification
+
+CI runs native policy/cache/TLS/negative-transport unit tests and compiles the
+device tests alongside the debug APK. It does not boot a device. JavaScript tests
+exercise the official session/bootstrap adapter, XHR/fetch, cancellations,
+blocked actions and the More entry's zero-hosted-API lifecycle.
+
+For the CI-built APK, sign in on the device and check:
+
+1. More → Official student portal: original account/institute loads without
+   another login. Visit attendance, marks and another available read page.
+2. Close/Back returns to More. Reopen, rotate, background/resume, and press Back
+   with a filter keyboard open. No blank view, lost account, or trapped Back.
+3. Reload works; offline/unreachable portal shows a retryable message. No hosted
+   fallback is attempted. Large cached public bundles load on reopening.
+4. Writes/payments cannot submit. “Open actual portal” opens the external browser
+   without a token in its address; signing in there is separate.
+5. Logout and switch accounts/institutes: reopening shows only the new identity.
+   Expired portal sessions ask for reconnect rather than silently using Vercel.
+6. Inspect network traffic: this view reaches JUET (and its exact font asset),
+   with no `/officialportal` or extra Vercel `/api` traffic. Existing tabs retain
+   their normal caching/refresh behavior.
+
+With a connected device, the fully mocked WebView/transport tests run through
+`./gradlew :app:connectedDebugAndroidTest`; no account/password is used by tests.
+
 ## Before merging a native change (device QA)
 
 The local `NativeInteractions` plugin handles Android Back and light selection

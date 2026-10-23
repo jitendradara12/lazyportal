@@ -144,6 +144,50 @@ Capacitor wraps the same web bundle; `lib/apiBase.js` is the only place that
 knows the shell must call the hosted proxy by absolute URL instead of `/api`.
 Details in `docs/ANDROID.md`.
 
+### Android official portal view
+
+The More page's `OfficialPortalEntry` is available only when Android exposes the
+`OfficialPortal` plugin. The main app still loads `server.url` from Vercel. This
+feature has **no Vercel function, rewrite, iframe, hosted fallback, or API refresh
+on open**. Existing feature caches and the hosted proxy are unchanged.
+
+| Layer | Responsibility |
+|---|---|
+| `core/officialPortal.js` | Exact reviewed read endpoints, routes, upstream addresses, versioned contract, minimal session handoff and bypass encryption |
+| `core/officialPortalRuntime.js` | Bootstrap serialized by the live UI into the isolated view before Angular; seed exact official storage keys, adapt fetch/XHR to native messages, filter navigation to read pages |
+| `web/lib/officialPortal.ts` | Capability check, handoff, cancellation on account changes/logout, manual reconnect signal; no network or credential persistence |
+| `OfficialPortalPlugin` | Narrow `open({version, bootstrap})` / `clear()` interface; closes on main-page reload/destruction |
+| `officialportal/OfficialPortalView` | Disposable WebView on `https://official.lazyportal.invalid`, native Close/Reload/actual-portal controls, origin-scoped message bridge |
+| `officialportal/PortalPolicy` | APK-pinned contract; validates exact API path/method, static-resource targets, redirects and navigation independently of remote JavaScript |
+| `officialportal/PortalTransport` | Direct JUET networking with fixed Origin/Referer, header allowlist, timeouts, size limits, bounded API concurrency and cancellation; HTML-only bootstrap injection, streaming assets |
+| `officialportal/PortalAssetCache` | Up to 32 MiB of public content-hashed JS/CSS, atomically published after EOF; no HTML, tokens or API responses |
+| `officialportal/PortalTls` | Supplies JUET's missing intermediate to Android's existing certificate validator for that host only; no new trust anchor or disabled hostname checks |
+
+There is no localhost HTTP server or listening port: WebView resource interception
+serves the private HTTPS origin, and its asynchronous message bridge carries API
+bodies that ordinary interception cannot read. Every intercepted network request
+returns a response, including denials; none falls through to another network
+stack or Vercel. The CSP blocks third-party scripts, frames, forms, workers and
+connections. An exact alias serves the shell's Material Icons font locally.
+
+The generated `android/app/src/main/assets/official-portal-policy.json` comes from
+core (`node scripts/sync-official-portal.mjs`, also run by `cap:sync`). A test
+checks that it matches. The native allowlist is not supplied by the live UI:
+adding an endpoint requires a new APK even if the bootstrap contract version
+stays compatible. Web/UI/bootstrap changes can still deploy through Vercel.
+
+The official SPA owns its read screens; these are not additional React feature
+sections or calls through `features.js`. New Lazyportal-native read sections
+continue to follow the existing core feature/section registry pattern.
+
+The session handoff excludes saved passwords and unrelated storage. Only the
+isolated origin is cleared on open/close; the main origin's localStorage,
+IndexedDB key and cookies remain intact. In-view refresh calls go directly to
+JUET. A failed refresh asks the user to close and reconnect through the existing
+UI; it does not silently retry through Vercel. Submissions and payment operations
+are denied by native policy, even if a form is reachable in the original SPA.
+The explicit “Open actual portal” button opens the browser without session data.
+
 ## Portal bundle
 
 To read an endpoint: open `https://studentportal.juet.ac.in/studentportal/`, find
