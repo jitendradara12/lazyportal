@@ -58,21 +58,30 @@ public class PortalStorageDeviceTest {
     private static String inOrigin(ActivityScenario<MainActivity> scenario, String origin, String prelude, String expression) throws Exception {
         CountDownLatch evaluated = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
+        AtomicReference<WebView> retainedProbe = new AtomicReference<>();
         scenario.onActivity(activity -> {
             WebView probe = new WebView(activity);
+            retainedProbe.set(probe);
             probe.getSettings().setJavaScriptEnabled(true);
             probe.getSettings().setDomStorageEnabled(true);
             probe.getSettings().setBlockNetworkLoads(true);
             probe.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView view, String url) {
                     view.evaluateJavascript(expression, value -> {
-                        result.set(value); view.destroy(); evaluated.countDown();
+                        result.set(value); evaluated.countDown();
                     });
                 }
             });
             probe.loadDataWithBaseURL(origin + "/", "<!doctype html><script>" + prelude + "</script>", "text/html", "UTF-8", null);
         });
-        assertTrue("Storage probe timed out", evaluated.await(10, TimeUnit.SECONDS));
-        return result.get();
+        try {
+            // A detached WebView must survive GC until its callbacks finish.
+            System.gc();
+            System.runFinalization();
+            assertTrue("Storage probe timed out for " + origin, evaluated.await(10, TimeUnit.SECONDS));
+            return result.get();
+        } finally {
+            scenario.onActivity(activity -> retainedProbe.get().destroy());
+        }
     }
 }
