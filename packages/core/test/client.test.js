@@ -138,6 +138,69 @@ describe("client", () => {
     assert.equal(calls.length, 1);
   });
 
+  it("native and HTTP expiry share recovery, and late native expiry reuses the new token", async () => {
+    let token = "old", refreshes = 0, release, readStarted;
+    const readSent = new Promise((resolve) => { readStarted = resolve; });
+    const statuses = [];
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      fetchImpl: mockFetch(async (_url, init) => {
+        if (init.headers.Authorization === "Bearer old") {
+          readStarted();
+          return { status: 401 };
+        }
+        return ok({ response: { recovered: true } });
+      }),
+      onRefresh: async () => {
+        refreshes++;
+        await new Promise((resolve) => { release = resolve; });
+        token = "new";
+        return true;
+      },
+      onSessionStatusChange: (status) => statuses.push(status),
+    });
+    const native = client.recoverSession("old");
+    const read = client.postRaw("/read", {});
+    await readSent;
+    await new Promise(setImmediate);
+    release();
+    assert.equal(await native, true);
+    assert.equal((await read).response.recovered, true);
+    assert.equal(await client.recoverSession("old"), true);
+    assert.equal(refreshes, 1);
+    assert.deepEqual(statuses, ["recovering", "authenticated"]);
+  });
+
+  it("native recovery failure is final for that token and cancellation leaves the new session alone", async () => {
+    let refreshes = 0, unauthorized = 0, started, token = "old";
+    const statuses = [];
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      onRefresh: async (signal) => {
+        if (++refreshes === 1) return false;
+        started();
+        return new Promise((resolve) => signal.addEventListener("abort", () => resolve(false), { once: true }));
+      },
+      onUnauthorized: () => { unauthorized++; },
+      onSessionStatusChange: (status) => statuses.push(status),
+    });
+    assert.equal(await client.recoverSession(), false);
+    assert.equal(await client.recoverSession(), false);
+    assert.equal(refreshes, 1);
+    assert.equal(unauthorized, 1);
+    const recovering = new Promise((resolve) => { started = resolve; });
+    client.cancelRefresh();
+    const pending = client.recoverSession();
+    await recovering;
+    client.cancelRefresh();
+    token = "replacement";
+    assert.equal(await pending, false);
+    assert.deepEqual(statuses, ["recovering", "expired", "recovering"]);
+    assert.equal(unauthorized, 1);
+  });
+
   it("does not restart failed silent recovery for the same token", async () => {
     const statuses = [];
     let refreshes = 0;

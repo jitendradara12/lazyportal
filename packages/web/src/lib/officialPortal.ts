@@ -1,6 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
-import { officialPortal, session as portalSession } from "@juet/core";
-import { getSessionStatus, setSessionStatus, store } from "./portal";
+import { officialPortal } from "@juet/core";
+import { client, getSessionStatus, store } from "./portal";
 import type { Session } from "../types";
 
 const nativePortal = registerPlugin<{
@@ -11,18 +11,18 @@ const nativePortal = registerPlugin<{
 export const hasOfficialPortal = () => Capacitor.getPlatform() === "android" && Capacitor.isPluginAvailable("OfficialPortal");
 let generation = 0;
 
-/** No fetch, refresh, iframe, hosted fallback, or persistent bridge payload. */
+/** Handoff only on open; expiry returns to the app's shared recovery. */
 export async function openOfficialPortal(fallback: Session) {
   if (!hasOfficialPortal()) throw new Error("The official portal view is available in the Android app.");
   if (getSessionStatus() !== "authenticated") throw new Error("Reconnect to your account before opening the official portal.");
   const current = ++generation;
-  const prepared = await officialPortal.prepareOfficialPortal(store.load() ?? fallback);
+  const handedOff = store.load() ?? fallback;
+  const prepared = await officialPortal.prepareOfficialPortal(handedOff);
   if (current !== generation) return;
   const result = await nativePortal.open(prepared);
   if (current !== generation) return;
   if (result?.expired) {
-    portalSession.markSessionExpired();
-    setSessionStatus("expired");
+    await client.recoverSession(handedOff.token);
   }
 }
 

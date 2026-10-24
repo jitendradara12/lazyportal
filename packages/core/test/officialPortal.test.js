@@ -210,6 +210,26 @@ test("menus retain read pages and hide write/payment routes; failed native refre
   assert.ok(calls.some((call) => call.event === "expired"));
 });
 
+test("expired read responses notify the app once, including HTTP 200 failures", async () => {
+  for (const response of [
+    { status: 401 },
+    { body: btoa(JSON.stringify({ status: { responseStatus: "Failure", errors: ["Session expired! Please login again."] } })) },
+  ]) {
+    const { sandbox, calls } = await runtime({ answer: () => response });
+    await Promise.all([1, 2].map(() => sandbox.fetch("/StudentPortalAPI/clxuser/getmenulist", { method: "POST" })));
+    assert.equal(calls.filter((call) => call.event === "expired").length, 1);
+  }
+});
+
+test("public endpoint failures and ordinary read errors do not expire the session", async () => {
+  const { sandbox, calls } = await runtime({ answer: (request) => request.method === "GET"
+    ? { status: 401 }
+    : { status: 500, body: btoa("Portal unavailable") } });
+  assert.equal((await sandbox.fetch("/StudentPortalAPI/token/getlogoClientWise")).status, 401);
+  assert.equal((await sandbox.fetch("/StudentPortalAPI/clxuser/getmenulist", { method: "POST" })).status, 500);
+  assert.equal(calls.filter((call) => call.event === "expired").length, 0);
+});
+
 test("APK policy matches core and no official-portal serverless route is introduced", async () => {
   const generated = JSON.parse(await readFile(new URL("../../../android/app/src/main/assets/official-portal-policy.json", import.meta.url), "utf8"));
   assert.deepEqual(generated, officialPortalPolicy);

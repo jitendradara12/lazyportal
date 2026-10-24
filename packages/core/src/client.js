@@ -194,7 +194,7 @@ export function createClient({
     failedAuthorization = null;
   }
 
-  async function refreshedRetry(sent) {
+  async function refreshAuthorization(sent) {
     if (!onRefresh) return { kind: "failed" };
 
     const liveAuthorization = currentAuthorization();
@@ -217,10 +217,22 @@ export function createClient({
     if (outcome.generation !== refreshGeneration || outcome.kind === "cancelled") {
       return { kind: "cancelled", generation: cycle.generation };
     }
+    return outcome;
+  }
+
+  async function refreshedRetry(sent) {
+    const outcome = await refreshAuthorization(sent);
     if (outcome.kind !== "ok") return outcome;
 
     const retry = await fetchSent(sent);
-    return { kind: "response", ...retry, generation: cycle.generation };
+    return { kind: "response", ...retry, generation: outcome.generation };
+  }
+
+  /** Recover an expiry reported by another transport, sharing HTTP recovery. */
+  async function recoverSession(token = getToken()) {
+    const outcome = await refreshAuthorization({ usedAuthorization: `Bearer ${token ?? ""}` });
+    if (outcome.kind === "failed") await expireSession({});
+    return outcome.kind === "ok" || outcome.kind === "token-changed";
   }
 
   async function expireSession(opts) {
@@ -355,5 +367,6 @@ export function createClient({
     },
     /** Abort a background recovery after an explicit session save/logout. */
     cancelRefresh,
+    recoverSession,
   };
 }

@@ -73,6 +73,7 @@ public class OfficialPortalViewDeviceTest {
         }
         AtomicReference<OfficialPortalView> active = new AtomicReference<>();
         AtomicInteger closed = new AtomicInteger();
+        CountDownLatch expiredClose = new CountDownLatch(1);
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
                 activity.getBridge().getWebView().stopLoading();
@@ -80,6 +81,7 @@ public class OfficialPortalViewDeviceTest {
                     PortalPolicy policy = PortalPolicy.load(activity);
                     active.set(new OfficialPortalView(activity, policy, bootstrap, expired -> {
                         active.set(null); closed.incrementAndGet();
+                        if (expired) expiredClose.countDown();
                     }, new PortalTransport(policy, FakeConnection::new)));
                     active.get().show();
                 } catch (Exception error) { throw new AssertionError(error); }
@@ -103,6 +105,7 @@ public class OfficialPortalViewDeviceTest {
                     PortalPolicy policy = PortalPolicy.load(activity);
                     active.set(new OfficialPortalView(activity, policy, bootstrap, expired -> {
                         active.set(null); closed.incrementAndGet();
+                        if (expired) expiredClose.countDown();
                     }, new PortalTransport(policy, FakeConnection::new)));
                     active.get().show();
                 } catch (Exception error) { throw new AssertionError(error); }
@@ -114,7 +117,11 @@ public class OfficialPortalViewDeviceTest {
             assertNotNull(active.get());
             assertEquals(1, closed.get());
             waitFor(scenario, active.get(), "window.runtimeLoaded === true");
-            scenario.onActivity(activity -> active.get().close());
+            // A failed refresh in the real runtime must dismiss the native
+            // view and deliver expiry without another tap on Close.
+            scenario.onActivity(activity -> active.get().webView.evaluateJavascript(
+                "fetch('/StudentPortalAPI/token/refreshTokenRequest',{method:'POST',body:'{}'});", null));
+            assertTrue(expiredClose.await(3, TimeUnit.SECONDS));
             InstrumentationRegistry.getInstrumentation().waitForIdleSync();
             assertNull(active.get());
             assertEquals(2, closed.get());

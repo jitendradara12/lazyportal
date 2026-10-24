@@ -70,16 +70,34 @@ test("browsers do not expose a hosted fallback", async ({ page }) => {
   expect(calls).toEqual([]);
 });
 
-test("closing an expired native session asks for reconnect without silently hitting Vercel", async ({ page }) => {
+test("an expired native session silently recovers before the portal is reopened", async ({ page }) => {
+  const calls = await setup(page);
+  await page.route("**/api/token/refreshTokenRequest", (route) => route.fulfill({
+    json: { response: { msg: "Success", token: "renewed-test-token" } },
+  }));
+  await entry(page).click();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__official.close))).toBe(true);
+  await page.evaluate(() => window.__official.close({ expired: true }));
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("juet.portal.session.v1")).token)).toBe("renewed-test-token");
+  await expect(page.getByRole("button", { name: "Reconnect", exact: true })).toHaveCount(0);
+  await expect(entry(page)).toBeEnabled();
+  await entry(page).click();
+  await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(2);
+  expect(await page.evaluate(() => window.__official.opens[1].bootstrap)).toContain("renewed-test-token");
+  expect(calls.map((url) => new URL(url).pathname)).toEqual(["/api/token/refreshTokenRequest"]);
+});
+
+test("failed silent recovery from a native expiry leaves manual reconnect available", async ({ page }) => {
   const calls = await setup(page);
   await entry(page).click();
   await expect.poll(() => page.evaluate(() => Boolean(window.__official.close))).toBe(true);
   await page.evaluate(() => window.__official.close({ expired: true }));
   await expect(entry(page)).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Reconnect", exact: true })).toBeVisible();
   await entry(page).click();
   await expect(page.getByRole("alert")).toContainText("Reconnect to your account");
   expect(await page.evaluate(() => window.__official.opens.length)).toBe(1);
-  expect(calls).toEqual([]);
+  expect(calls.map((url) => new URL(url).pathname)).toEqual(["/api/token/refreshTokenRequest"]);
 });
 
 test("logout clears the native session and main credentials", async ({ page }) => {

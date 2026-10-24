@@ -10,7 +10,7 @@ Small interfaces, everything tricky behind them.
 | `errors.js` | `PortalError`, `SessionExpiredError`, `CaptchaError`, `toPortalError` | The portal's `{status:{responseStatus,errors}}` shape |
 | `credentials.js` | `createStore`, `browserCredentialKeys` | AES-256-GCM saved passwords, non-exportable per-origin IndexedDB key, legacy plaintext migration |
 | `session.js` | `createStore`, `memoryAdapter`, `browserLocalAdapter`, `isExpired` | JWT expiry checks, `juet.portal.*` key names |
-| `client.js` | `createClient` gives `{post, postRaw, getPublic}` | AES bodies, `Authorization` + `LocalName` headers, 401 mapping. `postRaw`/`getPublic` exist because some endpoints take plain JSON or no auth headers |
+| `client.js` | `createClient` gives `{post, postRaw, getPublic, recoverSession, cancelRefresh}` | AES bodies, `Authorization` + `LocalName` headers, 401 mapping. `postRaw`/`getPublic` exist because some endpoints take plain JSON or no auth headers |
 | `auth.js` | `fetchCaptcha`, `login` | The two-step login, single-use `random`, parent `P` prefix |
 | `captcha.js` | `solveCaptcha` | Offscreen canvas template matcher for the 5-character Arial captcha (no OCR/ML dependencies) |
 | `features.js` | `getAttendance*` (+`fetchSubjectAttendance`/`getSubjectAttendanceAll`), `getMarks*`, `getExam*`, `getGrade*`, `getSgpa*`, `getChoice*`, `getFacultyRegistrations`/`getFaculties` | Endpoint paths and payload shapes (read-only views, no payments) |
@@ -24,6 +24,10 @@ share one refresh attempt; a late 401 reuses a token that attempt already renewe
 A 90-second guard aborts stuck refresh/captcha/login work before publishing
 `expired`. The portal's HTTP 200 `Failure` session-expired payload follows the
 same path as HTTP 401.
+`recoverSession(token)` joins that same recovery when another transport reports
+expiry. Passing the token used by that transport lets a late expiry reuse a newer
+session. Failed attempts stay final for that token; logout/session changes cancel
+pending recovery.
 
 ### Saved passwords
 
@@ -155,7 +159,7 @@ on open**. Existing feature caches and the hosted proxy are unchanged.
 |---|---|
 | `core/officialPortal.js` | Exact reviewed read endpoints, routes, upstream addresses, versioned contract, minimal session handoff and bypass encryption |
 | `core/officialPortalRuntime.js` | Bootstrap serialized by the live UI into the isolated view before Angular; seed exact official storage keys, adapt fetch/XHR to native messages, filter navigation to read pages |
-| `web/lib/officialPortal.ts` | Capability check, handoff, cancellation on account changes/logout, manual reconnect signal; no network or credential persistence |
+| `web/lib/officialPortal.ts` | Capability check, handoff, cancellation on account changes/logout, shared session recovery after native expiry; no credential persistence |
 | `OfficialPortalPlugin` | Narrow `open({version, bootstrap})` / `clear()` interface; closes on main-page reload/destruction |
 | `officialportal/OfficialPortalView` | Disposable WebView on `https://official.lazyportal.invalid`, floating close/refresh icons, native pinch-to-zoom, origin-scoped message bridge |
 | `officialportal/PortalPolicy` | APK-pinned contract; validates exact API path/method, static-resource targets, redirects and navigation independently of remote JavaScript |
@@ -186,8 +190,13 @@ continue to follow the existing core feature/section registry pattern.
 The session handoff excludes saved passwords and unrelated storage. Only the
 isolated origin is cleared on open/close; the main origin's localStorage,
 IndexedDB key and cookies remain intact. In-view refresh calls go directly to
-JUET. A failed refresh asks the user to close and reconnect through the existing
-UI; it does not silently retry through Vercel. Submissions and payment operations
+JUET. An expired read (HTTP 401 or HTTP 200 session-expired failure) or failed
+in-view refresh closes the isolated view and starts the main app's existing
+silent recovery through its proxy. This first tries token refresh, then saved
+credentials and captcha; only a failed recovery exposes manual reconnect. The
+user can reopen the portal with the recovered session. No idle timer, resume
+polling, automatic reopening, or portal-content proxy fallback is added.
+Submissions and payment operations
 are denied by native policy, even if a form is reachable in the original SPA.
 
 ## Portal bundle

@@ -109,7 +109,7 @@ public final class OfficialPortalView {
                     if ("close".equals(event)) { close(); return; }
                     if ("blocked".equals(event)) { message(readOnlyNotice()); return; }
                     if ("expired".equals(event)) {
-                        expired = true; message("Session expired. Close this view, reconnect in Lazyportal, then reopen."); return;
+                        expired = true; close(); return;
                     }
                     String cancel = request.optString("cancel");
                     if (!cancel.isEmpty()) {

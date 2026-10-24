@@ -147,6 +147,14 @@ directing users to the actual portal. File downloads also use the actual portal.
 The in-view controls are only two floating corner icons: X to close and refresh
 to reload. There is no title, banner, external-portal button, or reserved header.
 
+When a read detects session expiry, or the official portal's token refresh fails,
+the view closes and the main app tries its usual silent reconnect. The same
+recovery attempt is shared with any concurrent app requests. Saved credentials
+stay in the main app, and manual Reconnect appears only if recovery fails. Reopen
+the official portal to use the renewed session. Lazyportal adds no idle/background
+checks; the next portal request detects expiry. Automatic dismissal
+requires an APK containing the updated native view.
+
 The HTML viewport starts at 60% zoom with native WebView pinch-to-zoom enabled
 (25–300%). WebView's legacy on-screen zoom buttons are hidden. The viewport meta
 tag handles density correctly; no CSS scaling, desktop user-agent spoofing, or
@@ -233,9 +241,13 @@ For the CI-built APK, sign in on the device and check:
 4. Writes/payments cannot submit. Blocked actions show a brief message directing
    the user to the actual portal; there is no persistent warning or browser button.
 5. Logout and switch accounts/institutes: reopening shows only the new identity.
-   Expired portal sessions ask for reconnect rather than silently using Vercel.
+   After expiry, the view closes and the app silently reconnects. Reopening uses
+   the renewed account/institute. With token refresh rejected and no saved
+   password, manual Reconnect appears. Repeat while backgrounding/resuming; idle
+   time should not cause added periodic reconnect requests.
 6. Inspect network traffic: this view reaches JUET (and its exact font asset),
-   with no `/officialportal` or extra Vercel `/api` traffic. Existing tabs retain
+   with no `/officialportal` traffic. Only expiry recovery uses the main app's
+   existing `/api` authentication calls. Existing tabs retain
    their normal caching/refresh behavior.
 
 With a connected device, the fully mocked WebView/transport tests run through

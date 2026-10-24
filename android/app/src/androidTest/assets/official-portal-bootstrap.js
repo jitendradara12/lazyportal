@@ -12,6 +12,12 @@
   const nonce = Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
   let sequence = 0;
   const notify = (event) => bridge.postMessage(JSON.stringify({ event }));
+  let expired = false;
+  const expire = () => {
+    if (expired) return;
+    expired = true;
+    notify("expired");
+  };
   const fail = (message) => new TypeError(message);
   const apiPath = (value) => {
     const url = new URL(value, location.href);
@@ -35,17 +41,18 @@
     request.cleanup();
     if (reply.error) { request.reject(fail(reply.error)); return; }
     let bytes = decode(reply.body || "");
-    if (request.path === "/token/refreshTokenRequest") {
-      try {
-        if (reply.status !== 200 || JSON.parse(new TextDecoder().decode(bytes)).response?.msg !== "Success") notify("expired");
-      } catch { notify("expired"); }
-    }
-    if (request.path === "/clxuser/getmenulist" && reply.status === 200) {
-      try {
-        const body = JSON.parse(new TextDecoder().decode(bytes));
-        if (Array.isArray(body.response)) body.response = pruneMenu(body.response);
-        bytes = new TextEncoder().encode(JSON.stringify(body));
-      } catch { /* Surface the upstream response unchanged if malformed. */ }
+    let body;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bytes));
+    } catch { /* Non-JSON errors retain the normal response handling. */ }
+    if (config.post.includes(request.path) && (reply.status === 401 ||
+        (body?.status?.responseStatus === "Failure" &&
+         /session.*expired|invalid.*token|token.*expired|login again/i.test(body.status.errors?.[0] ?? "")))) expire();
+    if (request.path === "/token/refreshTokenRequest" &&
+        (reply.status !== 200 || body?.response?.msg !== "Success")) expire();
+    if (request.path === "/clxuser/getmenulist" && reply.status === 200 && Array.isArray(body?.response)) {
+      body.response = pruneMenu(body.response);
+      bytes = new TextEncoder().encode(JSON.stringify(body));
     }
     request.resolve(new Response([204, 205, 304].includes(reply.status) ? null : bytes, {
       status: reply.status, headers: reply.headers || {},
