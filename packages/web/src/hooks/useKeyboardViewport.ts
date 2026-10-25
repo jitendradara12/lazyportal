@@ -20,9 +20,16 @@ export function useKeyboardViewport() {
         root.style.setProperty("--keyboard-viewport-height", `${height}px`);
         root.style.setProperty("--keyboard-viewport-top", `${top}px`);
         if (open && field instanceof HTMLElement) {
-          const bounds = field.getBoundingClientRect();
-          if (bounds.top < top + 16 || bounds.bottom > top + height - 16) {
-            field.scrollIntoView({ block: "start", behavior: "instant" });
+          const target = field.closest<HTMLElement>(".auth-captcha-group") ?? field.closest<HTMLElement>(".auth-field-card") ?? field;
+          const bounds = target.getBoundingClientRect();
+          const minTop = top + 16;
+          const maxBottom = top + height - 16;
+          if (bounds.bottom > maxBottom) {
+            // Scroll only far enough to lift the bottom above the keyboard, never pushing the top (e.g. Captcha image) off-screen if avoidable.
+            const delta = Math.min(bounds.bottom - maxBottom, Math.max(0, bounds.top - minTop));
+            if (delta > 0) window.scrollBy({ top: delta, behavior: "instant" });
+          } else if (bounds.top < minTop) {
+            window.scrollBy({ top: bounds.top - minTop, behavior: "instant" });
           }
         }
       });

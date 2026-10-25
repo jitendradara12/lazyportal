@@ -132,6 +132,7 @@ test("login keyboard advances fields and keeps the active field above a reduced 
   });
   await expect(page.locator("html")).toHaveAttribute("data-keyboard-open", "");
   await expect.poll(() => page.getByLabel("Captcha", { exact: true }).evaluate((el) => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(360);
+  await expect.poll(() => page.locator(".auth-captcha-group").evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0);
   await page.evaluate(() => {
     delete window.visualViewport.height;
     window.visualViewport.dispatchEvent(new Event("resize"));
