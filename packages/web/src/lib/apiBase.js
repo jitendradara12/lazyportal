@@ -6,10 +6,9 @@
  * portal only accepts its own origin, so browser code must never call it
  * directly.
  *
- * The native shell cannot do that. It serves the bundled app from
- * https://localhost (capacitor.config.json) and has no same-origin proxy, so it
- * calls the hosted proxy by absolute URL. That origin is CORS-allowed in
- * shared/cors.js.
+ * Android keeps loading the live server.url deployment. New APKs use PortalHttp
+ * for supported API requests. This base remains the compatibility route for
+ * older APKs, newly reviewed endpoints, and explicit native development overrides.
  *
  * Plain JS + JSDoc on purpose: it keeps this module importable from
  * `node --test` on every supported Node version (the tests import it directly).
@@ -17,8 +16,8 @@
 
 /**
  * Hosted Vercel proxy (the deployment in the repository's homepage URL).
- * Installed builds keep calling whatever was baked in, so treat this as a
- * release-time constant: if the deployment moves, ship a new app build.
+ * The live web bundle supplies this compatibility URL. Moving server.url itself
+ * still requires an APK update.
  */
 export const PROD_API_BASE = "https://lazyportal-tan.vercel.app/api";
 

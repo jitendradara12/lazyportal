@@ -14,8 +14,7 @@ test("VITE_API_BASE overrides the browser default (preview deployments)", () => 
   );
 });
 
-test("native shell calls the hosted proxy, never a same-origin path", () => {
-  // https://localhost has no /api route — a relative URL would 404 in the WebView.
+test("native proxy compatibility base is absolute", () => {
   assert.equal(resolveApiBase({ nativePlatform: true }), PROD_API_BASE);
   assert.match(resolveApiBase({ nativePlatform: true }), /^https:\/\//);
 });

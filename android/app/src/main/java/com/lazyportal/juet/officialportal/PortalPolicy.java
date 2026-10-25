@@ -22,7 +22,11 @@ public final class PortalPolicy {
     public final Map<String, String> assetAliases = new HashMap<>();
 
     public static PortalPolicy load(Context context) throws Exception {
-        try (InputStream input = context.getAssets().open("official-portal-policy.json")) {
+        return load(context, "official-portal-policy.json");
+    }
+
+    public static PortalPolicy load(Context context, String asset) throws Exception {
+        try (InputStream input = context.getAssets().open(asset)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             byte[] buffer = new byte[4096]; int count;
             while ((count = input.read(buffer)) != -1) bytes.write(buffer, 0, count);
@@ -51,6 +55,10 @@ public final class PortalPolicy {
 
     public boolean allowsApi(String method, String path) {
         return clean(path) && ("POST".equals(method) ? posts : "GET".equals(method) ? gets : Collections.emptySet()).contains(path);
+    }
+
+    public JSONObject apiCapabilities() throws Exception {
+        return new JSONObject().put("version", version).put("post", new JSONArray(posts)).put("get", new JSONArray(gets));
     }
 
     public URL apiUrl(String method, String path) throws Exception {

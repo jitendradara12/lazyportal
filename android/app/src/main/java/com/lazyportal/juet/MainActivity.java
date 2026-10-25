@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ExamCalendarPlugin.class);
         registerPlugin(NativeInteractionsPlugin.class);
         registerPlugin(OfficialPortalPlugin.class);
+        registerPlugin(PortalHttpPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

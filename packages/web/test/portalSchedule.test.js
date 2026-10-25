@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { REFRESH_POLICIES } from "../src/lib/refreshPolicy.ts";
 
 const values = new Map();
 let dispatchedEvents = [];
@@ -70,6 +71,27 @@ const {
   getThrottleKey,
   toMs,
 } = await import("../src/lib/portalSchedule.ts");
+
+test("native refresh ignores and preserves proxy budgets, while switching back restores limits", () => {
+  values.clear();
+  const session = { username: "native-test", instituteid: "juet" };
+  const now = Date.now();
+  recordSuccessfulManualRefresh(session, { changed: true, now });
+  const before = values.get(getQuotaStorageKey(session));
+  assert.equal(getManualRefreshQuota(session, now).canRefresh, false);
+  for (const changed of [true, false, true, false]) {
+    const quota = recordSuccessfulManualRefresh(session, { changed, now }, REFRESH_POLICIES.native);
+    assert.equal(quota.canRefresh, true);
+    assert.equal(quota.blockedReason, null);
+    assert.equal(quota.remaining, Infinity);
+  }
+  assert.equal(values.get(getQuotaStorageKey(session)), before);
+  assert.equal(getManualRefreshQuota(session, now).canRefresh, false);
+  values.clear();
+  recordSuccessfulManualRefresh(session, { changed: false, now });
+  assert.equal(getManualRefreshQuota(session, now).blockedReason, "cooldown");
+  assert.equal(getManualRefreshQuota(session, now, REFRESH_POLICIES.native).canRefresh, true);
+});
 
 test("portal day cutoff is 02:00 AM IST", () => {
   assert.equal(PORTAL_DAY_CUTOFF_HOUR_IST, 2);

@@ -4,6 +4,11 @@ import { readFile, access } from "node:fs/promises";
 
 const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 
+test("proxy deployment includes the certificate needed for validated portal TLS", async () => {
+  assert.equal(config.functions["api/proxy.js"].includeFiles, "shared/portal-intermediate.pem");
+  await access(new URL("../shared/portal-intermediate.pem", import.meta.url));
+});
+
 test("long browser caching is restricted to generated assets, leaving shell and API freshness intact", async () => {
   const immutable = config.headers.filter((route) => route.headers.some((header) =>
     header.key.toLowerCase() === "cache-control" && header.value.includes("immutable"),

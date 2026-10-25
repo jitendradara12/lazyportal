@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { offlinePage } from "./scripts/offline-page.mjs";
+import https from "node:https";
+import { portalTlsOptions } from "../../shared/portal-tls.js";
 
 // Dev proxy: browser talks same-origin to /api, Vite forwards server-side.
 // Direct browser -> studentportal.juet.ac.in is blocked by CORS:
@@ -15,7 +17,8 @@ export default defineConfig({
         target: "https://studentportal.juet.ac.in/StudentPortalAPI",
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
-        secure: false,
+        secure: true,
+        agent: new https.Agent(portalTlsOptions()),
         // Upstream 403s non-portal Origin/Referer (browser sends localhost).
         // Same-origin from the browser's view; spoof portal origin upstream.
         headers: {

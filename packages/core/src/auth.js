@@ -7,6 +7,9 @@ export { solveCaptcha } from "./captcha.js";
 const PRETOKEN = "/token/pretoken-check";
 const GENTOKEN = "/token/generatewebtoken";
 const CAPTCHA = "/token/getcaptcha";
+const REFRESH = "/token/refreshTokenRequest";
+
+export const authEndpoints = Object.freeze({ post: [PRETOKEN, GENTOKEN, REFRESH], get: [CAPTCHA] });
 
 /** GET captcha (public: no auth headers, no preflight). Returns {hidden, image, imageDataUrl}. */
 export async function fetchCaptcha(client, { signal } = {}) {
@@ -22,7 +25,7 @@ export async function fetchCaptcha(client, { signal } = {}) {
  */
 export async function refreshSession(client, session, { signal } = {}) {
   const body = await client.postRaw(
-    "/token/refreshTokenRequest",
+    REFRESH,
     { username: session.username, tokendate: session.tokendate ?? new Date().toString() },
     { skipRefresh: true, silent: true, signal }
   );

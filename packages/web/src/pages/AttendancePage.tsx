@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { features } from "@juet/core";
-import { client, getSessionStatus } from "../lib/portal";
+import { client, getRefreshPolicy, getSessionStatus } from "../lib/portal";
+import { useRefreshPolicy } from "../hooks/useRefreshPolicy";
 import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
@@ -55,6 +56,10 @@ export function AttendancePage({
     }, ms);
   };
   const refreshInProgress = useRef(false);
+  const lastRefreshAttempt = useRef({ key: "", at: 0 });
+  const refreshKey = sessionCacheKey("refresh.attendance", session);
+  const activeRefreshKey = useRef(refreshKey);
+  activeRefreshKey.current = refreshKey;
   const manualCheckpoint = useRef<ManualAttendanceRefreshCheckpoint>({});
   const pageIsLive = useRef(true);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -93,12 +98,14 @@ export function AttendancePage({
     };
   }, []);
 
+  const refreshPolicy = useRefreshPolicy("attendance");
   const [refreshQuota, setRefreshQuota] = useState<RefreshQuotaState>(() => getManualRefreshQuota(session));
 
   useEffect(() => {
     const updateQuota = () => {
-      setRefreshQuota(getManualRefreshQuota(session));
+      setRefreshQuota(getManualRefreshQuota(session, undefined, refreshPolicy));
     };
+    updateQuota();
     window.addEventListener("juet:quota-changed", updateQuota);
     window.addEventListener("storage", updateQuota);
     const unsubscribeRollover = subscribePortalDayRollover(updateQuota);
@@ -108,7 +115,7 @@ export function AttendancePage({
       unsubscribeRollover();
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
-  }, [session]);
+  }, [session, refreshPolicy]);
 
   const att = useAttendanceInitial(session);
   const initial = att.data;
@@ -253,39 +260,44 @@ export function AttendancePage({
   useEffect(() => setShorts(shortsCount), [shortsCount, setShorts]);
 
   const handleRefresh = async () => {
-    if (refreshInProgress.current || isSyncing || refreshFeedback || isExpired) return;
+    if (refreshInProgress.current || isSyncing || refreshFeedback || isExpired || shell.isRecovering || navigator.onLine === false) return;
     if (!isDefault) {
       showNotice("Only current semester updates", 2000);
       return;
     }
 
-    const quota = getManualRefreshQuota(session);
-    if (!quota.canRefresh) {
-      setRefreshFeedback(true);
-      showNotice(getRefreshQuotaNotice(quota), 3500);
-      return;
-    }
-    if (shouldThrottleRefresh("attendance")) {
-      showNotice("Please wait a few seconds to refresh", 2000);
-      return;
-    }
-
-    const requestGeneration = getCacheGeneration();
-    const current = () => pageIsLive.current && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     refreshInProgress.current = true;
-    selectionHaptic();
-    recordRefreshAttempt("attendance");
-    setRefreshError(null);
-    setDetailSyncError(null);
-    setQuotaNotice(null);
-    setIsRefreshing(true);
-    const baselineRows = rows;
-
+    const requestGeneration = getCacheGeneration();
+    const current = () => pageIsLive.current && activeRefreshKey.current === refreshKey && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     try {
+      const policy = await getRefreshPolicy("attendance");
+      if (!current()) return;
+      const quota = getManualRefreshQuota(session, undefined, policy);
+      setRefreshQuota(quota);
+      if (!quota.canRefresh) {
+        setRefreshFeedback(true);
+        showNotice(getRefreshQuotaNotice(quota), 3500);
+        return;
+      }
+      if (shouldThrottleRefresh(refreshKey, policy.throttleMs) ||
+          (lastRefreshAttempt.current.key === refreshKey && Date.now() - lastRefreshAttempt.current.at < policy.throttleMs)) {
+        showNotice("Please wait a few seconds to refresh", 2000);
+        return;
+      }
+
+      selectionHaptic();
+      recordRefreshAttempt(refreshKey);
+      lastRefreshAttempt.current = { key: refreshKey, at: Date.now() };
+      setRefreshError(null);
+      setDetailSyncError(null);
+      setQuotaNotice(null);
+      setIsRefreshing(true);
+      const baselineRows = rows;
+
       // Joins an automatic overview read if one is already pending. All callers
       // share its cache write, so a late older response cannot replace this one.
       const result = await runManualAttendanceRefresh({
-        session, baselineRows, readOverview: att.refresh, isCurrent: current,
+        session, baselineRows, readOverview: att.refresh, isCurrent: current, policy,
         checkpoint: manualCheckpoint.current,
         onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
         onProgress: (pending, done, total) => {
@@ -338,8 +350,8 @@ export function AttendancePage({
           isSyncing
             ? "Refreshing attendance…"
             : isHardBlocked
-            ? getRefreshQuotaNotice(getManualRefreshQuota(session))
-            : shouldThrottleRefresh("attendance") && lastSync
+            ? getRefreshQuotaNotice(refreshQuota)
+            : shouldThrottleRefresh(refreshKey, refreshPolicy.throttleMs) && lastSync
             ? formatLastSync(lastSync)
             : "Refresh attendance"
         }

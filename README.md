@@ -28,6 +28,9 @@ npm test
 npm --workspace @juet/web run dev
 ```
 
+TLS regression tests require OpenSSL. They generate temporary test certificates
+and use a local loopback connection; tests do not call the live portal.
+
 ### Android
 
 The web bundle compiles directly into a native Android app via Capacitor:

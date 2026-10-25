@@ -312,7 +312,9 @@ test("forwarding preserves auth/custom headers and drops infrastructure/hop-by-h
   });
   assert.equal(calls[0].options.hostname, "studentportal.juet.ac.in");
   assert.equal(calls[0].options.path, "/StudentPortalAPI/StudentClassAttendance/detail?lang=en+US");
-  assert.equal(calls[0].options.rejectUnauthorized, false);
+  assert.equal(calls[0].options.rejectUnauthorized, true);
+  assert.equal(calls[0].options.agent.options.rejectUnauthorized, true);
+  assert.equal(calls[0].options.agent.options.allowPartialTrustChain, false);
   assert.equal(res.headers["access-control-allow-origin"], WEBVIEW_ORIGIN);
   assert.equal(res.headers.vary, "Origin");
 });

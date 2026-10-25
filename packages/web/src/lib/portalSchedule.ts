@@ -1,4 +1,5 @@
 import { isSubjectDetailComplete } from "./attendanceCalc.ts";
+import { REFRESH_POLICIES, type RefreshPolicy } from "./refreshPolicy.ts";
 export { isSubjectDetailComplete };
 
 /**
@@ -11,14 +12,14 @@ export { isSubjectDetailComplete };
  */
 
 /**
- * Daily manual refresh quota per student per portal day.
+ * Default proxy quota per student per portal day.
  * Auto-sync on the first app open of the day is free (does not consume this quota).
  */
 export const DAILY_MANUAL_REFRESH_LIMIT = 1;
 export const DAILY_UNCHANGED_REFRESH_LIMIT = 3;
 export const UNCHANGED_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6-hour cooldown between unchanged checks
 
-export const REFRESH_THROTTLE_MS = 20 * 1000; // 20s cooldown
+export const REFRESH_THROTTLE_MS = REFRESH_POLICIES.proxy.throttleMs;
 
 export function getThrottleKey(key = "attendance"): string {
   if (key.startsWith("juet.portal.")) return key;
@@ -199,12 +200,16 @@ function readQuotaRecord(session?: SessionRef | null, portalDay?: string, nowMs 
 }
 
 /**
- * Query the remaining manual refresh quota for the current portal day.
- * Client-side abuse guard only: prevents rapid polling from the client UI.
+ * Query the remaining proxy budget for the current portal day. Direct native
+ * reads bypass these counters; the short tap cooldown is enforced separately.
  */
-export function getManualRefreshQuota(session?: SessionRef | null, now?: Date | number): RefreshQuotaState {
+export function getManualRefreshQuota(session?: SessionRef | null, now?: Date | number, policy: RefreshPolicy = REFRESH_POLICIES.proxy): RefreshQuotaState {
   const nowMs = toMs(now);
   const portalDay = getPortalDayKey(nowMs);
+  if (!policy.attendanceQuota) {
+    return { used: 0, unchanged: 0, total: Infinity, remaining: Infinity,
+      canRefresh: true, blockedReason: null, resetsInMs: 0, portalDay };
+  }
   const { count: used, unchanged, lastUnchangedAt } = readQuotaRecord(session, portalDay, nowMs);
 
   const isCooledDown = lastUnchangedAt === 0 || nowMs - lastUnchangedAt >= UNCHANGED_COOLDOWN_MS;
@@ -244,11 +249,12 @@ export function getManualRefreshQuota(session?: SessionRef | null, now?: Date | 
  * Record that a manual refresh completed with real portal data.
  * Must ONLY be called upon successful 200 response with non-empty rows.
  * Deducts full manual quota if attendance changed, or counts toward unchanged limit and starts 6h cooldown.
- * Client-side abuse guard only.
+ * Native policies leave stored proxy budgets untouched.
  */
 export function recordSuccessfulManualRefresh(
   session?: SessionRef | null,
-  options?: { changed?: boolean; now?: Date | number } | number | Date
+  options?: { changed?: boolean; now?: Date | number } | number | Date,
+  policy: RefreshPolicy = REFRESH_POLICIES.proxy,
 ): RefreshQuotaState {
   let nowMs = Date.now();
   let changed = true;
@@ -260,7 +266,8 @@ export function recordSuccessfulManualRefresh(
     if (typeof options.changed === "boolean") changed = options.changed;
   }
 
-  const current = getManualRefreshQuota(session, nowMs);
+  const current = getManualRefreshQuota(session, nowMs, policy);
+  if (!policy.attendanceQuota) return current;
   const portalDay = getPortalDayKey(nowMs);
   const rec = readQuotaRecord(session, portalDay, nowMs);
 
@@ -287,7 +294,7 @@ export function recordSuccessfulManualRefresh(
     }
   } catch {}
 
-  return getManualRefreshQuota(session, nowMs);
+  return getManualRefreshQuota(session, nowMs, policy);
 }
 
 /** Helper to extract the first non-empty string among potential key names */

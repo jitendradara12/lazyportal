@@ -84,8 +84,15 @@ with a 14-day dismissal cooldown in `localStorage`.
 
 | Module | What you call | What it hides |
 |---|---|---|
-| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, StudentPortalAPI path confinement, GET/HEAD/POST method allow-list, hop-by-hop header stripping, `rejectUnauthorized:false` scoped to the portal host, cookie relay, backpressure-aware response streaming, shared HTTPS idle pool, disconnect cancellation, timeout/502 mapping |
+| `proxy.js` | Vercel handler for `/api/:path*` | Origin/Referer spoofing, StudentPortalAPI path confinement, GET/HEAD/POST method allow-list, hop-by-hop header stripping, validated portal TLS, cookie relay, backpressure-aware response streaming, shared HTTPS idle pool, disconnect cancellation, timeout/502 mapping |
 | `shared/cors.js` | `corsHeaders`, `preflightHeaders` | The only origin allowed cross-origin: the Capacitor shell's origin (`WEBVIEW_ORIGIN` ↔ `server.url`, a test asserts the sync). Browser builds are same-origin and need none of it |
+| `shared/portal-tls.js` | `portalTlsOptions` | Default Node trust roots plus JUET's missing intermediate, with certificate/hostname checks enabled and partial-chain trust disabled; shared by production and Vite's portal agents |
+
+The public certificate source is `shared/portal-intermediate.pem`. `cap:sync`
+copies it into Android's existing certificate asset, and tests reject drift.
+Vercel explicitly bundles the PEM. No global trust store or TLS defaults change.
+Offline TLS tests generate temporary certificates with OpenSSL and exercise real
+Node handshakes over loopback, including wrong-host, expired and untrusted chains.
 
 ### Streaming & resource limits
 
@@ -96,6 +103,17 @@ with a 14-day dismissal cooldown in `localStorage`.
 
 ### Client scheduling & caching
 
+- Refresh cost controls follow the actual API transport, independently of the
+  page's URL. `core/features.js` declares the POST endpoints used by each page;
+  `createPortalTransport` exposes `fetch` and `usesProxyFor` using one shared
+  capability decision. No page infers transport from `localhost` or Android alone.
+- `web/lib/refreshPolicy.ts` owns the two policies. A fully native page has a
+  2s tap cooldown and no daily attendance quota or 6h unchanged-result wait.
+  A page needing any proxy-backed read keeps the 20s cooldown and existing
+  attendance quotas. Native refreshes neither read nor spend saved proxy quotas;
+  switching back restores those counters. Pending capabilities use proxy limits.
+  Caching, shared in-flight reads, daily automatic sync, cancellation, transport
+  concurrency and response limits apply to both routes.
 - Portal day cutover occurs at 02:00 AM IST (`portalSchedule.ts`), resetting daily refresh quotas.
 - The attendance overview updates once per portal day. Cached subject history
   stays usable across days while its overview checksum matches; opening a cached
@@ -121,7 +139,7 @@ with a 14-day dismissal cooldown in `localStorage`.
 - Marks, exams, faculty, and registered subjects use persistent, manual-only caches.
   Missing selections fetch once; returning to a page, reopening the app, focus,
   and attendance day rollover do not revalidate cached entries.
-- Refresh buttons target only their page, with independent 20s cooldowns per
+- Refresh buttons target only their page, with independent transport-based cooldowns per
   account/institute/page. Marks refreshes only the selected semester; More
   refreshes only expanded sections. Hidden tabs and collapsed sections do no work.
   Reconnecting revalidates attendance without broadcasting other page reads.
@@ -144,16 +162,59 @@ with a 14-day dismissal cooldown in `localStorage`.
 
 ## Native shell (`android/`)
 
-Capacitor wraps the same web bundle; `lib/apiBase.js` is the only place that
-knows the shell must call the hosted proxy by absolute URL instead of `/api`.
-Details in `docs/ANDROID.md`.
+Capacitor loads the live `server.url` deployment, so UI releases do not require
+installing another APK. `PortalHttpPlugin` handles the main app's supported API
+requests directly on the phone using the official view's existing
+`PortalTransport` and `PortalTls`. There is no localhost server or listening port.
+
+`core/portalTransport.js` supplies the transport injected into
+`createClient`. Encryption, payloads, parsing, captcha and shared session recovery
+remain in live core. These depend on JUET's protocol and need to be fixable without
+an APK. The stable native layer owns networking, TLS validation, fixed upstream
+addresses, exact endpoint checks, request limits and cancellation.
+
+The plugin reports its installed version and GET/POST capabilities once per page.
+Browsers and APKs without the plugin use the existing hosted proxy. A reviewed
+endpoint present in live `portalApiPolicy` but absent from the installed APK also
+uses that proxy, selected before dispatch. Native failures, redirects, HTTP errors,
+and cancellation never retry through the proxy. An explicit `VITE_NATIVE_API_BASE`
+override uses the proxy for development/forks.
+
+Rejected or malformed capability discovery selects the proxy for that page's
+lifetime. Discovery sends no JUET request, so this cannot duplicate a request.
+Keep bridge version `1` for additive endpoint changes. A future breaking contract
+must retain an adapter for already shipped APKs rather than replacing version 1.
+
+The hosted build can set `VITE_API_TRANSPORT=proxy` to disable native networking;
+`auto` is the default and uses installed capabilities per request.
+`VITE_ATTENDANCE_QUOTA=auto|on|off` independently selects automatic, forced or
+disabled attendance quotas. Tap cooldowns remain transport-based. These are web
+build settings, so changing them needs a deployment rather than an APK update.
+Both transport adapters and policy selection accept injected inputs for tests.
+
+The separate generated `portal-api-policy.json` adds login/captcha to the reviewed
+reads. The isolated official view retains its stricter policy without login.
+Neither accepts arbitrary hosts, writes or payments. Both policies are generated
+by `cap:sync` and checked against core in tests. Main feature endpoints are included
+from `featurePostEndpoints`, independently of the isolated official policy, so a
+new main-only read does not grant that operation to the isolated view. Older APKs
+use the proxy until their native policy includes the endpoint. New endpoints must
+be reviewed explicitly.
+
+The main-app plugin has four workers and a 32-request queue, with the transport's
+512 KiB request and 8 MiB response limits. Abort signals cancel individual native
+requests. Main-page reload and activity destruction reject pending requests and
+disconnect their connections. The plugin does not persist credentials, tokens or
+student responses. Session/feature storage remains owned by the live app.
+Details and device checks are in `docs/ANDROID.md`.
 
 ### Android official portal view
 
 The More page's `OfficialPortalEntry` is available only when Android exposes the
 `OfficialPortal` plugin. The main app still loads `server.url` from Vercel. This
 feature has **no Vercel function, rewrite, iframe, hosted fallback, or API refresh
-on open**. Existing feature caches and the hosted proxy are unchanged.
+on open**. Existing feature caches are unchanged; the main app's API routing
+follows the capability selection above.
 
 | Layer | Responsibility |
 |---|---|
@@ -192,8 +253,8 @@ isolated origin is cleared on open/close; the main origin's localStorage,
 IndexedDB key and cookies remain intact. In-view refresh calls go directly to
 JUET. An expired read (HTTP 401 or HTTP 200 session-expired failure) or failed
 in-view refresh closes the isolated view and starts the main app's existing
-silent recovery through its proxy. This first tries token refresh, then saved
-credentials and captcha; only a failed recovery exposes manual reconnect. The
+silent recovery through its selected API transport. This first tries token
+refresh, then saved credentials and captcha; only a failed recovery exposes manual reconnect. The
 user can reopen the portal with the recovered session. No idle timer, resume
 polling, automatic reopening, or portal-content proxy fallback is added.
 Submissions and payment operations

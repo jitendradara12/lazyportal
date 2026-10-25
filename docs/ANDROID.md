@@ -46,24 +46,60 @@ the generated files: the bundle, `capacitor.config.json`,
 
 ## API routing
 
-The portal 403s any `Origin`/`Referer` that is not its own, so the shell loads
-the production deployment (`https://lazyportal-tan.vercel.app`) via `server.url`
-in `capacitor.config.json` — instant daily updates, no APK reinstall.
+The shell loads the production deployment (`https://lazyportal-tan.vercel.app`)
+via `server.url` in `capacitor.config.json`, so normal web updates need no APK
+reinstall. JUET rejects foreign `Origin`/`Referer` headers; the native transport
+and browser proxy both set the portal's expected headers.
 
 | Build | `BASE_URL` | Resolved by |
 |---|---|---|
 | `npm run dev`, browser deployment | `/api` (same-origin) | Vite proxy / Vercel rewrite |
-| Capacitor app | `https://lazyportal-tan.vercel.app/api` | `packages/web/src/lib/apiBase.js` |
+| Android with `PortalHttp` | Direct native transport to JUET for installed capabilities | Core fetch adapter + `PortalHttpPlugin` |
+| Older APK / newly reviewed read absent from APK | `https://lazyportal-tan.vercel.app/api` | `packages/web/src/lib/apiBase.js` |
 | Fork / preview | `VITE_API_BASE` (web), `VITE_NATIVE_API_BASE` (app) | same file |
 
-Two things must stay in sync:
+The main WebView still loads that hosted page. Supported reads, captcha, login
+and token refresh now use the same native transport/TLS implementation as the
+isolated official view. This needs one APK installation to add `PortalHttp`;
+existing installations continue working through the hosted proxy. Normal UI,
+protocol, encryption and recovery changes still deploy live.
+
+The installed plugin reports exact supported methods/paths once per page.
+Live core selects the proxy for a reviewed read missing from that APK before
+sending the request. Native errors and cancellations never cause a proxy retry.
+New main-app read endpoints come from core's `featurePostEndpoints` into
+`portalApiPolicy`; this lets older APKs use the proxy without granting native
+access remotely. Writes and payments remain disallowed. Explicit
+`VITE_NATIVE_API_BASE` overrides bypass
+native transport, including the LAN development configuration below.
+
+Refresh limits follow API routing, not the main page's URL. When all known reads
+for a page are supported natively, its refresh cooldown is 2 seconds and manual
+attendance has no daily quota or six-hour unchanged-result wait. A page with any
+proxy-backed read retains the existing proxy limits and a 20-second cooldown.
+Native refreshes leave saved proxy quotas untouched. Shared reads, caches and
+network concurrency/size limits still apply on both routes.
+
+Web build switches, applied through a normal deployment:
+
+| Setting | Values | Default |
+|---|---|---|
+| `VITE_API_TRANSPORT` | `auto` for native where supported; `proxy` for all requests | `auto` |
+| `VITE_ATTENDANCE_QUOTA` | `auto` follows transport; `on` or `off` overrides only attendance quotas | `auto` |
+
+`packages/web/src/lib/refreshPolicy.ts` owns the policy values. No Android or
+localhost checks belong in individual refresh controls. Adding a main-app read
+also requires adding its endpoint to the appropriate group in core's
+`featurePostEndpoints`, which the feature function itself uses.
+
+Two compatibility settings must stay in sync:
 
 1. `WEBVIEW_ORIGIN` in `shared/cors.js` ↔ `server.url` in `capacitor.config.json`
    (a test asserts this).
 2. `PROD_API_BASE` in `packages/web/src/lib/apiBase.js` ↔ the deployed proxy URL.
-   Installed apps call this baked-in address directly; moving the deployment requires
-   updating this constant and redistributing the APK (`npm run cap:sync` + `npm run android:apk`).
-   Forks should set `VITE_NATIVE_API_BASE`.
+   The hosted web bundle supplies the proxy URL. Moving `server.url` itself
+   requires redistributing the APK (`npm run cap:sync` + `npm run android:apk`).
+   Forks should set `VITE_NATIVE_API_BASE` to keep their chosen proxy routing.
 
 ## Icons and splash
 
@@ -106,8 +142,9 @@ cd android
 CI fetches full history and passes the run number through `VERSION_CODE_RUN`. On
 a `v*` tag, CI sets `versionName` from the tag, uploads `app-debug.apk` as a run
 artifact, builds a signed `app-release.apk`, and creates or updates a GitHub
-Release with the APK attached. Release-tag builds require a persistent keystore —
-CI fails rather than publishing with a temporary key that can't sign a future
+Release with the APK attached. Tagged publication also waits for the existing
+Chromium/WebKit checks through the reusable web workflow. Release-tag builds
+require a persistent keystore — CI fails rather than publishing with a temporary key that can't sign a future
 update.
 
 ```sh
@@ -189,6 +226,11 @@ The public intermediate is bundled as `official-portal-intermediate.pem`, from
 [GoDaddy's repository](https://certs.godaddy.com/repository),
 `https://certs.godaddy.com/repository/gdig2.crt.pem`:
 
+Its source is `shared/portal-intermediate.pem`, copied into Android by `cap:sync`.
+The production proxy and Vite development proxy use the same certificate while
+keeping Node's root and hostname validation enabled. The supplemental certificate
+cannot terminate a partial trust chain by itself.
+
 - SHA-256: `973A41276FFD01E027A2AAD49E34C37846D3E976FF6A620B6712E33832041AA6`
 - Expires: 2031-05-03. This is an intermediate chain repair, not a pin to JUET's
   expiring leaf certificate. A valid rotated leaf/complete chain remains valid.
@@ -247,7 +289,7 @@ For the CI-built APK, sign in on the device and check:
    time should not cause added periodic reconnect requests.
 6. Inspect network traffic: this view reaches JUET (and its exact font asset),
    with no `/officialportal` traffic. Only expiry recovery uses the main app's
-   existing `/api` authentication calls. Existing tabs retain
+   selected API transport for authentication. Existing tabs retain
    their normal caching/refresh behavior.
 
 With a connected device, the fully mocked WebView/transport tests run through
@@ -290,12 +332,16 @@ dialog leaves the calendar unchanged. Older APKs without this plugin hide file
 export because WebView cannot save browser blob downloads. Browsers still download
 the `.ics` file normally.
 
-CI only compiles the APK; it never boots the WebView. Manual signoff on a
-physical device or emulator, against the deployed proxy:
+CI runs the mocked native tests on emulators. Manual signoff on a
+physical device or emulator, against the deployed app and live portal:
 
 1. Fresh install, log in, open attendance — no CORS/`NETWORK_ERROR`.
 2. Rotate, background 1 min, foreground — session holds, no white screen.
 3. Lock/unlock — no re-login prompt unless the token truly expired.
+   Inspect traffic during login, attendance and session recovery: supported
+   API calls reach JUET directly, while HTML/assets still load from the hosted
+   deployment. With an older APK, the same UI uses `/api`. Native offline/error
+   cases show retry without silently repeating the call through Vercel.
 4. Exams: tap a calendar icon, check date/time and room-seat location in the
    native editor, then cancel and return. Save a test event and verify it in
    Calendar. Without a calendar handler, verify the fallback picker opens.
@@ -306,6 +352,12 @@ physical device or emulator, against the deployed proxy:
 Native regression tests exercise Android JSON timestamp parsing, calendar intent
 extras, the document-picker intent, UTF-8 writes, cancellation, and write failures:
 `cd android && ./gradlew :app:connectedDebugAndroidTest` with an emulator/device running.
+
+`PortalHttpPluginTest` also exercises the main API bridge with fake JUET
+responses, denial before opening a connection, and cancellation on abort,
+main-page reload and destruction. Unit tests check the separate packaged API
+policy. Browser tests cover live-page native selection and old-policy fallback;
+core tests cover encrypted requests, auth, shared recovery and abort signals.
 
 ## Live reload (dev only)
 

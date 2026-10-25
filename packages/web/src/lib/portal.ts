@@ -1,26 +1,39 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
-import { auth, createClient, credentials, session } from "@juet/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
+import { auth, createClient, createPortalTransport, credentials, features, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
 import { preserveSelectedInstitute } from "./sessionSelection";
+import { selectRefreshPolicy } from "./refreshPolicy";
 import type { Session } from "../types";
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
 
-// ponytail: read the native bridge global directly — avoids bundling @capacitor/core in the web build
-const nativePlatform =
-  typeof (globalThis as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
-    ?.isNativePlatform === "function"
-    ? (globalThis as unknown as { Capacitor: { isNativePlatform: () => boolean } }).Capacitor.isNativePlatform()
-    : false;
+const nativePlatform = Capacitor.isNativePlatform();
+const nativeHttp = registerPlugin("PortalHttp");
 
 // Same-origin proxy in dev (vite.config proxy /api -> portal) and in the browser
-// deployment; absolute URL to the hosted proxy inside the Capacitor shell, which
-// has no same-origin `/api`. See lib/apiBase.js.
+// deployment. Android uses this proxy only on older APKs, for reads missing from
+// its installed policy, or with an explicit development override.
 export const BASE_URL = resolveApiBase({
   nativePlatform,
   envBase: env.VITE_API_BASE,
   envNativeBase: env.VITE_NATIVE_API_BASE,
 });
+
+const transport = createPortalTransport({
+  baseUrl: BASE_URL,
+  mode: env.VITE_API_TRANSPORT,
+  native: Capacitor.getPlatform() === "android" && Capacitor.isPluginAvailable("PortalHttp") && !env.VITE_NATIVE_API_BASE
+    ? nativeHttp : undefined,
+});
+
+export type RefreshPage = keyof typeof features.featurePostEndpoints;
+
+export async function getRefreshPolicy(page: RefreshPage) {
+  // Unknown/unavailable native capabilities keep the conservative proxy policy.
+  const usesProxy = await transport.usesProxyFor("POST", Object.values(features.featurePostEndpoints[page])).catch(() => true);
+  return selectRefreshPolicy(usesProxy, env.VITE_ATTENDANCE_QUOTA);
+}
 
 export const savedCredentials = credentials.createStore();
 // Migrate on every app boot, even when the current session is still valid.
@@ -58,6 +71,7 @@ export function onSessionStatus(cb: (status: SessionStatus) => void): () => void
 
 export const client = createClient({
   baseUrl: BASE_URL,
+  fetchImpl: transport.fetch,
   getToken: () => store.load()?.token ?? "",
   onSessionStatusChange: (status) => setSessionStatus(status),
   onRefresh: async (signal) => {

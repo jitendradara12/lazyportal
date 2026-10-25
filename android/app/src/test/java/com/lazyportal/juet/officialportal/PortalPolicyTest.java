@@ -33,6 +33,24 @@ public class PortalPolicyTest {
         }
     }
 
+    @Test public void mainAppPolicyAddsAuthWithoutGrantingWritesOrWeakeningOfficialView() throws Exception {
+        PortalPolicy app = new PortalPolicy(new JSONObject(new String(Files.readAllBytes(new File("src/main/assets/portal-api-policy.json").toPath()), StandardCharsets.UTF_8)));
+        assertTrue(app.allowsApi("GET", "/token/getcaptcha"));
+        for (String path : new String[] { "/token/pretoken-check", "/token/generatewebtoken", "/token/refreshTokenRequest" }) {
+            assertTrue(app.allowsApi("POST", path));
+            assertEquals(app.upstream + "/StudentPortalAPI" + path, app.apiUrl("POST", path).toString());
+        }
+        assertFalse(policy.allowsApi("GET", "/token/getcaptcha"));
+        assertFalse(policy.allowsApi("POST", "/token/generatewebtoken"));
+        for (String path : new String[] { "/onlinefeepayment/paynow", "/studentbankdetails/savestudentbankinfo",
+            "/future/getSomething", "/token/generatewebtoken?x=1", "/../token/generatewebtoken", "https://evil.test/token/getcaptcha" }) {
+            assertFalse(app.allowsApi("POST", path));
+            assertThrows(SecurityException.class, () -> app.apiUrl("POST", path));
+        }
+        assertEquals(1, app.apiCapabilities().getInt("version"));
+        assertTrue(app.apiCapabilities().getJSONArray("get").toString().contains("/token/getcaptcha"));
+    }
+
     @Test public void assetsCannotBecomeAnApiOrAnExternalProxy() throws Exception {
         assertEquals(policy.upstream + "/studentportal/main.abcdef0123456789.js", policy.assetUrl(policy.origin + "/studentportal/main.abcdef0123456789.js").toString());
         assertEquals(policy.upstream + "/studentportal/", policy.assetUrl(policy.origin + policy.entry).toString());

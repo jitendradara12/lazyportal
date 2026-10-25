@@ -4,9 +4,41 @@
 
 import { PortalError } from "./errors.js";
 
+// Shared by feature readers and transport-aware refresh policy.
+export const featurePostEndpoints = Object.freeze({
+  attendance: Object.freeze({
+    registrations: "/StudentClassAttendance/getstudentInforegistrationforattendence",
+    overview: "/StudentClassAttendance/getstudentattendancedetail",
+    current: "/StudentClassAttendance/getstudentsubjectpersentage",
+    previous: "/StudentClassAttendance/getpreviousstudentsubjectpersentage",
+  }),
+  marks: Object.freeze({
+    semesters: "/studentcommonsontroller/getsemestercode-exammarks",
+    rows: "/studentsexamview/getstudent-exammarks",
+  }),
+  exams: Object.freeze({
+    semesters: "/studentcommonsontroller/getsemestercode-withstudentexamevents",
+    events: "/studentcommonsontroller/getstudentexamevents",
+    schedule: "/studentsttattview/getstudent-examschedule",
+  }),
+  more: Object.freeze({
+    facultyRegistrations: "/reqsubfaculty/getregistrationList",
+    faculties: "/reqsubfaculty/getfaculties",
+    choiceSemesters: "/studentchoiceprint/getsemestercodelist",
+    choiceSubjects: "/studentchoiceprint/getsubjectpreference",
+    gradeInfo: "/studentgradecard/getstudentinfo",
+    gradeRegistrations: "/studentgradecard/getregistrationList",
+    grades: "/studentgradecard/showstudentgradecard",
+    sgpaInfo: "/studentsgpacgpa/loadData",
+    sgpaCurrent: "/studentsgpacgpa/checkIfstudentmasterexist",
+    sgpaSemesters: "/studentsgpacgpa/getallsemesterdata",
+    sgpaDetail: "/studentsgpacgpa/getallsemesterdatadetail",
+  }),
+});
+
 /** Attendance LOV: header (stynumber) + semester list. Plain JSON (unencrypted) — official app stringifies without AES here. */
 export async function getAttendanceRegistrations(client, session) {
-  const body = await client.postRaw("/StudentClassAttendance/getstudentInforegistrationforattendence", {
+  const body = await client.postRaw(featurePostEndpoints.attendance.registrations, {
     instituteid: session.instituteid,
   });
   if (!Array.isArray(body.response?.semlist)) {
@@ -20,7 +52,7 @@ export async function getAttendanceRegistrations(client, session) {
 
 /** Attendance detail rows carry L/T/P percentages already (no per-subject call needed). */
 export async function getAttendanceDetail(client, session, { stynumber, registrationid, registrationcode }) {
-  const body = await client.post("/StudentClassAttendance/getstudentattendancedetail", {
+  const body = await client.post(featurePostEndpoints.attendance.overview, {
     instituteid: session.instituteid,
     stynumber,
     registrationid,
@@ -65,7 +97,7 @@ export async function getAttendance(client, session, cachedLov) {
 
 /** Exam semesters. Encrypted {clientid, instituteid}. */
 export async function getExamSemesters(client, session) {
-  const body = await client.post("/studentcommonsontroller/getsemestercode-withstudentexamevents", {
+  const body = await client.post(featurePostEndpoints.exams.semesters, {
     clientid: session.clientid,
     instituteid: session.instituteid,
   });
@@ -74,7 +106,7 @@ export async function getExamSemesters(client, session) {
 
 /** Exam events for a semester. Encrypted; backend key has a typo (`registationid`). */
 export async function getExamEvents(client, session, { registrationid }) {
-  const body = await client.post("/studentcommonsontroller/getstudentexamevents", {
+  const body = await client.post(featurePostEndpoints.exams.events, {
     instituteid: session.instituteid,
     registationid: registrationid,
   });
@@ -83,7 +115,7 @@ export async function getExamEvents(client, session, { registrationid }) {
 
 /** Exam timetable rows: datetime, datetimeupto, subjectdesc, roomcode, seatno. */
 export async function getExamSchedule(client, session, { registrationid, exameventid }) {
-  const body = await client.post("/studentsttattview/getstudent-examschedule", {
+  const body = await client.post(featurePostEndpoints.exams.schedule, {
     instituteid: session.instituteid,
     registrationid,
     exameventid,
@@ -93,7 +125,7 @@ export async function getExamSchedule(client, session, { registrationid, exameve
 
 /** Grade card student info (branch/program needed for the grade call). Encrypted {instituteid}. */
 export async function getGradeStudentInfo(client, session) {
-  const body = await client.post("/studentgradecard/getstudentinfo", {
+  const body = await client.post(featurePostEndpoints.more.gradeInfo, {
     instituteid: session.instituteid,
   });
   return body.response?.studentinfo ?? null;
@@ -101,7 +133,7 @@ export async function getGradeStudentInfo(client, session) {
 
 /** Grade card semester list. Encrypted {instituteid}. */
 export async function getGradeRegistrations(client, session) {
-  const body = await client.post("/studentgradecard/getregistrationList", {
+  const body = await client.post(featurePostEndpoints.more.gradeRegistrations, {
     instituteid: session.instituteid,
   });
   return body.response?.registrations ?? [];
@@ -109,7 +141,7 @@ export async function getGradeRegistrations(client, session) {
 
 /** Grade rows: subjectcode, subjectdesc, grade, earnedcredit, gradepoint, minorsubject. */
 export async function getGradeCard(client, session, { registrationid, branchid, programid }) {
-  const body = await client.post("/studentgradecard/showstudentgradecard", {
+  const body = await client.post(featurePostEndpoints.more.grades, {
     instituteid: session.instituteid,
     registrationid,
     branchid,
@@ -136,7 +168,7 @@ export async function getGradesLatest(client, session) {
 
 /** Semesters for the faculty lookup. Encrypted {instituteid}. */
 export async function getFacultyRegistrations(client, session) {
-  const body = await client.post("/reqsubfaculty/getregistrationList", {
+  const body = await client.post(featurePostEndpoints.more.facultyRegistrations, {
     instituteid: session.instituteid,
   });
   return body.response?.registrations ?? body.response?.registrationList ?? [];
@@ -144,7 +176,7 @@ export async function getFacultyRegistrations(client, session) {
 
 /** Subject-faculty rows + credit total. Encrypted {instituteid, registrationid}. */
 export async function getFaculties(client, session, { registrationid }) {
-  const body = await client.post("/reqsubfaculty/getfaculties", {
+  const body = await client.post(featurePostEndpoints.more.faculties, {
     instituteid: session.instituteid,
     registrationid,
   });
@@ -180,8 +212,8 @@ function shareSubjectAttendanceRead(client, key, run) {
  * Identical concurrent reads share the transport, not a persistent cache. */
 export async function fetchSubjectAttendance(client, session, which, { subjectid, registrationid, components, subjectcode, registrationcode }) {
   const endpoint = which === "previous"
-    ? "/StudentClassAttendance/getpreviousstudentsubjectpersentage"
-    : "/StudentClassAttendance/getstudentsubjectpersentage";
+    ? featurePostEndpoints.attendance.previous
+    : featurePostEndpoints.attendance.current;
   const payload = {
     instituteid: session.instituteid,
     subjectid,
@@ -282,14 +314,14 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
 
 /** Choice-print semesters. Encrypted {} -> registrationcodelist. */
 export async function getChoiceSemesters(client) {
-  const body = await client.post("/studentchoiceprint/getsemestercodelist", {});
+  const body = await client.post(featurePostEndpoints.more.choiceSemesters, {});
   const rows = body.response?.registrationcodelist ?? [];
   return Array.isArray(rows) ? rows : [];
 }
 
 /** Enrolled subjects for a semester. Encrypted {instituteid, clientid, registrationid}. */
 export async function getChoiceSubjects(client, session, { registrationid }) {
-  const body = await client.post("/studentchoiceprint/getsubjectpreference", {
+  const body = await client.post(featurePostEndpoints.more.choiceSubjects, {
     instituteid: session.instituteid,
     clientid: session.clientid,
     registrationid,
@@ -309,7 +341,7 @@ export async function getChoiceSubjectsLatest(client, session) {
 
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */
 export async function getMarksSemesters(client, session) {
-  const body = await client.post("/studentcommonsontroller/getsemestercode-exammarks", {
+  const body = await client.post(featurePostEndpoints.marks.semesters, {
     instituteid: session.instituteid,
   });
   return body.response?.semestercode ?? [];
@@ -317,7 +349,7 @@ export async function getMarksSemesters(client, session) {
 
 /** Marks detail rows + display flags. Encrypted {instituteid, registrationid, companyid}. */
 export async function getMarks(client, session, { registrationid }) {
-  const body = await client.post("/studentsexamview/getstudent-exammarks", {
+  const body = await client.post(featurePostEndpoints.marks.rows, {
     instituteid: session.instituteid,
     registrationid,
     companyid: session.companyid,
@@ -352,7 +384,7 @@ export async function getMarksLatest(client, session) {
 /** SGPA/CGPA student info. Encrypted {instituteid} -> response.studentInfo[0]. */
 export async function getSgpaStudentInfo(client, session) {
   try {
-    const body = await client.post("/studentsgpacgpa/loadData", {
+    const body = await client.post(featurePostEndpoints.more.sgpaInfo, {
       instituteid: session.instituteid,
     });
     return body.response?.studentInfo?.[0] ?? null;
@@ -365,7 +397,7 @@ export async function getSgpaStudentInfo(client, session) {
 /** SGPA/CGPA current semester. Encrypted {instituteid, studentid, name, enrollmentno}. */
 export async function getSgpaCurrentSem(client, session, { studentid, name, enrollmentno }) {
   try {
-    const body = await client.post("/studentsgpacgpa/checkIfstudentmasterexist", {
+    const body = await client.post(featurePostEndpoints.more.sgpaCurrent, {
       instituteid: session.instituteid,
       studentid,
       name,
@@ -403,7 +435,7 @@ function isSgpa500(err) {
 /** SGPA/CGPA semester list (credit-wise rows with sgpa/cgpa). Encrypted {instituteid, studentid, stynumber}. */
 export async function getSgpaSemesters(client, session, { studentid, stynumber }) {
   try {
-    const body = await client.post("/studentsgpacgpa/getallsemesterdata", {
+    const body = await client.post(featurePostEndpoints.more.sgpaSemesters, {
       instituteid: session.instituteid,
       studentid,
       stynumber,
@@ -418,7 +450,7 @@ export async function getSgpaSemesters(client, session, { studentid, stynumber }
 
 /** SGPA/CGPA semester detail (subject rows). Encrypted {instituteid, studentid, stynumber}. Returns response as-is. */
 export async function getSgpaDetail(client, session, { studentid, stynumber }) {
-  const body = await client.post("/studentsgpacgpa/getallsemesterdatadetail", {
+  const body = await client.post(featurePostEndpoints.more.sgpaDetail, {
     instituteid: session.instituteid,
     studentid,
     stynumber,

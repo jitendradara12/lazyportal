@@ -6,6 +6,7 @@
 
 import https from "node:https";
 import { pipeline } from "node:stream/promises";
+import { portalTlsOptions } from "../shared/portal-tls.js";
 import {
   ALLOWED_METHODS as CORS_ALLOWED_METHODS,
   corsHeaders,
@@ -28,6 +29,7 @@ const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 // idle pool. Active requests are not capped/queued (maxSockets is Infinity).
 // The idle timeout is at most 5s, separate from each request's 45s upstream inactivity timeout.
 const upstreamAgent = new https.Agent({
+  ...portalTlsOptions(),
   keepAlive: true,
   maxFreeSockets: 8,
   timeout: 5_000,
@@ -190,8 +192,7 @@ function fetchUpstream(target, { method, headers, body, signal }) {
         headers,
         agent: upstreamAgent,
         signal,
-        // Portal TLS certificate hostname matches studentportal.juet.ac.in; bypass only for the portal host
-        rejectUnauthorized: url.hostname !== PORTAL_HOST,
+        rejectUnauthorized: true,
       },
       resolve
     );

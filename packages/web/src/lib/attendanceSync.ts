@@ -3,6 +3,7 @@ import { doesSubjectNeedDeepFetch, computeSubjectRowChecksum, getPortalDayKey, r
 import { getCachedSubjectDetailEntry, refreshSubjectDetail, rowSubId, type AttRow } from "../sections/attendance";
 import type { Session } from "../types";
 import type { AttData } from "../sections/attendance";
+import type { RefreshPolicy } from "./refreshPolicy";
 
 type Detail = Record<string, Record<string, unknown>>;
 
@@ -98,11 +99,12 @@ export async function syncAttendanceDetails({
 
 /** A failed/cancelled batch keeps successful cache writes, but spends no quota. */
 export async function runManualAttendanceRefresh({
-  readOverview, baselineRows, checkpoint = {}, ...sync
+  readOverview, baselineRows, checkpoint = {}, policy, ...sync
 }: Omit<Parameters<typeof syncAttendanceDetails>[0], "rows" | "base" | "overviewUpdatedAt"> & {
   readOverview: () => Promise<AttData>;
   baselineRows: AttRow[];
   checkpoint?: ManualAttendanceRefreshCheckpoint;
+  policy?: RefreshPolicy;
 }) {
   const current = sync.isCurrent ?? (() => true);
   const portalDay = getPortalDayKey();
@@ -125,7 +127,7 @@ export async function runManualAttendanceRefresh({
   if (!current()) return null;
   if (!result.complete) throw result.errors[0] ?? new Error("Attendance refresh did not finish. Please try again.");
   const changed = Boolean(checkpoint.changed);
-  const quota = recordSuccessfulManualRefresh(sync.session, { changed });
+  const quota = recordSuccessfulManualRefresh(sync.session, { changed }, policy);
   checkpoint.changed = false;
   return { changed, quota };
 }

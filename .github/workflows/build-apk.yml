@@ -179,10 +179,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  browser-tests:
+    name: Release browser checks
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/web.yml
+
   publish:
     name: Publish GitHub Release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build, device-tests]
+    needs: [build, device-tests, browser-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -90,7 +90,11 @@ test("release publication waits for device execution on old and current Android"
   const workflow = read(".github/workflows/build-apk.yml");
   assert.match(workflow, /api:\s*\[24,\s*36\]/);
   assert.match(workflow, /adb shell am instrument -w -r com\.lazyportal\.juet\.test\/androidx\.test\.runner\.AndroidJUnitRunner/);
-  assert.match(workflow, /publish:[\s\S]*needs:\s*\[build,\s*device-tests\]/);
+  assert.match(workflow, /publish:[\s\S]*needs:\s*\[build,\s*device-tests,\s*browser-tests\]/);
+  assert.match(workflow, /browser-tests:[\s\S]*uses:\s*\.\/\.github\/workflows\/web\.yml/);
+  const webChecks = fs.readFileSync(path.join(root, ".github/workflows/web.yml"), "utf8");
+  assert.match(webChecks, /workflow_call:/);
+  assert.match(webChecks, /npm --workspace @juet\/web run test:e2e/);
   assert.match(workflow, /INSTRUMENTATION_FAILED\|Process crashed/);
 });
 

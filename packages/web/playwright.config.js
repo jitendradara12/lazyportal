@@ -15,7 +15,7 @@ export default defineConfig({
   projects: [
     {
       name: "android-chrome",
-      testMatch: ["**/install-banner.spec.js", "**/android-install.spec.js", "**/credentials.spec.js", "**/page-refresh.spec.js", "**/exams.spec.js", "**/marks.spec.js", "**/attendance-sheet.spec.js", "**/native-interactions.spec.js", "**/official-portal.spec.js", "**/offline-recovery.spec.js"],
+      testMatch: ["**/install-banner.spec.js", "**/android-install.spec.js", "**/credentials.spec.js", "**/page-refresh.spec.js", "**/exams.spec.js", "**/marks.spec.js", "**/attendance-sheet.spec.js", "**/native-interactions.spec.js", "**/official-portal.spec.js", "**/portal-http.spec.js", "**/offline-recovery.spec.js"],
       use: { ...devices["Pixel 7"], browserName: "chromium" },
     },
     {
