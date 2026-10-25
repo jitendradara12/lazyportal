@@ -102,33 +102,34 @@ test("failed silent recovery from a native expiry leaves manual reconnect availa
 
 test("native expiry exhausts automatic captchas before showing Reconnect", async ({ page }) => {
   const calls = await setup(page);
-  await page.evaluate(async (session) => {
+  const maxAttempts = await page.evaluate(async (session) => {
     const resource = performance.getEntriesByType("resource").find((r) => new URL(r.name).pathname === "/src/lib/portal.ts");
-    const { savedCredentials } = await import(resource.name);
+    const { savedCredentials, MAX_AUTOSOLVE_ATTEMPTS } = await import(resource.name);
     await savedCredentials.save("test-only-password", { username: session.username, usertype: "S" });
     window.__sessionStatuses = [];
     window.addEventListener("juet:session-status", (event) => window.__sessionStatuses.push(event.detail.status));
+    return MAX_AUTOSOLVE_ATTEMPTS;
   }, SESSION);
   await page.route("**/api/token/refreshTokenRequest", (route) => route.fulfill({ status: 401, json: {} }));
   let finishLastCaptcha;
   const lastCaptcha = new Promise((resolve) => { finishLastCaptcha = resolve; });
   let captchas = 0;
   await page.route("**/api/token/getcaptcha", async (route) => {
-    if (++captchas === 5) await lastCaptcha;
+    if (++captchas === maxAttempts) await lastCaptcha;
     // The blank captcha fixture runs through the real solver and returns no guess.
     await route.fallback();
   });
   await entry(page).click();
   await expect.poll(() => page.evaluate(() => Boolean(window.__official.close))).toBe(true);
   await page.evaluate(() => window.__official.close({ expired: true }));
-  await expect.poll(() => captchas).toBe(5);
+  await expect.poll(() => captchas).toBe(maxAttempts);
   await expect(page.getByRole("button", { name: "Reconnect", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.__sessionStatuses)).toEqual(["recovering"]);
   finishLastCaptcha();
   await expect(page.getByRole("button", { name: "Reconnect", exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__sessionStatuses)).toEqual(["recovering", "expired"]);
   expect(calls.map((url) => new URL(url).pathname)).toEqual([
-    "/api/token/refreshTokenRequest", ...Array(5).fill("/api/token/getcaptcha"),
+    "/api/token/refreshTokenRequest", ...Array(maxAttempts).fill("/api/token/getcaptcha"),
   ]);
 });
 

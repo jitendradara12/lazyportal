@@ -95,6 +95,12 @@ rules remain visible but cannot export as fixed events. Events marked “onwards
 keep an unknown end and move to date guidance when their start date arrives. Student and staff dates
 are retained separately where the source differs.
 
+The agenda groups dates by month and nests fixed holidays inside a matching
+break, retaining individual calendar actions. Search expands those holidays
+into individual results and accepts aliases supplied in the JSON. Audience
+filters retain events with unspecified applicability. Date rules and proposed
+events use qualified date text rather than an exact-day date block.
+
 `components/Timeline.tsx` shares markers and collapsible groups with Exams while
 each page owns its cards and ordering. `lib/calendar.ts` generates Google links
 and ICS for timed or all-day events; `calendarActions.ts` owns browser/native

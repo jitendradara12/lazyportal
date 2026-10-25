@@ -2666,12 +2666,12 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .academic-search input::placeholder { color: var(--onSurfaceVariant); opacity: 1; }
 .academic-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .academic-search input:focus-visible { outline: none; }
-.academic-search-close { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--onSurfaceVariant); cursor: pointer; }
+.academic-search-close { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--onSurfaceVariant); cursor: pointer; }
 .academic-search-close svg { width: 18px; height: 18px; }
 .academic-search-close:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 .academic-contribute a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .academic-controls { display: flex; align-items: center; gap: 12px; }
-.academic-control-field { flex: 1.35; min-width: 0; display: flex; flex-direction: column; gap: 4px; color: var(--onSurfaceVariant); font-size: var(--fs-xs); font-weight: 600; }
+.academic-control-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; color: var(--onSurfaceVariant); font-size: var(--fs-xs); font-weight: 600; }
 .academic-control-field.is-audience { flex: 1; }
 .picker-wrap { position: relative; display: flex; align-items: center; width: 100%; }
 .academic-controls .sem-picker {
@@ -2698,10 +2698,15 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .picker-wrap:focus-within .picker-chevron { color: var(--primary); }
 .academic-filters { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding-block: 12px 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .academic-filters::-webkit-scrollbar { display: none; }
+.academic-filters .chip-btn { min-height: 44px; }
 .academic-schedule-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0 8px; }
 .academic-schedule-heading .page-subhead { margin: 0; }
 .academic-schedule-heading > span { flex: none; color: var(--onSurfaceVariant); font-size: var(--fs-xs); }
-.academic-event { align-items: flex-start; border-radius: var(--r-lg); }
+.academic-event { display: block; border-radius: var(--r-lg); }
+.academic-event-main { display: flex; align-items: flex-start; gap: 12px; }
+.academic-event-main .exam-body { overflow-wrap: anywhere; }
+.academic-event.has-date-guidance .academic-event-dates { font-weight: 600; font-size: 16px; }
+.academic-event:not(.is-next) .academic-event-state { color: var(--onSurfaceVariant); background: var(--surfaceContainerHighest); }
 .academic-event .exam-calendar { align-self: flex-start; margin-right: -8px; }
 .academic-event-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 3px; font-size: var(--fs-xs); font-weight: 600; }
 .academic-category { color: var(--onSurfaceVariant); }
@@ -2725,6 +2730,22 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .academic-timeline .exam-future-group { margin-top: 12px; }
 .academic-guidance { margin-top: 28px; }
 .academic-guidance .academic-event + .academic-event { margin-top: 10px; }
+.academic-month-group, .academic-month-events, .academic-break-holidays ul { list-style: none; margin: 0; padding: 0; }
+.academic-month-heading { margin: 16px 0 12px 30px; font-size: var(--fs-s); font-weight: 600; color: var(--onSurfaceVariant); }
+.academic-month-group:first-child .academic-month-heading { margin-top: 4px; }
+.academic-month-events > .exam-stop:last-child { padding-bottom: 10px; }
+.academic-break-holidays { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--outlineVariant); }
+.academic-break-holidays > p { margin: 0 0 4px; font-size: var(--fs-xs); color: var(--onSurfaceVariant); }
+.academic-break-holidays li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; }
+.academic-break-holidays li > div:first-child { min-width: 0; }
+.academic-break-holidays h5 { margin: 0; font-size: var(--fs-s); font-weight: 600; overflow-wrap: anywhere; }
+.academic-break-holidays li p { margin: 2px 0 0; font-size: var(--fs-s); color: var(--onSurfaceVariant); }
+.academic-event.is-next .academic-break-holidays { border-color: color-mix(in srgb, var(--onPrimaryContainer) 25%, transparent); }
+.academic-event.is-next .academic-break-holidays p { color: var(--onPrimaryContainer); }
+.academic-empty { padding-block: 12px; }
+.academic-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.academic-empty-actions button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--outlineVariant); border-radius: var(--r-full); background: transparent; color: var(--primary); font: inherit; font-size: var(--fs-s); cursor: pointer; }
+.academic-empty-actions button:hover { background: var(--surfaceContainer); }
 .academic-contribute {
   margin-top: 32px;
   padding: 16px 0 24px;
@@ -2751,5 +2772,5 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
   .academic-calendar-page .app-bar-title { font-size: 24px; }
   .academic-controls { gap: 10px; }
   .academic-event .exam-calendar { margin-right: -6px; }
-  .academic-event { gap: 8px; }
+  .academic-event-main { gap: 8px; }
 }

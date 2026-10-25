@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { academicBounds, academicCalendarEvent, academicDateLabel, currentAcademicCalendar, groupAcademicEvents, nextDate, portalDate } from "../src/lib/academicCalendar.ts";
+import { academicBounds, academicCalendarEvent, academicDateLabel, academicSchedule, currentAcademicCalendar, groupAcademicEvents, matchesAcademicAudience, matchesAcademicSearch, nextDate, portalDate } from "../src/lib/academicCalendar.ts";
 import { calendarFile, googleCalendarUrl } from "../src/lib/calendar.ts";
 
 const dataDir = new URL("../src/data/academic-calendars/", import.meta.url);
@@ -88,5 +88,57 @@ test("onwards events keep their unknown end and move to guidance when they start
     assert.equal(grouped.past.length, 0);
     assert.equal(grouped.upcoming.length, 0);
     assert.deepEqual(grouped.guidance, [event]);
+  }
+});
+
+test("holiday aliases find the published title without changing export titles", () => {
+  const holiday = odd.events.find((event) => event.id === "deepawali");
+  for (const query of ["diwali", "  DEEPAWALI  ", "deepavali", "8  Nov 2026", ""]) {
+    assert.equal(matchesAcademicSearch(holiday, query), true, query);
+  }
+  assert.equal(odd.events.filter((event) => matchesAcademicSearch(event, "diwali")).length, 2);
+  assert.equal(matchesAcademicSearch(holiday, "republic"), false);
+  assert.equal(academicCalendarEvent(odd, holiday).title, "Deepawali");
+});
+
+test("audience filtering uses stated applicability and keeps unspecified dates", () => {
+  const event = odd.events.find((event) => event.id === "first-year-registration");
+  assert.equal(matchesAcademicAudience(event, "first-year"), true);
+  assert.equal(matchesAcademicAudience(event, "continuing"), false);
+  const phd = even.events.find((event) => event.id === "phd-registration");
+  assert.equal(matchesAcademicAudience(phd, "phd"), true);
+  assert.equal(matchesAcademicAudience(phd, "continuing"), false);
+  const final = even.events.find((event) => event.id === "final-viva");
+  assert.equal(matchesAcademicAudience(final, "first-year"), false);
+  assert.equal(matchesAcademicAudience(final, "continuing"), true);
+  for (const audience of ["students", "first-year", "continuing", "phd"]) {
+    assert.equal(matchesAcademicAudience({ ...event, audience: undefined }, audience), true);
+    assert.equal(matchesAcademicAudience({ ...event, audience: "A newly stated audience" }, audience), true);
+    assert.equal(matchesAcademicAudience({ ...event, audience: "Faculty & staff" }, audience), false);
+  }
+  assert.equal(matchesAcademicAudience({ ...event, audience: "Faculty & staff" }, "all"), true);
+});
+
+test("month groups retain every event and put contained holidays under their break", () => {
+  const { upcoming } = groupAcademicEvents(odd.events, Date.parse("2026-10-25T12:00:00+05:30"));
+  const schedule = academicSchedule(upcoming);
+  assert.deepEqual(schedule.map((month) => month.month), ["2026-10", "2026-11", "2026-12", "2027-01"]);
+  const rows = schedule.flatMap((month) => month.entries);
+  const deepawali = rows.find(({ event }) => event.id === "deepawali-break");
+  assert.deepEqual(deepawali.holidays.map((event) => event.id), ["deepawali", "govardhan"]);
+  assert.deepEqual(rows.find(({ event }) => event.id === "winter-vacation").holidays.map((event) => event.id), ["christmas"]);
+  assert.deepEqual(rows.flatMap(({ event, holidays }) => [event, ...holidays]).map((event) => event.id).sort(), upcoming.map((event) => event.id).sort());
+  assert.ok(deepawali.holidays.every((event) => academicCalendarEvent(odd, event)));
+  assert.ok(academicSchedule(upcoming, false).flatMap((month) => month.entries).every((row) => row.holidays.length === 0));
+  assert.deepEqual(academicSchedule(upcoming, true, true).map((month) => month.month), ["2027-01", "2026-12", "2026-11", "2026-10"]);
+});
+
+test("holiday grouping never assumes a proposed break or mixes staff and student dates", () => {
+  const holiday = odd.events.find((event) => event.id === "deepawali");
+  const vacation = odd.events.find((event) => event.id === "deepawali-break");
+  for (const change of [{ status: "tentative" }, { dateRule: "from" }, { audience: "Faculty & staff" }, { endDate: "2026-11-07" }]) {
+    const rows = academicSchedule([{ ...vacation, ...change }, holiday]).flatMap((month) => month.entries);
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((row) => row.holidays.length === 0));
   }
 });

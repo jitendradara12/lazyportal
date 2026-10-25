@@ -13,6 +13,7 @@ export interface AcademicEvent {
   status?: "tentative";
   audience?: string;
   notes?: string;
+  aliases?: string[];
 }
 export interface AcademicCalendar {
   id: string;
@@ -20,6 +21,45 @@ export interface AcademicCalendar {
   term: string;
   startsOn: string;
   events: AcademicEvent[];
+}
+
+export function matchesAcademicSearch(event: AcademicEvent, query: string): boolean {
+  const text = [event.title, academicCategories[event.category], academicDateLabel(event), event.audience, event.notes, ...(event.aliases ?? [])].filter(Boolean).join(" ");
+  const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  return normalize(text).includes(normalize(query));
+}
+
+export function matchesAcademicAudience(event: AcademicEvent, audience: string): boolean {
+  if (audience === "all") return true;
+  if (event.audience === "Faculty & staff") return false;
+  if (audience === "students" || !event.audience || event.audience === "Students") return true;
+  if (event.audience.includes("Ph.D.")) return audience === "phd";
+  if (event.audience === "First year") return audience === "first-year";
+  if (["Except first year", "Years 2–4", "Final semester"].includes(event.audience)) return audience === "continuing";
+  if (event.audience === "Years 1–3") return audience !== "phd";
+  return true;
+}
+
+export function academicSchedule(events: AcademicEvent[], groupHolidays = true, descending = false) {
+  const sorted = [...events].sort((a, b) => (descending ? -1 : 1) * a.startDate!.localeCompare(b.startDate!) || a.title.localeCompare(b.title));
+  const breaks = sorted.filter((event) => event.category === "break" && !event.dateRule && !event.status);
+  const holidays = new Map<AcademicEvent, AcademicEvent[]>();
+  const nested = new Set<AcademicEvent>();
+  if (groupHolidays) for (const holiday of sorted.filter((event) => event.category === "holiday" && !event.dateRule && !event.status)) {
+    const parent = breaks.find((event) => event.startDate! <= holiday.startDate! && (event.endDate ?? event.startDate)! >= (holiday.endDate ?? holiday.startDate)!
+      && (event.audience === holiday.audience || (!event.audience && holiday.audience === "Students")));
+    if (parent) {
+      holidays.set(parent, [...(holidays.get(parent) ?? []), holiday]);
+      nested.add(holiday);
+    }
+  }
+  const months = new Map<string, { event: AcademicEvent; holidays: AcademicEvent[] }[]>();
+  for (const event of sorted.filter((entry) => !nested.has(entry))) {
+    const month = event.startDate!.slice(0, 7);
+    if (!months.has(month)) months.set(month, []);
+    months.get(month)!.push({ event, holidays: holidays.get(event) ?? [] });
+  }
+  return [...months].map(([month, entries]) => ({ month, entries }));
 }
 
 export const academicCategories: Record<AcademicCategory, string> = {
@@ -66,11 +106,11 @@ export function academicCalendarEvent(calendar: AcademicCalendar, event: Academi
   };
 }
 
-const displayDate = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-export function academicDateLabel(event: AcademicEvent): string {
+const displayDate = (date: string, includeYear: boolean) => new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: includeYear ? "numeric" : undefined, timeZone: "UTC" });
+export function academicDateLabel(event: AcademicEvent, includeYear = true): string {
   if (!event.startDate) return event.timing ?? "To be announced";
-  const date = displayDate(event.startDate);
+  const date = displayDate(event.startDate, includeYear);
   if (event.dateRule === "before") return `Before ${date}`;
   if (event.dateRule === "from") return `From ${date} onwards`;
-  return event.endDate && event.endDate !== event.startDate ? `${date} – ${displayDate(event.endDate)}` : date;
+  return event.endDate && event.endDate !== event.startDate ? `${date} – ${displayDate(event.endDate, includeYear)}` : date;
 }

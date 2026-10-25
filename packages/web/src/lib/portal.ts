@@ -35,6 +35,8 @@ export async function getRefreshPolicy(page: RefreshPage) {
   return selectRefreshPolicy(usesProxy, env.VITE_ATTENDANCE_QUOTA);
 }
 
+export const MAX_AUTOSOLVE_ATTEMPTS = 8;
+
 export const savedCredentials = credentials.createStore();
 // Migrate on every app boot, even when the current session is still valid.
 void savedCredentials.migrate();
@@ -93,7 +95,7 @@ export const client = createClient({
     }
 
     // 2. Silent re-login if saved password exists. Portal shows no captcha
-    // rate limit, so retry solver low-confidence / bad-captcha up to 5 times
+    // rate limit, so retry solver low-confidence / bad-captcha up to 8 times
     // before falling through to the manual reconnect modal. Network blips
     // retry too (without clearing the saved password).
     let usertype = s.membertype === "P" ? "P" : "S";
@@ -103,7 +105,7 @@ export const client = createClient({
     if (signal.aborted) return false;
 
     if (savedPw) {
-      const maxAttempts = 5;
+      const maxAttempts = MAX_AUTOSOLVE_ATTEMPTS;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (signal.aborted) return false;
         let cap;

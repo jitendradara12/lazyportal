@@ -135,7 +135,12 @@
       "title": "Deepawali break",
       "category": "break",
       "startDate": "2026-11-06",
-      "endDate": "2026-11-14"
+      "endDate": "2026-11-14",
+      "aliases": [
+        "Diwali",
+        "Deepavali",
+        "Dipawali"
+      ]
     },
     {
       "id": "final-viva",
@@ -299,7 +304,12 @@
       "id": "deepawali",
       "title": "Deepawali",
       "category": "holiday",
-      "startDate": "2026-11-08"
+      "startDate": "2026-11-08",
+      "aliases": [
+        "Diwali",
+        "Deepavali",
+        "Dipawali"
+      ]
     },
     {
       "id": "govardhan",

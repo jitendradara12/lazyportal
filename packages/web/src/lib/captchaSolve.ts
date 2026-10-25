@@ -1,10 +1,8 @@
 // Shared captcha fetch + autosolve helper. Single place for the "try N times
 // before manual fallback" policy (portal shows no rate limit).
 import { auth } from "@juet/core";
-import { client } from "./portal";
+import { client, MAX_AUTOSOLVE_ATTEMPTS } from "./portal";
 import type { Captcha } from "../types";
-
-const MAX_AUTOSOLVE_ATTEMPTS = 5;
 
 function isFatalSolverError(): boolean {
   // Canvas/Image missing (SSR, old webview): retrying fetch won't help.

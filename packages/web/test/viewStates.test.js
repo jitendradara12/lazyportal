@@ -15,7 +15,7 @@ globalThis.localStorage = {
 globalThis.window = { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
-let server, MarksSection, ExamsSection, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha;
+let server, MarksSection, ExamsSection, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS;
 let readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
 
 before(async () => {
@@ -30,7 +30,7 @@ before(async () => {
   ({ SubjectDetailSheet } = await server.ssrLoadModule("/src/components/SubjectDetailSheet.tsx"));
   ({ sessionCacheKey } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ client } = await server.ssrLoadModule("/src/lib/portal.ts"));
-  ({ fetchAutosolvedCaptcha } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
+  ({ fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
   ({ syncAttendanceDetails, runManualAttendanceRefresh } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
   ({ getManualRefreshQuota, computeSubjectRowChecksum } = await server.ssrLoadModule("/src/lib/portalSchedule.ts"));
   ({ getCached } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
@@ -169,7 +169,7 @@ test("captcha fetch failure rejects after retries so login/reconnect can display
   const get = t.mock.method(client, "getPublic", async () => { throw error; });
   await withFailedDecoder(async () => {
     await assert.rejects(fetchAutosolvedCaptcha(), (e) => e === error);
-    assert.equal(get.mock.callCount(), 5);
+    assert.equal(get.mock.callCount(), MAX_AUTOSOLVE_ATTEMPTS);
   });
 });
 

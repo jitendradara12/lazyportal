@@ -35,6 +35,10 @@ Use one file per semester, named `2026-27-even.json`:
 - Optional: `status: "tentative"` for proposed/conditional dates, `audience`
   for who an event concerns, `notes` for an event's qualifications.
   `audience: "Faculty & staff"` hides staff-only events from the student view.
+- Optional: `aliases` is a list of common search names, such as `["Diwali"]`
+  for Deepawali. It does not change the published title or calendar exports.
+- Year and Ph.D. filters use stated audiences. Missing or unrecognized audiences
+  stay visible; do not infer applicability from an event's title.
 - Include each event once. Keep existing IDs when correcting dates.
 - Keep older semesters. New JSON files appear automatically. Leave PDFs out.
 
