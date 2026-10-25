@@ -80,33 +80,24 @@ export function FacultySection({ session }: SectionProps) {
         </p>
       )}
       {rows.length > 0 && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th>Faculty</th>
-                <th className="num-col">Credits</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                      {r.subjectcode && <span className="badge">{r.subjectcode}</span>}
-                      {r.subjectcomponentcode && (
-                        <span className="att-log-type-tag">{String(r.subjectcomponentcode)}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td>{titleCase(r.employeename ?? "")}</td>
-                  <td className="num-col">{String(r.credits ?? "—")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="more-data-list" aria-label="Faculty by subject">
+          {rows.map((r, i) => (
+            <li key={i} className="more-data-row">
+              <div className="more-data-main">
+                <span className="more-data-title">{titleCase(r.employeename ?? "Faculty")}</span>
+                <span className="more-data-meta">
+                  {r.subjectcode && <span className="att-code">{r.subjectcode}</span>}
+                  {r.subjectcomponentcode && (
+                    <span className="att-log-type-tag">{String(r.subjectcomponentcode)}</span>
+                  )}
+                </span>
+              </div>
+              {r.credits != null && String(r.credits).trim() !== "" && (
+                <span className="more-data-trailing">{String(r.credits)} cr</span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       {lov.data && rows.length === 0 && !error && !loading && (
         <p className="muted">No faculty records found for {semLabel || "this semester"}.</p>

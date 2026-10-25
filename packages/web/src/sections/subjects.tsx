@@ -50,28 +50,21 @@ export function SubjectsSection({ session }: SectionProps) {
     >
       {latest.loading && <p className="muted">Loading…</p>}
       {rows.length > 0 && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Subject</th>
-                <th>Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td>
-                    <span className="badge">{r.subjectcode}</span>
-                  </td>
-                  <td>{titleCase(r.subjectdesc ?? "")}</td>
-                  <td>{r.subjecttypedesc ?? "Regular"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="more-data-list" aria-label="Registered subjects">
+          {rows.map((r, i) => (
+            <li key={i} className="more-data-row">
+              <div className="more-data-main">
+                <span className="more-data-title">{titleCase(r.subjectdesc || r.subjectcode || "Subject")}</span>
+                <span className="more-data-meta">
+                  {r.subjectcode && <span className="att-code">{r.subjectcode}</span>}
+                </span>
+              </div>
+              {r.subjecttypedesc && (
+                <span className="more-data-tag">{titleCase(r.subjecttypedesc)}</span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       {latest.data && rows.length === 0 && !latest.error && !latest.loading && (
         <p className="muted">No registered subjects found for {semLabel || "this semester"}.</p>
