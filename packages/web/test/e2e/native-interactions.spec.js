@@ -117,6 +117,28 @@ test("reconnect takes Back before the subject sheet underneath it", async ({ pag
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("reconnect scrolls its dialog to keep captcha visible above the keyboard", async ({ page }) => {
+  await dashboard(page);
+  await page.evaluate(async () => {
+    const resource = performance.getEntriesByType("resource").find((r) => new URL(r.name).pathname === "/src/lib/portal.ts");
+    const { setSessionStatus } = await import(resource.name);
+    setSessionStatus("expired");
+  });
+  await page.getByRole("button", { name: "Reconnect", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Renew session" });
+  await expect(dialog.getByLabel("Password", { exact: true })).toBeVisible();
+  const captcha = dialog.getByLabel("Captcha", { exact: true });
+  await captcha.focus();
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => 360 });
+    window.visualViewport.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-keyboard-open", "");
+  await expect.poll(() => captcha.evaluate((el) => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(344);
+  await expect(dialog.locator(".auth-captcha-group")).toBeInViewport({ ratio: 1 });
+  await expect.poll(() => dialog.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+});
+
 test("login keyboard advances fields and keeps the active field above a reduced viewport", async ({ page }) => {
   await mockPortal(page);
   await page.goto("/");
