@@ -2550,10 +2550,37 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
   font-weight: 700;
   border-radius: 60% 40% 55% 45% / 45% 55% 40% 60%;
 }
-.profile-text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.profile-name { margin: 0; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.profile-text { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.profile-name { margin: 0; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; overflow-wrap: anywhere; }
 .profile-sub { font-size: var(--fs-s); color: var(--onSurfaceVariant); }
 .profile-institute { margin-top: 6px; max-width: 100%; }
+.discreet-switch { display: flex; flex: none; flex-direction: column; align-items: center; gap: 6px; min-width: 52px; min-height: var(--tap); padding: 4px 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--onSurfaceVariant); cursor: pointer; }
+.discreet-switch-track { position: relative; width: 52px; height: 32px; border: 2px solid var(--outline); border-radius: var(--r-full); background: var(--surfaceContainerHighest); transition: background-color 0.2s var(--motion-standard), border-color 0.2s var(--motion-standard); }
+.discreet-switch-thumb { position: absolute; top: 2px; left: 2px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--r-full); background: var(--outline); color: var(--onPrimary); scale: 0.6667; transition: translate 0.25s var(--motion-spring), scale 0.2s var(--motion-standard), background-color 0.2s var(--motion-standard); }
+.discreet-switch-thumb svg { opacity: 0; transition: opacity 0.15s var(--motion-standard); }
+.discreet-switch[aria-checked="true"] .discreet-switch-track { background: var(--primary); border-color: var(--primary); }
+.discreet-switch[aria-checked="true"] .discreet-switch-thumb { translate: 20px; scale: 1; background: var(--onPrimary); color: var(--primary); }
+.discreet-switch[aria-checked="true"] .discreet-switch-thumb svg { opacity: 1; }
+.discreet-switch:active .discreet-switch-thumb { scale: 1.1667; }
+.discreet-switch:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.discreet-switch-label { font-size: var(--fs-xs); font-weight: 500; line-height: 16px; }
+@media (hover: hover) {
+  .discreet-switch:hover .discreet-switch-track { outline: 6px solid var(--focusRing); }
+}
+@media (forced-colors: active) {
+  .discreet-switch-track { border-color: ButtonText; }
+  .discreet-switch-thumb { background: ButtonText; }
+  .discreet-switch[aria-checked="true"] .discreet-switch-track { background: Highlight; border-color: Highlight; }
+  .discreet-switch[aria-checked="true"] .discreet-switch-thumb { background: HighlightText; color: Highlight; }
+}
+
+/* Discreet mode changes presentation only; portal data and error colors stay intact. */
+[data-discreet] :is(.att-red, .att-yellow, .att-green) { color: var(--onSurface); }
+[data-discreet] .score-progress[data-band] { --score-fill: var(--onSurfaceVariant); }
+[data-discreet] :is(.log-badge, .att-advice-inline.bunk, .att-advice-inline.attend, .att-advice-inline.short, .att-log-row.row-absent .att-log-type-tag) { background: var(--surfaceContainerHigh); color: var(--onSurfaceVariant); }
+[data-discreet] .att-log-row.row-absent { background: var(--surfaceContainerLow); }
+[data-discreet] :is(.chip-btn.chip-absent.active, .nav-badge) { background: var(--onSurfaceVariant); color: var(--surface); }
+
 .more-preference { margin-top: 12px; padding: 20px; border-radius: var(--r-lg); background: var(--surfaceContainerLow); }
 .more-preference h2 { margin: 0; font-size: var(--fs-m); font-weight: 500; }
 .more-preference p { margin: 6px 0 16px; font-size: var(--fs-s); color: var(--onSurfaceVariant); }

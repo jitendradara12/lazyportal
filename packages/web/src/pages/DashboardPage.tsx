@@ -9,6 +9,7 @@ import { AttendanceIcon, MoreIcon } from "../components/icons";
 import type { Session } from "../types";
 import { BackScope, useAppBack } from "../hooks/useAppBack";
 import { selectionHaptic } from "../lib/nativeInteractions";
+import { usePersistentState } from "../hooks/usePersistentState";
 
 const HOME = "attendance";
 const tabFromHash = (ids: string[]) => {
@@ -33,6 +34,8 @@ export function DashboardPage({
 }) {
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [shorts, setShorts] = useState(0);
+  const [discreetPreference, setDiscreetPreference] = usePersistentState("discreet", "false");
+  const discreet = discreetPreference === "true";
 
   // Silent recovery takes priority over the manual form.
   useEffect(() => {
@@ -99,7 +102,7 @@ export function DashboardPage({
 
   return (
     <ShellContext.Provider value={shell}>
-      <div className="dashboard-shell">
+      <div className="dashboard-shell" data-discreet={discreet ? "" : undefined}>
         <main className="dash">
           <div className="tab-panel" hidden={tab !== HOME}>
             <BackScope.Provider value={tab === HOME}>
@@ -118,7 +121,13 @@ export function DashboardPage({
           {visited.has("more") && (
             <div className="tab-panel" hidden={tab !== "more"}>
               <BackScope.Provider value={tab === "more"}>
-                <MorePage session={session} onLogout={onLogout} onSelectInstitute={onSelectInstitute} />
+                <MorePage
+                  session={session}
+                  onLogout={onLogout}
+                  onSelectInstitute={onSelectInstitute}
+                  discreet={discreet}
+                  onDiscreetChange={(next) => setDiscreetPreference(String(next))}
+                />
               </BackScope.Provider>
             </div>
           )}

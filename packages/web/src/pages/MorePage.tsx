@@ -4,6 +4,7 @@ import { SECTIONS } from "../sections";
 import { TopBar } from "../components/AppBar";
 import { titleCase } from "../components/DataViews";
 import { OfficialPortalEntry } from "../components/OfficialPortalEntry";
+import { selectionHaptic } from "../lib/nativeInteractions";
 import type { Session } from "../types";
 
 interface InstituteOption {
@@ -15,13 +16,17 @@ export function MorePage({
   session,
   onLogout,
   onSelectInstitute,
+  discreet,
+  onDiscreetChange,
 }: {
   session: Session;
   onLogout: () => void;
   onSelectInstitute: (instituteid: string) => void;
+  discreet: boolean;
+  onDiscreetChange: (value: boolean) => void;
 }) {
   const institutes = (session.institutelist as InstituteOption[] | undefined) ?? [];
-  const name = titleCase(session.name ?? session.enrollmentno ?? "Student");
+  const name = discreet ? "Student" : titleCase(session.name ?? session.enrollmentno ?? "Student");
   const initial = name.trim().charAt(0) || "S";
 
   const pageRefresh = usePageRefresh("more", session, false);
@@ -35,7 +40,8 @@ export function MorePage({
           <span className="profile-avatar" aria-hidden="true">{initial}</span>
           <div className="profile-text">
             <h2 className="profile-name">{name}</h2>
-            {session.enrollmentno && <span className="profile-sub">{session.enrollmentno}</span>}
+            {discreet ? <span className="profile-sub">Identity hidden</span> :
+              session.enrollmentno && <span className="profile-sub">{session.enrollmentno}</span>}
             {institutes.length > 1 ? (
               <select
                 value={String(session.instituteid ?? "")}
@@ -51,6 +57,28 @@ export function MorePage({
               <span className="profile-sub">{titleCase(session.institutename)}</span>
             ) : null}
           </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={discreet}
+            aria-label="Discreet mode"
+            aria-description="Hide your name, enrollment number and performance colors. Numbers stay visible."
+            title="Hide your identity and performance colors. Numbers stay visible."
+            className="discreet-switch"
+            onClick={() => {
+              selectionHaptic();
+              onDiscreetChange(!discreet);
+            }}
+          >
+            <span className="discreet-switch-track" aria-hidden="true">
+              <span className="discreet-switch-thumb">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m5 12 4 4L19 6" />
+                </svg>
+              </span>
+            </span>
+            <span className="discreet-switch-label" aria-hidden="true">Discreet</span>
+          </button>
         </section>
 
         <OfficialPortalEntry session={session} />

@@ -35,7 +35,7 @@ async function setup(page) {
       { subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", eventcode: "TEST-1", obtainedmarks: 10, fullmarks: 15 },
       { subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", eventcode: "TEST-2", obtainedmarks: 15, fullmarks: 25 },
     ] }, ["past"]);
-  }, SESSION);
+  }, { ...SESSION, enrollmentno: "241B123" });
   await page.goto("/#marks");
   await expect(page.getByRole("heading", { name: "Marks", exact: true })).toBeVisible();
   await expect(page.locator(".score-card")).toHaveCount(6);
@@ -107,6 +107,50 @@ test("total bars use summed marks and remain visible while courses are collapsed
     expect(width).toBeCloseTo(percentage, 3);
   }
   await expect(course(page, "HS301").locator(".score-progress")).toHaveCount(0);
+});
+
+test("Discreet mode hides identity, neutralizes marks and survives reloads", async ({ page }) => {
+  const requests = await setup(page);
+  const nav = page.getByRole("navigation", { name: "Main" });
+  const scores = await page.locator(".score-header .score-value").allTextContents();
+  const widths = await page.locator(".score-progress > span").evaluateAll((fills) => fills.map((fill) => fill.style.width));
+  await nav.getByRole("button", { name: "More", exact: true }).click();
+  const toggle = page.getByRole("switch", { name: "Discreet mode" });
+  await expect(toggle).not.toBeChecked();
+  await expect(page.locator(".profile")).toContainText("241B123");
+  const logoutColor = await page.locator(".more-action.is-danger").evaluate((el) => getComputedStyle(el).color);
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(toggle).toBeChecked();
+  await expect(page.locator(".profile-name")).toHaveText("Student");
+  await expect(page.locator(".profile-avatar")).toHaveText("S");
+  await expect(page.locator(".profile")).not.toContainText("Test Student");
+  await expect(page.locator(".profile")).not.toContainText("241B123");
+  expect(await page.locator(".more-action.is-danger").evaluate((el) => getComputedStyle(el).color)).toBe(logoutColor);
+  await nav.getByRole("button", { name: "Marks", exact: true }).click();
+  for (const colorScheme of ["dark", "light"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
+    await expect.poll(() => page.locator(".score-progress > span").evaluateAll((fills) =>
+      fills.every((fill) => getComputedStyle(fill).backgroundColor ===
+        getComputedStyle(fill.closest(".score-card").querySelector(".score-total")).color))).toBe(true);
+  }
+  expect(await page.locator(".score-header .score-value").allTextContents()).toEqual(scores);
+  expect(await page.locator(".score-progress > span").evaluateAll((fills) => fills.map((fill) => fill.style.width))).toEqual(widths);
+  await nav.getByRole("button", { name: "More", exact: true }).click();
+  await page.reload();
+  await expect(toggle).toBeChecked();
+  await expect(page.locator(".profile-name")).toHaveText("Student");
+  await expect(page.locator(".profile")).not.toContainText("241B123");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).not.toBeChecked();
+  await expect(page.locator(".profile-name")).toHaveText("Test Student");
+  await expect(page.locator(".profile")).toContainText("241B123");
+  await nav.getByRole("button", { name: "Marks", exact: true }).click();
+  const restoredColors = await page.locator(".score-progress > span").evaluateAll((fills) => fills.map((fill) => getComputedStyle(fill).backgroundColor));
+  expect(new Set(restoredColors).size).toBe(4);
+  expect(requests).toEqual([]);
 });
 
 test("course height animates in both directions and rapid toggles settle correctly", async ({ page }) => {

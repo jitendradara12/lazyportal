@@ -64,6 +64,30 @@ test("More saves the default target across reloads and calculator overrides", as
   }
 });
 
+test("Discreet mode neutralizes attendance overview, advice and class history", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("switch", { name: "Discreet mode" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /^Attendance/ }).click();
+  const percentage = page.locator(".att-row-pct");
+  const originalPercentage = await percentage.textContent();
+  const textColor = await page.locator("body").evaluate((el) => getComputedStyle(el).color);
+  await expect(percentage).toHaveCSS("color", textColor);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  await expect(page.locator(".att-sheet-score")).toHaveCSS("color", textColor);
+  const neutralText = await page.locator(".att-sheet-kpi-label").evaluate((el) => getComputedStyle(el).color);
+  await expect(page.locator(".att-advice-inline.bunk").first()).toHaveCSS("color", neutralText);
+  await expect(page.locator(".log-badge.present").first()).toHaveCSS("color", neutralText);
+  await expect(page.locator(".log-badge.present").first()).toHaveText("Present");
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(percentage).toHaveText(originalPercentage);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("switch", { name: "Discreet mode" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /^Attendance/ }).click();
+  expect(await percentage.evaluate((el) => getComputedStyle(el).color)).not.toBe(textColor);
+});
+
 test("short pulls and cancelled drags return to position; long pulls dismiss", async ({ page }) => {
   await pull(page, 20, { slow: true });
   await expect.poll(() => page.getByRole("dialog").evaluate((el) => getComputedStyle(el).translate)).toBe("0px");

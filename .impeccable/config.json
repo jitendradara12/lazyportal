@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "files": [
+          "packages/web/src/styles.css"
+        ],
+        "createdAt": "2026-10-25T10:15:36.239Z",
+        "reason": "Agent: retained the existing spring token for the user-requested M3 Expressive switch and incumbent controls; intentional interaction motion."
+      }
+    ]
+  }
+}
