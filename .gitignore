@@ -7,3 +7,5 @@ playwright-report/
 test-results/
 scratch/
 .agents/
+
+.impeccable/review/

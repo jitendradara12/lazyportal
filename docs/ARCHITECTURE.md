@@ -80,6 +80,35 @@ The floating install card (`lib/installPrompt.js`, `components/InstallBanner.tsx
 `beforeinstallprompt` on Android and Share → Add to Home Screen guidance on iOS Safari,
 with a 14-day dismissal cooldown in `localStorage`.
 
+### Academic calendar and shared calendar modules
+
+The Calendar navigation tab opens `#calendar`, a static Academic Calendar page. Its data comes from
+`web/src/data/academic-calendars/*.json`, automatically included by Vite. It
+needs no portal read, login refresh, or backend. Contributors fix dates or add
+terms through pull requests. The footer links to the data folder's short JSON
+guide; PDFs and general university notices are not bundled.
+
+`lib/academicCalendar.ts` owns India-time term selection, range grouping, date
+labels and conversion to all-day events. Published end dates are inclusive;
+exported all-day end dates are exclusive. Proposed dates and relative/open-ended
+rules remain visible but cannot export as fixed events. Events marked “onwards”
+keep an unknown end and move to date guidance when their start date arrives. Student and staff dates
+are retained separately where the source differs.
+
+`components/Timeline.tsx` shares markers and collapsible groups with Exams while
+each page owns its cards and ordering. `lib/calendar.ts` generates Google links
+and ICS for timed or all-day events; `calendarActions.ts` owns browser/native
+saving, and `CalendarButton.tsx` owns the picker. Existing exam modules adapt
+portal rows into this shared format and retain their current behavior.
+
+The native bridge keeps its installed name, `ExamCalendar`. Its additive
+`getCapabilities` method reports all-day support. Older APKs retain timed exam
+insertion and use Google/ICS for academic events rather than misrepresenting
+all-day dates as timed events. Native all-day insertion uses UTC date midnights
+and Android's all-day flag; this capability requires an updated APK. Calendar
+files and Google links remain available on the web. Imports are snapshots, not
+calendar subscriptions.
+
 ## Proxy (`api/`)
 
 | Module | What you call | What it hides |

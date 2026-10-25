@@ -1,0 +1,321 @@
+{
+  "id": "2026-27-even",
+  "academicYear": "2026-27",
+  "term": "even",
+  "startsOn": "2027-01-04",
+  "events": [
+    {
+      "id": "registration",
+      "title": "Course registration",
+      "category": "academic",
+      "startDate": "2027-01-04"
+    },
+    {
+      "id": "phd-registration",
+      "title": "New Ph.D. registration",
+      "category": "academic",
+      "startDate": "2027-01-04",
+      "endDate": "2027-01-09",
+      "audience": "New Ph.D. scholars"
+    },
+    {
+      "id": "classes-start",
+      "title": "Classes begin",
+      "category": "academic",
+      "startDate": "2027-01-05"
+    },
+    {
+      "id": "orientation",
+      "title": "Orientation programme",
+      "category": "academic",
+      "startDate": "2027-01-06"
+    },
+    {
+      "id": "course-changes",
+      "title": "Last date to add or drop courses",
+      "category": "deadline",
+      "startDate": "2027-01-16"
+    },
+    {
+      "id": "dpmc",
+      "title": "DPMC formation and meeting",
+      "category": "academic",
+      "dateRule": "relative",
+      "timing": "Within 15 days of registration",
+      "audience": "Newly admitted students"
+    },
+    {
+      "id": "attendance-review-1",
+      "title": "Attendance review",
+      "category": "academic",
+      "startDate": "2027-02-05"
+    },
+    {
+      "id": "t1",
+      "title": "Test 1",
+      "category": "exam",
+      "startDate": "2027-02-08",
+      "endDate": "2027-02-13"
+    },
+    {
+      "id": "t1-scripts",
+      "title": "T1 evaluated answer scripts and CO/PO analysis",
+      "category": "deadline",
+      "startDate": "2027-02-23"
+    },
+    {
+      "id": "project-midterm",
+      "title": "Midterm project / Seminar 1 evaluation",
+      "category": "academic",
+      "startDate": "2027-02-16",
+      "dateRule": "from"
+    },
+    {
+      "id": "p1",
+      "title": "Practical examination 1",
+      "category": "exam",
+      "startDate": "2027-03-08",
+      "endDate": "2027-03-13"
+    },
+    {
+      "id": "holi-break",
+      "title": "Holi break",
+      "category": "break",
+      "startDate": "2027-03-20",
+      "endDate": "2027-03-26"
+    },
+    {
+      "id": "p1-results",
+      "title": "Practical 1 results upload",
+      "category": "deadline",
+      "dateRule": "relative",
+      "timing": "Within 10 days of practical examinations"
+    },
+    {
+      "id": "attendance-review-2",
+      "title": "Attendance review",
+      "category": "academic",
+      "startDate": "2027-03-27"
+    },
+    {
+      "id": "t2",
+      "title": "Test 2",
+      "category": "exam",
+      "startDate": "2027-03-29",
+      "endDate": "2027-04-03"
+    },
+    {
+      "id": "t2-scripts",
+      "title": "T2 evaluated answer scripts and CO/PO analysis",
+      "category": "deadline",
+      "startDate": "2027-04-14"
+    },
+    {
+      "id": "project-viva",
+      "title": "Project / Seminar 2 viva",
+      "category": "academic",
+      "startDate": "2027-04-05",
+      "dateRule": "from"
+    },
+    {
+      "id": "project-allocation",
+      "title": "Next semester project allocation",
+      "category": "academic",
+      "startDate": "2027-05-03"
+    },
+    {
+      "id": "makeup",
+      "title": "Makeup test",
+      "category": "exam",
+      "startDate": "2027-05-10",
+      "endDate": "2027-05-15"
+    },
+    {
+      "id": "p2",
+      "title": "Practical examination 2",
+      "category": "exam",
+      "startDate": "2027-05-10",
+      "endDate": "2027-05-15"
+    },
+    {
+      "id": "p2-results",
+      "title": "Practical 2 results upload",
+      "category": "deadline",
+      "dateRule": "relative",
+      "timing": "Within 10 days of practical examinations"
+    },
+    {
+      "id": "feedback",
+      "title": "Feedback and next-semester elective choice",
+      "category": "deadline",
+      "startDate": "2027-05-15",
+      "dateRule": "before"
+    },
+    {
+      "id": "final-viva",
+      "title": "Final viva / defence / dissertation / project",
+      "category": "deadline",
+      "startDate": "2027-05-15",
+      "dateRule": "before",
+      "audience": "Final semester"
+    },
+    {
+      "id": "attendance-review-3",
+      "title": "Attendance review",
+      "category": "academic",
+      "startDate": "2027-05-14"
+    },
+    {
+      "id": "classes-end",
+      "title": "Classes conclude",
+      "category": "academic",
+      "startDate": "2027-05-15"
+    },
+    {
+      "id": "t3",
+      "title": "End semester examination (T3)",
+      "category": "exam",
+      "startDate": "2027-05-17",
+      "endDate": "2027-05-22"
+    },
+    {
+      "id": "grade-committee",
+      "title": "Departmental grade committee meetings",
+      "category": "academic",
+      "startDate": "2027-05-24",
+      "endDate": "2027-05-29"
+    },
+    {
+      "id": "phd-presentation",
+      "title": "Ph.D. end semester presentations",
+      "category": "academic",
+      "startDate": "2027-05-24",
+      "endDate": "2027-05-29",
+      "audience": "Ph.D. scholars"
+    },
+    {
+      "id": "t3-scripts",
+      "title": "T3 answer scripts, results submission and CO/PO analysis",
+      "category": "deadline",
+      "startDate": "2027-05-29"
+    },
+    {
+      "id": "results",
+      "title": "Result finalization and declaration",
+      "category": "academic",
+      "startDate": "2027-05-31"
+    },
+    {
+      "id": "semester-close",
+      "title": "Semester closes",
+      "category": "academic",
+      "startDate": "2027-05-31"
+    },
+    {
+      "id": "training",
+      "title": "Summer training / internship window",
+      "category": "academic",
+      "startDate": "2027-05-24",
+      "endDate": "2027-07-17",
+      "audience": "Years 1–3",
+      "notes": "Minimum training: 4 weeks for years 1–2; 6 weeks for year 3."
+    },
+    {
+      "id": "summer-vacation",
+      "title": "Summer vacation",
+      "category": "break",
+      "startDate": "2027-05-31",
+      "endDate": "2027-07-17"
+    },
+    {
+      "id": "faculty-vacation",
+      "title": "Faculty summer vacation",
+      "category": "break",
+      "startDate": "2027-06-01",
+      "endDate": "2027-07-04",
+      "audience": "Faculty & staff"
+    },
+    {
+      "id": "supplementary-registration",
+      "title": "Supplementary examination registration",
+      "category": "academic",
+      "startDate": "2027-07-12"
+    },
+    {
+      "id": "supplementary",
+      "title": "Supplementary examinations",
+      "category": "exam",
+      "startDate": "2027-07-13",
+      "endDate": "2027-07-16"
+    },
+    {
+      "id": "supplementary-results",
+      "title": "Supplementary results",
+      "category": "academic",
+      "startDate": "2027-07-17"
+    },
+    {
+      "id": "first-year-registration",
+      "title": "First year registration",
+      "category": "academic",
+      "dateRule": "tba",
+      "audience": "First year"
+    },
+    {
+      "id": "next-registration",
+      "title": "Next semester registration",
+      "category": "academic",
+      "startDate": "2027-07-19",
+      "audience": "Years 2–4"
+    },
+    {
+      "id": "next-classes",
+      "title": "Next semester classes begin",
+      "category": "academic",
+      "startDate": "2027-07-20"
+    },
+    {
+      "id": "republic-day",
+      "title": "Republic Day",
+      "category": "holiday",
+      "startDate": "2027-01-26"
+    },
+    {
+      "id": "maha-shivratri",
+      "title": "Maha Shivratri",
+      "category": "holiday",
+      "startDate": "2027-03-06"
+    },
+    {
+      "id": "holi",
+      "title": "Holi",
+      "category": "holiday",
+      "startDate": "2027-03-22",
+      "endDate": "2027-03-23"
+    },
+    {
+      "id": "id-ul-fitr",
+      "title": "Id-Ul-Fitr",
+      "category": "holiday",
+      "startDate": "2027-03-09",
+      "status": "tentative",
+      "audience": "Students",
+      "notes": "Subject to visibility of the moon. The student holiday table lists 9 March; the faculty table lists 10 March."
+    },
+    {
+      "id": "faculty-id-ul-fitr",
+      "title": "Id-Ul-Fitr",
+      "category": "holiday",
+      "startDate": "2027-03-10",
+      "status": "tentative",
+      "audience": "Faculty & staff",
+      "notes": "Subject to visibility of the moon. Faculty and student tables list different dates."
+    },
+    {
+      "id": "ramnavmi",
+      "title": "Ramnavmi",
+      "category": "holiday",
+      "startDate": "2027-04-15"
+    }
+  ]
+}

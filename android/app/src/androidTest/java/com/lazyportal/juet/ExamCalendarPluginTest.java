@@ -64,6 +64,26 @@ public class ExamCalendarPluginTest {
     }
 
     @Test
+    public void allDayEventsAndCapabilitiesAreExplicit() throws Exception {
+        Call capability = new Call(new JSObject());
+        new TestPlugin().getCapabilities(capability);
+        assertTrue(capability.result.getBoolean("allDay", false));
+        Call call = new Call(new JSObject("{\"start\":1800835200000,\"end\":1800921600000,\"title\":\"Holiday\",\"allDay\":true}"));
+        Intent intent = ExamCalendarPlugin.createEventIntent(call);
+        assertNotNull(intent);
+        assertTrue(intent.getBooleanExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, false));
+        Call timed = new Call(new JSObject("{\"start\":1800835200000,\"end\":1800921600000}"));
+        assertFalse(ExamCalendarPlugin.createEventIntent(timed).getBooleanExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true));
+    }
+
+    @Test
+    public void exportHonorsCalendarFilename() {
+        TestPlugin plugin = new TestPlugin();
+        plugin.exportCalendar(new Call(new JSObject().put("content", CALENDAR).put("filename", "academic.ics")));
+        assertEquals("academic.ics", plugin.picker.getStringExtra(Intent.EXTRA_TITLE));
+    }
+
+    @Test
     public void invalidTimesAreRejectedWithoutLaunchingCalendar() throws Exception {
         for (String json : new String[] {"{}", "{\"start\":1792728000000}", "{\"start\":1792728000000,\"end\":1792728000000}"}) {
             Call call = new Call(new JSObject(json));

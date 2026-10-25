@@ -2167,6 +2167,7 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 .nav-brand { display: none; }
 .nav-item {
   flex: 1;
+  min-width: 0;
   max-width: 120px;
   display: flex;
   flex-direction: column;
@@ -2184,6 +2185,7 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   display: grid;
   place-items: center;
   width: 64px;
+  max-width: 100%;
   height: 32px;
   border-radius: var(--r-full);
 }
@@ -2653,3 +2655,36 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .more-action.is-danger { color: var(--error); }
 .more-action.is-danger .more-action-icon { background: color-mix(in srgb, var(--errorContainer) 55%, var(--surfaceContainerLow)); color: var(--onErrorContainer); }
 .more-tagline { margin: 8px 0 0; text-align: center; font-size: var(--fs-xs); color: var(--onSurfaceVariant); opacity: 0.6; }
+
+/* Academic calendar shares the exam timeline and the app's existing surfaces. */
+.academic-contribute a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.academic-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.academic-controls label { display: flex; flex-direction: column; gap: 6px; color: var(--onSurfaceVariant); font-size: var(--fs-xs); font-weight: 600; }
+.academic-controls .sem-picker { max-width: 100%; color: var(--onSurface); }
+.academic-filters { flex-wrap: wrap; gap: 8px; padding-block: 16px 4px; }
+.academic-schedule-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 16px 0; }
+.academic-schedule-heading .page-subhead { margin: 0; }
+.academic-schedule-heading > span { flex: none; color: var(--onSurfaceVariant); font-size: var(--fs-xs); }
+.academic-event { align-items: flex-start; border-radius: var(--r-lg); }
+.academic-event .exam-calendar { align-self: flex-start; margin-right: -8px; }
+.academic-event-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 3px; font-size: var(--fs-xs); font-weight: 600; }
+.academic-category { color: var(--onSurfaceVariant); }
+.academic-event.is-next .academic-category { color: var(--onPrimaryContainer); }
+.academic-proposed { color: var(--onTertiaryContainer); background: var(--tertiaryContainer); padding: 2px 7px; border-radius: var(--r-sm); }
+.academic-event-state { color: var(--onPrimaryContainer); margin-left: auto; }
+.academic-event-dates { margin: 2px 0 0; font-size: var(--fs-s); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.academic-audience, .academic-event-note { margin: 2px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--onSurfaceVariant); }
+.academic-event.is-next .academic-audience, .academic-event.is-next .academic-event-note { color: var(--onPrimaryContainer); }
+.academic-timeline .is-past .exam-day::after { display: none; }
+.academic-timeline .exam-future-group { margin-top: 12px; }
+.academic-guidance { margin-top: 28px; }
+.academic-guidance .academic-event + .academic-event { margin-top: 10px; }
+.academic-contribute { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--outlineVariant); color: var(--onSurfaceVariant); font-size: var(--fs-xs); line-height: 1.6; }
+.academic-contribute a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--primary); text-underline-offset: 3px; }
+@media (max-width: 480px) {
+  .academic-calendar-page .app-bar-title { font-size: 24px; }
+  .academic-controls { gap: 12px; }
+  .academic-event .exam-calendar { margin-right: -6px; }
+  .academic-event { gap: 8px; }
+  .academic-event-state { margin-left: 0; }
+}

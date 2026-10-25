@@ -20,6 +20,11 @@ import java.nio.charset.StandardCharsets;
 @CapacitorPlugin(name = "ExamCalendar")
 public class ExamCalendarPlugin extends Plugin {
     @PluginMethod
+    public void getCapabilities(PluginCall call) {
+        call.resolve(new JSObject().put("allDay", true));
+    }
+
+    @PluginMethod
     public void insert(PluginCall call) {
         Intent intent = createEventIntent(call);
         if (intent == null) {
@@ -43,6 +48,7 @@ public class ExamCalendarPlugin extends Plugin {
             .putExtra(CalendarContract.Events.TITLE, call.getString("title", "Exam"))
             .putExtra(CalendarContract.Events.EVENT_LOCATION, call.getString("location", ""))
             .putExtra(CalendarContract.Events.DESCRIPTION, call.getString("description", ""))
+            .putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, call.getBoolean("allDay", false))
             .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, start.longValue())
             .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end.longValue());
     }
@@ -57,7 +63,7 @@ public class ExamCalendarPlugin extends Plugin {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("text/calendar")
-            .putExtra(Intent.EXTRA_TITLE, "exams.ics");
+            .putExtra(Intent.EXTRA_TITLE, call.getString("filename", "exams.ics"));
         try {
             startActivityForResult(call, intent, "saveCalendar");
         } catch (ActivityNotFoundException exception) {

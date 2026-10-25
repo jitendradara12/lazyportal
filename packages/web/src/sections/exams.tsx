@@ -1,5 +1,7 @@
+import { Timeline, TimelineStop, TimelineGroup } from "../components/Timeline";
+import { useNow } from "../hooks/useNow";
 import { usePageRefresh } from "../hooks/usePageRefresh";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
@@ -64,19 +66,7 @@ export function ExamsSection({ session }: SectionProps) {
   ));
   const retry = examSems.error ? examSems.retry : examEvents.error ? examEvents.retry : examRows.retry;
 
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const update = () => setNow(Date.now());
-    update();
-    const timer = setInterval(update, 60_000);
-    window.addEventListener("focus", update);
-    document.addEventListener("visibilitychange", update);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("focus", update);
-      document.removeEventListener("visibilitychange", update);
-    };
-  }, []);
+  const now = useNow();
 
   const rows = examRows.data ?? [];
   const { upcoming, past, undated } = groupExams(rows, now);
@@ -123,20 +113,12 @@ export function ExamsSection({ session }: SectionProps) {
           </div>
         )}
         {loading && rows.length === 0 && <p className="muted page-note">Loading…</p>}
-        {dated.length > 0 && <ol className="exam-timeline" aria-label="Exam schedule">
-          {later.length > 0 && <li className="exam-future-group">
-            <details key={`${examSemId}:${activeEventId}:${next ? examTimes(next)!.start : ""}`}>
-              <summary aria-label={`Later exams (${later.length})`}>
-                <span>Later <span className="exam-future-count">· {later.length}</span></span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-              </summary>
-              <ol className="exam-future-list" aria-label="Later exams">
-                {later.map((row, i) => <ExamStop key={i} row={row} now={now} />)}
-              </ol>
-            </details>
-          </li>}
+        {dated.length > 0 && <Timeline label="Exam schedule">
+          {later.length > 0 && <TimelineGroup key={`${examSemId}:${activeEventId}:${next ? examTimes(next)!.start : ""}`} label="Later exams" count={later.length}>
+            {later.map((row, i) => <ExamStop key={i} row={row} now={now} />)}
+          </TimelineGroup>}
           {visible.map((row, i) => <ExamStop key={i} row={row} now={now} next={row === next} />)}
-        </ol>}
+        </Timeline>}
         {undated.length > 0 && (
           <>
             <h2 className="page-subhead">Date not announced</h2>
@@ -158,14 +140,9 @@ const IST = "Asia/Kolkata";
 function ExamStop({ row, now, next = false }: { row: ExamRow; now: number; next?: boolean }) {
   const times = examTimes(row)!;
   const state = times.end <= now ? "past" : times.start <= now ? "current" : next ? "next" : "later";
-  const label = state === "past" ? "Crushed" : state === "current" ? "In progress" : state === "next" ? "Up next" : "Upcoming";
-  return <li className={`exam-stop is-${state}`} aria-current={state === "current" || state === "next" ? "step" : undefined}>
-    <span className="exam-marker" role="img" aria-label={label} title={label}>
-      {state === "past" && <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m4 8 3 3 5-6" /></svg>}
-      {state === "current" && <span className="exam-marker-live" />}
-    </span>
+  return <TimelineStop state={state} pastLabel="Crushed">
     <ExamCard row={row} now={now} featured={state === "next" || state === "current"} />
-  </li>;
+  </TimelineStop>;
 }
 
 function examTimeRange(r: ExamRow): string {

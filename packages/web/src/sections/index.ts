@@ -6,7 +6,8 @@ import { CgpaSection } from "./cgpa";
 import { ExamsSection } from "./exams";
 import { FacultySection } from "./faculty";
 import { SubjectsSection } from "./subjects";
-import { MarksIcon, ExamsIcon } from "../components/icons";
+import { AcademicCalendarPage } from "../pages/AcademicCalendarPage";
+import { MarksIcon, ExamsIcon, CalendarIcon } from "../components/icons";
 
 export interface SectionEntry {
   id: string;
@@ -27,6 +28,7 @@ export interface TabEntry extends SectionEntry {
 export const TABS: TabEntry[] = [
   { id: "marks", label: "Marks", Component: MarksSection, Icon: MarksIcon },
   { id: "exams", label: "Exams", Component: ExamsSection, Icon: ExamsIcon },
+  { id: "calendar", label: "Calendar", Component: AcademicCalendarPage, Icon: CalendarIcon },
 ];
 
 /**

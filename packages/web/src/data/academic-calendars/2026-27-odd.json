@@ -1,0 +1,312 @@
+{
+  "id": "2026-27-odd",
+  "academicYear": "2026-27",
+  "term": "odd",
+  "startsOn": "2026-07-10",
+  "events": [
+    {
+      "id": "first-year-registration",
+      "title": "First year registration",
+      "category": "academic",
+      "startDate": "2026-07-10",
+      "endDate": "2026-07-13",
+      "audience": "First year"
+    },
+    {
+      "id": "orientation",
+      "title": "First year orientation",
+      "category": "academic",
+      "startDate": "2026-07-14",
+      "audience": "First year"
+    },
+    {
+      "id": "registration",
+      "title": "Course registration",
+      "category": "academic",
+      "startDate": "2026-07-20",
+      "audience": "Except first year"
+    },
+    {
+      "id": "classes-start",
+      "title": "Classes begin",
+      "category": "academic",
+      "startDate": "2026-07-21",
+      "audience": "Except first year"
+    },
+    {
+      "id": "training-presentations",
+      "title": "Summer training presentations",
+      "category": "academic",
+      "startDate": "2026-07-28",
+      "dateRule": "from"
+    },
+    {
+      "id": "course-changes",
+      "title": "Last date to add or drop courses",
+      "category": "deadline",
+      "startDate": "2026-07-29"
+    },
+    {
+      "id": "dpmc",
+      "title": "DPMC formation and meeting",
+      "category": "academic",
+      "dateRule": "relative",
+      "timing": "Within 15 days of registration"
+    },
+    {
+      "id": "attendance-review-1",
+      "title": "Attendance review",
+      "category": "academic",
+      "startDate": "2026-08-20"
+    },
+    {
+      "id": "t1",
+      "title": "Test 1",
+      "category": "exam",
+      "startDate": "2026-08-24",
+      "endDate": "2026-08-29"
+    },
+    {
+      "id": "project-midterm",
+      "title": "Midterm project / Seminar 1 evaluation",
+      "category": "academic",
+      "startDate": "2026-09-07",
+      "dateRule": "from"
+    },
+    {
+      "id": "t1-scripts",
+      "title": "T1 evaluated answer scripts and CO/PO analysis",
+      "category": "deadline",
+      "startDate": "2026-09-10"
+    },
+    {
+      "id": "p1",
+      "title": "Practical examination 1",
+      "category": "exam",
+      "startDate": "2026-09-21",
+      "endDate": "2026-09-26"
+    },
+    {
+      "id": "p1-results",
+      "title": "Practical 1 results upload",
+      "category": "deadline",
+      "dateRule": "relative",
+      "timing": "Within 10 days of practical examinations"
+    },
+    {
+      "id": "attendance-review-2",
+      "title": "Attendance review",
+      "category": "academic",
+      "startDate": "2026-10-09"
+    },
+    {
+      "id": "t2",
+      "title": "Test 2",
+      "category": "exam",
+      "startDate": "2026-10-12",
+      "endDate": "2026-10-17"
+    },
+    {
+      "id": "t2-scripts",
+      "title": "T2 evaluated answer scripts and CO/PO analysis",
+      "category": "deadline",
+      "startDate": "2026-10-26"
+    },
+    {
+      "id": "project-viva",
+      "title": "Project / Seminar 2 viva",
+      "category": "academic",
+      "startDate": "2026-10-26",
+      "dateRule": "from"
+    },
+    {
+      "id": "technical-fest",
+      "title": "Technical fest (JYC)",
+      "category": "academic",
+      "startDate": "2026-10-29",
+      "endDate": "2026-10-31",
+      "status": "tentative"
+    },
+    {
+      "id": "deepawali-break",
+      "title": "Deepawali break",
+      "category": "break",
+      "startDate": "2026-11-06",
+      "endDate": "2026-11-14"
+    },
+    {
+      "id": "final-viva",
+      "title": "Final project / dissertation viva",
+      "category": "deadline",
+      "startDate": "2026-12-05",
+      "dateRule": "before"
+    },
+    {
+      "id": "feedback",
+      "title": "Feedback, elective choice and next-semester project allocation",
+      "category": "deadline",
+      "startDate": "2026-12-05",
+      "dateRule": "before"
+    },
+    {
+      "id": "makeup",
+      "title": "Makeup test",
+      "category": "exam",
+      "startDate": "2026-11-30",
+      "endDate": "2026-12-05"
+    },
+    {
+      "id": "p2",
+      "title": "Practical examination 2",
+      "category": "exam",
+      "startDate": "2026-11-30",
+      "endDate": "2026-12-05"
+    },
+    {
+      "id": "attendance-review-3",
+      "title": "Attendance review",
+      "category": "academic",
+      "startDate": "2026-12-03"
+    },
+    {
+      "id": "classes-end",
+      "title": "Classes conclude",
+      "category": "academic",
+      "startDate": "2026-12-05"
+    },
+    {
+      "id": "t3",
+      "title": "End semester examination (T3)",
+      "category": "exam",
+      "startDate": "2026-12-07",
+      "endDate": "2026-12-12"
+    },
+    {
+      "id": "grade-committee",
+      "title": "Departmental grade committee meetings",
+      "category": "academic",
+      "startDate": "2026-12-14",
+      "endDate": "2026-12-19"
+    },
+    {
+      "id": "phd-presentation",
+      "title": "Ph.D. end semester presentations",
+      "category": "academic",
+      "startDate": "2026-12-14",
+      "endDate": "2026-12-19",
+      "audience": "Ph.D. scholars"
+    },
+    {
+      "id": "t3-scripts",
+      "title": "T3 answer scripts, results submission and CO/PO analysis",
+      "category": "deadline",
+      "startDate": "2026-12-19"
+    },
+    {
+      "id": "results",
+      "title": "Result finalization and declaration",
+      "category": "academic",
+      "startDate": "2026-12-21"
+    },
+    {
+      "id": "semester-close",
+      "title": "Semester closes",
+      "category": "academic",
+      "startDate": "2026-12-21"
+    },
+    {
+      "id": "winter-vacation",
+      "title": "Winter vacation",
+      "category": "break",
+      "startDate": "2026-12-21",
+      "endDate": "2027-01-03"
+    },
+    {
+      "id": "faculty-vacation",
+      "title": "Faculty winter vacation",
+      "category": "break",
+      "startDate": "2026-12-22",
+      "endDate": "2026-12-30",
+      "audience": "Faculty & staff"
+    },
+    {
+      "id": "supplementary-registration",
+      "title": "Supplementary examination registration",
+      "category": "academic",
+      "startDate": "2027-01-01"
+    },
+    {
+      "id": "supplementary",
+      "title": "Supplementary examinations",
+      "category": "exam",
+      "startDate": "2027-01-02",
+      "endDate": "2027-01-05"
+    },
+    {
+      "id": "supplementary-results",
+      "title": "Supplementary results",
+      "category": "academic",
+      "startDate": "2027-01-06"
+    },
+    {
+      "id": "next-registration",
+      "title": "Next semester registration",
+      "category": "academic",
+      "startDate": "2027-01-04"
+    },
+    {
+      "id": "next-classes",
+      "title": "Next semester classes begin",
+      "category": "academic",
+      "startDate": "2027-01-05"
+    },
+    {
+      "id": "independence-day",
+      "title": "Independence Day",
+      "category": "holiday",
+      "startDate": "2026-08-15"
+    },
+    {
+      "id": "raksha-bandhan",
+      "title": "Raksha Bandhan",
+      "category": "holiday",
+      "startDate": "2026-08-28"
+    },
+    {
+      "id": "janmashtami",
+      "title": "Janmashtami",
+      "category": "holiday",
+      "startDate": "2026-09-04"
+    },
+    {
+      "id": "gandhi-jayanti",
+      "title": "Gandhi Jayanti",
+      "category": "holiday",
+      "startDate": "2026-10-02"
+    },
+    {
+      "id": "dussehra",
+      "title": "Dussehra",
+      "category": "holiday",
+      "startDate": "2026-10-20"
+    },
+    {
+      "id": "deepawali",
+      "title": "Deepawali",
+      "category": "holiday",
+      "startDate": "2026-11-08"
+    },
+    {
+      "id": "govardhan",
+      "title": "Govardhan Pooja",
+      "category": "holiday",
+      "startDate": "2026-11-09"
+    },
+    {
+      "id": "christmas",
+      "title": "Christmas Day",
+      "category": "holiday",
+      "startDate": "2026-12-25"
+    }
+  ]
+}
