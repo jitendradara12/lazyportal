@@ -61,7 +61,8 @@
       "id": "t1-scripts",
       "title": "T1 evaluated answer scripts and CO/PO analysis",
       "category": "deadline",
-      "startDate": "2027-02-23"
+      "startDate": "2027-02-23",
+      "audience": "Faculty & staff"
     },
     {
       "id": "project-midterm",
@@ -89,7 +90,8 @@
       "title": "Practical 1 results upload",
       "category": "deadline",
       "dateRule": "relative",
-      "timing": "Within 10 days of practical examinations"
+      "timing": "Within 10 days of practical examinations",
+      "audience": "Faculty & staff"
     },
     {
       "id": "attendance-review-2",
@@ -108,7 +110,8 @@
       "id": "t2-scripts",
       "title": "T2 evaluated answer scripts and CO/PO analysis",
       "category": "deadline",
-      "startDate": "2027-04-14"
+      "startDate": "2027-04-14",
+      "audience": "Faculty & staff"
     },
     {
       "id": "project-viva",
@@ -142,7 +145,8 @@
       "title": "Practical 2 results upload",
       "category": "deadline",
       "dateRule": "relative",
-      "timing": "Within 10 days of practical examinations"
+      "timing": "Within 10 days of practical examinations",
+      "audience": "Faculty & staff"
     },
     {
       "id": "feedback",
@@ -183,7 +187,8 @@
       "title": "Departmental grade committee meetings",
       "category": "academic",
       "startDate": "2027-05-24",
-      "endDate": "2027-05-29"
+      "endDate": "2027-05-29",
+      "audience": "Faculty & staff"
     },
     {
       "id": "phd-presentation",
@@ -197,7 +202,8 @@
       "id": "t3-scripts",
       "title": "T3 answer scripts, results submission and CO/PO analysis",
       "category": "deadline",
-      "startDate": "2027-05-29"
+      "startDate": "2027-05-29",
+      "audience": "Faculty & staff"
     },
     {
       "id": "results",

@@ -5,11 +5,25 @@ export const CalendarIcon = ({ add = false }: { add?: boolean }) => (
   <Icon>
     <rect x="3" y="4" width="18" height="17" rx="3" />
     <path d="M16 2v4M8 2v4M3 10h18" />
-    {add && <path d="M12 13v5M9.5 15.5h5" />}
+    {add ? (
+      <path d="M12 13v5M9.5 15.5h5" />
+    ) : (
+      <>
+        <circle cx="8" cy="13.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="13.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="13.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="17" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="17" r="1" fill="currentColor" stroke="none" />
+      </>
+    )}
   </Icon>
 );
 
 export const CalendarAddIcon = () => <CalendarIcon add />;
+
+export const SearchIcon = () => <Icon><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></Icon>;
+export const CloseIcon = () => <Icon><path d="m6 6 12 12M6 18 18 6" /></Icon>;
 
 export const GitHubIcon = () => (
   <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

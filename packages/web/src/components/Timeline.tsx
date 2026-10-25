@@ -17,9 +17,9 @@ export function TimelineStop({ state, children, pastLabel = "Past event" }: { st
   </li>;
 }
 
-export function TimelineGroup({ label, count, children }: { label: string; count: number; children: ReactNode }) {
+export function TimelineGroup({ label, count, children, defaultOpen = false }: { label: string; count: number; children: ReactNode; defaultOpen?: boolean }) {
   return <li className="exam-future-group">
-    <details>
+    <details open={defaultOpen || undefined}>
       <summary aria-label={`${label} (${count})`}>
         <span>{label} <span className="exam-future-count">· {count}</span></span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>

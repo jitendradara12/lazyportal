@@ -73,6 +73,51 @@ test("semester changes preserve date guidance, student audiences and contributio
   await expect(page.getByRole("heading", { name: "More", exact: true })).toBeVisible();
 });
 
+test("calendar search finds past events and guidance, respects filters and resets on close", async ({ page }, testInfo) => {
+  await setup(page, "calendar");
+  const toggle = page.getByRole("button", { name: "Search calendar", exact: true });
+  await toggle.click();
+  const search = page.getByRole("searchbox", { name: "Search calendar events" });
+  await expect(search).toBeFocused();
+  await search.fill("  DEEPAWALI  ");
+  await expect(page.getByRole("status")).toHaveText("2 results");
+  await expect(page.getByRole("heading", { name: "Deepawali break", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Technical fest (JYC)", exact: true })).not.toBeVisible();
+  const dir = new URL("../../../../.impeccable/review/", import.meta.url).pathname;
+  await mkdir(dir, { recursive: true });
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    if (testInfo.project.name === "android-chrome") await page.screenshot({ path: `${dir}calendar-search-${width}.png`, animations: "disabled", scale: "css" });
+  }
+  await page.getByRole("group", { name: "Event categories" }).getByRole("button", { name: "Exams", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("0 results");
+  await expect(page.getByText("No events match your search. Try another term or change the filters.")).toBeVisible();
+  await page.getByRole("button", { name: "All events", exact: true }).click();
+  await search.fill("Test 1");
+  await expect(page.getByRole("heading", { name: "Test 1", exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("1 result");
+  await search.fill("within 15 days");
+  await expect(page.getByRole("heading", { name: "DPMC formation and meeting", exact: true })).toBeVisible();
+  await search.fill("8 Nov 2026");
+  await expect(page.getByRole("heading", { name: "Deepawali", exact: true })).toBeVisible();
+  await search.fill("Faculty winter vacation");
+  await expect(page.getByRole("status")).toHaveText("0 results");
+  await page.getByLabel("Calendar audience").selectOption("all");
+  await expect(page.getByRole("heading", { name: "Faculty winter vacation", exact: true })).toBeVisible();
+  await search.fill("");
+  await expect(page.getByRole("heading", { name: "Search results", exact: true })).not.toBeVisible();
+  await search.fill("missing event");
+  await search.press("Escape");
+  await expect(search).not.toBeVisible();
+  await expect(toggle).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Deepawali break", exact: true })).toBeVisible();
+  await toggle.click();
+  await expect(search).toHaveValue("");
+  await page.getByRole("button", { name: "Close calendar search", exact: true }).first().click();
+  await expect(search).not.toBeVisible();
+});
+
 test("academic calendar fits mobile and desktop", async ({ page }, testInfo) => {
   await setup(page, "calendar");
   await expect(page.getByRole("heading", { name: "Academic calendar", exact: true })).toBeVisible();

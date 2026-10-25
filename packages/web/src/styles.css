@@ -2657,34 +2657,99 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .more-tagline { margin: 8px 0 0; text-align: center; font-size: var(--fs-xs); color: var(--onSurfaceVariant); opacity: 0.6; }
 
 /* Academic calendar shares the exam timeline and the app's existing surfaces. */
+.academic-search-toggle { color: var(--onSurfaceVariant); }
+.academic-search { display: flex; align-items: center; gap: 12px; padding: 0 14px; border-radius: var(--r-lg); background: var(--surfaceContainer); color: var(--onSurfaceVariant); }
+.academic-search > svg { flex: none; width: 20px; height: 20px; }
+.academic-search input { min-width: 0; width: 100%; min-height: 48px; border: 0; background: transparent; color: var(--onSurface); caret-color: var(--primary); font-size: 16px; }
+.academic-search input::-webkit-search-cancel-button,
+.academic-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.academic-search input::placeholder { color: var(--onSurfaceVariant); opacity: 1; }
+.academic-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.academic-search input:focus-visible { outline: none; }
+.academic-search-close { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--onSurfaceVariant); cursor: pointer; }
+.academic-search-close svg { width: 18px; height: 18px; }
+.academic-search-close:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 .academic-contribute a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.academic-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
-.academic-controls label { display: flex; flex-direction: column; gap: 6px; color: var(--onSurfaceVariant); font-size: var(--fs-xs); font-weight: 600; }
-.academic-controls .sem-picker { max-width: 100%; color: var(--onSurface); }
-.academic-filters { flex-wrap: wrap; gap: 8px; padding-block: 16px 4px; }
-.academic-schedule-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 16px 0; }
+.academic-controls { display: flex; align-items: center; gap: 12px; }
+.academic-control-field { flex: 1.35; min-width: 0; display: flex; flex-direction: column; gap: 4px; color: var(--onSurfaceVariant); font-size: var(--fs-xs); font-weight: 600; }
+.academic-control-field.is-audience { flex: 1; }
+.picker-wrap { position: relative; display: flex; align-items: center; width: 100%; }
+.academic-controls .sem-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  max-width: 100%;
+  padding-left: 14px !important;
+  padding-right: 34px !important;
+  color: var(--onSurface);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.picker-chevron {
+  position: absolute;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--onSurfaceVariant);
+  pointer-events: none;
+  transition: color 0.15s ease, transform 0.2s ease;
+}
+.picker-wrap:focus-within .picker-chevron { color: var(--primary); }
+.academic-filters { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding-block: 12px 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.academic-filters::-webkit-scrollbar { display: none; }
+.academic-schedule-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0 8px; }
 .academic-schedule-heading .page-subhead { margin: 0; }
 .academic-schedule-heading > span { flex: none; color: var(--onSurfaceVariant); font-size: var(--fs-xs); }
 .academic-event { align-items: flex-start; border-radius: var(--r-lg); }
 .academic-event .exam-calendar { align-self: flex-start; margin-right: -8px; }
 .academic-event-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 3px; font-size: var(--fs-xs); font-weight: 600; }
 .academic-category { color: var(--onSurfaceVariant); }
+.academic-category.category-exam { color: var(--warning); }
+.academic-category.category-break, .academic-category.category-holiday { color: var(--success); }
+.academic-category.category-deadline { color: var(--error); }
+.academic-category.category-academic { color: var(--primary); }
 .academic-event.is-next .academic-category { color: var(--onPrimaryContainer); }
+.academic-event.is-next .academic-category.category-exam { color: var(--onWarningContainer); }
+.academic-event.is-next .academic-category.category-break, .academic-event.is-next .academic-category.category-holiday { color: var(--onSuccessContainer); }
+.academic-event.is-next .academic-category.category-deadline { color: var(--onErrorContainer); }
+.academic-event.is-next .academic-category.category-academic { color: var(--onPrimaryContainer); }
 .academic-proposed { color: var(--onTertiaryContainer); background: var(--tertiaryContainer); padding: 2px 7px; border-radius: var(--r-sm); }
-.academic-event-state { color: var(--onPrimaryContainer); margin-left: auto; }
+.academic-event-state { margin-left: auto; color: var(--onPrimaryContainer); background: color-mix(in srgb, var(--primary) 18%, transparent); padding: 2px 8px; border-radius: var(--r-full); font-size: var(--fs-xs); font-weight: 700; }
 .academic-event-dates { margin: 2px 0 0; font-size: var(--fs-s); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.academic-meta-pill { color: var(--onSurfaceVariant); font-weight: 500; }
+.academic-event.is-next .academic-meta-pill { color: var(--onPrimaryContainer); opacity: 0.85; }
 .academic-audience, .academic-event-note { margin: 2px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--onSurfaceVariant); }
 .academic-event.is-next .academic-audience, .academic-event.is-next .academic-event-note { color: var(--onPrimaryContainer); }
 .academic-timeline .is-past .exam-day::after { display: none; }
 .academic-timeline .exam-future-group { margin-top: 12px; }
 .academic-guidance { margin-top: 28px; }
 .academic-guidance .academic-event + .academic-event { margin-top: 10px; }
-.academic-contribute { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--outlineVariant); color: var(--onSurfaceVariant); font-size: var(--fs-xs); line-height: 1.6; }
-.academic-contribute a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--primary); text-underline-offset: 3px; }
+.academic-contribute {
+  margin-top: 32px;
+  padding: 16px 0 24px;
+  border-top: 1px solid var(--outlineVariant);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--onSurfaceVariant);
+  font-size: var(--fs-xs);
+}
+.academic-contribute span { color: var(--onSurfaceVariant); }
+.academic-contribute a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 500;
+}
+.academic-contribute a svg { width: 16px; height: 16px; flex-shrink: 0; vertical-align: middle; }
 @media (max-width: 480px) {
   .academic-calendar-page .app-bar-title { font-size: 24px; }
-  .academic-controls { gap: 12px; }
+  .academic-controls { gap: 10px; }
   .academic-event .exam-calendar { margin-right: -6px; }
   .academic-event { gap: 8px; }
-  .academic-event-state { margin-left: 0; }
 }
