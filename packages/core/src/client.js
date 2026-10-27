@@ -4,7 +4,7 @@
 // so callers only see SessionExpiredError when refresh truly fails.
 // post = AES-encrypted JSON body. postRaw = plain JSON body (attendance LOV,
 // token refresh are the live unencrypted callers).
-// getPublic = auth-free GET.
+// getPublic = auth-free GET; getReport = authenticated PDF GET.
 
 import { encrypt, makeLocalName } from "./crypto.js";
 import { toPortalError, SessionExpiredError, PortalError } from "./errors.js";
@@ -308,6 +308,9 @@ export function createClient({
     if (res.status === 204) {
       return { status: { responseStatus: "Success" }, response: null };
     }
+    if (opts.responseType === "pdf" && res.ok && res.headers?.get("content-type")?.includes("application/pdf")) {
+      return new Uint8Array(await res.arrayBuffer());
+    }
     const text = await res.text();
     if (!text) {
       // Official backend returns 200+empty when LocalName missing/decrypt fails.
@@ -338,6 +341,13 @@ export function createClient({
   }
 
   return {
+    /** Authenticated report GET, with the same session recovery as JSON reads. */
+    getReport(endpoint, opts = {}) {
+      return dispatch(endpoint, async () => ({
+        method: "GET", headers: { ...await headers(), Accept: "application/pdf" },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      }), { ...opts, responseType: "pdf" });
+    },
     post(endpoint, payloadObj, opts = {}) {
       return dispatch(endpoint, async () => ({
         method: "POST",

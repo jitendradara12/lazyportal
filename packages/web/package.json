@@ -14,6 +14,7 @@
   "dependencies": {
     "@juet/core": "*",
     "@vercel/analytics": "^2.0.1",
+    "pdfjs-dist": "^6.4.299",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

@@ -440,7 +440,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
 
         {/* Footer */}
         <footer className="app-footer">
-          <span className="footer-label">free and open source, always</span>
+          <span className="footer-label">ad free and open source, always :)</span>
           <a
             href="https://github.com/jitendradara12/lazyportal/"
             target="_blank"

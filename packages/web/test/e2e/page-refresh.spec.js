@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { decrypt } from "../../../core/src/crypto.js";
 import { mockPortal, SESSION } from "./helpers.js";
+import { fileURLToPath } from "node:url";
 
 const semesters = [
   { registrationid: "current", registrationcode: "2026ODDSEM" },
@@ -12,6 +13,12 @@ async function setup(page) {
   await mockPortal(page);
   const calls = [];
   await page.route("**/api/**", async (route) => {
+    if (route.request().method() === "GET") {
+      const registrationcode = new URL(route.request().url()).pathname.split("/").pop();
+      const semester = registrationcode === "2026EVESEM" ? "past" : registrationcode === "2027EVESEM" ? "new" : "current";
+      calls.push({ path: "marks-report", body: null });
+      return route.fulfill({ contentType: "application/pdf", path: fileURLToPath(new URL(`../fixtures/marks-empty-${semester}.pdf`, import.meta.url)) });
+    }
     const path = new URL(route.request().url()).pathname.split("/").pop();
     const payload = route.request().postData();
     calls.push({ path, body: payload ? JSON.parse(await decrypt(payload)) : null });
@@ -36,7 +43,7 @@ async function setup(page) {
     const old = Date.now() - 90 * 86400000;
     const cache = (feature, data, parts = [], updatedAt = old) => {
       const key = [feature, session.username, session.instituteid, ...parts].map(encodeURIComponent).join(":");
-      localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data, updatedAt }));
+      localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data: feature.startsWith("marks.") ? { ...data, historyRecovered: true } : data, updatedAt }));
     };
     cache("att.initial", { header: { stynumber: "1" }, semesters, rows: [] }, [], Date.now());
     cache("att.lov", { header: { stynumber: "1" }, semesters }, [], Date.now());
@@ -57,11 +64,40 @@ async function setup(page) {
 const paths = (calls) => calls.map((c) => c.path).sort();
 const navigate = (page, name) => page.getByRole("navigation", { name: "Main" }).getByRole("button", { name, exact: true }).click();
 
+for (const failFirst of [false, true]) test(`an existing phone cache recovers already lost T1${failFirst ? " after retrying an unavailable report" : " from the official report"}`, async ({ page }) => {
+  await setup(page);
+  const t2 = { subjectcode: "CS303", subjectdesc: "ARTIFICIAL INTELLIGENCE", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 };
+  await page.evaluate(({ session, semesters, t2 }) => {
+    const key = ["marks.latest", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data: { semesters, rows: [t2] }, updatedAt: Date.now() }));
+  }, { session: SESSION, semesters, t2 });
+  await page.route("**/api/studentsexamview/getstudent-exammarks", (route) => route.fulfill({
+    json: { status: { responseStatus: "Success" }, response: { viewmarksbystudent: [t2] } },
+  }));
+  let reportReads = 0;
+  await page.route("**/api/studentsexamview/printstudent-exammarks/**", (route) => {
+    if (failFirst && reportReads++ === 0) return route.fulfill({ status: 503, body: "Unavailable" });
+    return route.fulfill({ contentType: "application/pdf", path: fileURLToPath(new URL("../fixtures/marks-history.pdf", import.meta.url)) });
+  });
+  await navigate(page, "Marks");
+  const ai = page.locator(".score-card").filter({ hasText: "CS303" });
+  if (failFirst) {
+    await expect(page.getByRole("alert")).toContainText("Earlier exam marks could not be recovered");
+    await expect(ai.locator(".score-header .score-value")).toHaveText("13/25");
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+  }
+  await expect(ai.locator(".score-header .score-value")).toHaveText("20/40", { timeout: 10000 });
+  await ai.locator(".score-header").click();
+  await expect(ai.locator(".score-exam .score-value")).toHaveText(["7/15", "13/25"]);
+  await page.reload();
+  await expect(ai.locator(".score-header .score-value")).toHaveText("20/40");
+});
+
 async function refresh(page, label) {
   const button = page.getByRole("button", { name: label, exact: true });
-  await expect(button).toBeEnabled();
+  await expect(button).toBeEnabled({ timeout: 10000 });
   await button.click();
-  await expect(button).toBeEnabled();
+  await expect(button).toBeEnabled({ timeout: 10000 });
 }
 
 test("old caches survive navigation, focus, day rollover and reload without other-page reads", async ({ page }) => {
@@ -87,7 +123,7 @@ test("refresh is per page, cooldowns are independent, and More skips collapsed s
   await navigate(page, "Marks");
   await refresh(page, "Refresh marks");
   await expect(page.getByText("Updated Subject", { exact: true })).toBeVisible();
-  expect(paths(calls)).toEqual(["getsemestercode-exammarks", "getstudent-exammarks"]);
+  expect(paths(calls)).toEqual(["getsemestercode-exammarks", "getstudent-exammarks", "marks-report"]);
   calls.length = 0;
   await refresh(page, "Refresh marks");
   expect(calls).toEqual([]);
@@ -130,9 +166,9 @@ for (const semester of ["current", "past"]) test(`${semester} marks refresh reta
   const t1 = { subjectcode: "CS303", subjectdesc: "ARTIFICIAL INTELLIGENCE", eventcode: "TEST-1", obtainedmarks: 7, fullmarks: 15 };
   await page.evaluate(({ session, semesters, t1 }) => {
     const key = ["marks.latest", session.username, session.instituteid].map(encodeURIComponent).join(":");
-    localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data: { semesters, rows: [t1] }, updatedAt: Date.now() }));
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data: { semesters, rows: [t1], historyRecovered: true }, updatedAt: Date.now() }));
     const detailKey = ["marks.detail", session.username, session.instituteid, "past"].map(encodeURIComponent).join(":");
-    localStorage.setItem(`juet.cache.${detailKey}`, JSON.stringify({ data: { rows: [t1] }, updatedAt: Date.now() }));
+    localStorage.setItem(`juet.cache.${detailKey}`, JSON.stringify({ data: { rows: [t1], historyRecovered: true }, updatedAt: Date.now() }));
   }, { session: SESSION, semesters, t1 });
   await page.route("**/api/studentsexamview/getstudent-exammarks", (route) => route.fulfill({
     json: { status: { responseStatus: "Success" }, response: { viewmarksbystudent: [
@@ -187,13 +223,13 @@ test("cooldown survives blocked storage, expires after 20s, and offline refresh 
     Storage.prototype.setItem = () => { throw new DOMException("Full", "QuotaExceededError"); };
   });
   await refresh(page, "Refresh marks");
-  expect(calls).toHaveLength(2);
+  expect(calls).toHaveLength(3);
   calls.length = 0;
   await refresh(page, "Refresh marks");
   expect(calls).toEqual([]);
   await page.clock.fastForward(20_001);
   await refresh(page, "Refresh marks");
-  expect(calls).toHaveLength(2);
+  expect(calls).toHaveLength(3);
   calls.length = 0;
   await page.clock.fastForward(20_001);
   await page.context().setOffline(true);

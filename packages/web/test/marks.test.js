@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { formatEventCode, groupSubjectMarks, mergeMarkRows } = await import("../src/lib/marks.ts");
+const { diffMarkRows, formatEventCode, getScoreBand, groupSubjectMarks, markRowKey, mergeMarkRows } = await import("../src/lib/marks.ts");
 
 test("partial refreshes keep earlier exams and replace corrected scores without double counting", () => {
   const t1 = Object.freeze({ subjectcode: "CS303", eventcode: "TEST-1", obtainedmarks: 7, fullmarks: 15 });
@@ -167,4 +167,21 @@ test("courses without codes group by name while anonymous rows remain separate",
   assert.equal(groups[0].obtainedmarks, 0.3);
   assert.equal(groups[0].fullmarks, 40);
   assert.equal(groups[0].exams.length, 2);
+});
+
+test("diffMarkRows identifies newly uploaded or revised exam marks against a cached baseline", () => {
+  const t1 = { subjectcode: "CS303", eventcode: "TEST-1", obtainedmarks: "7.0", fullmarks: "15.0" };
+  const t2 = { subjectcode: "CS303", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 };
+  assert.deepEqual(diffMarkRows([], [t1]), []);
+  assert.deepEqual(diffMarkRows([t1], [{ ...t1, obtainedmarks: 7, fullmarks: 15 }]), []);
+  assert.deepEqual(diffMarkRows([t1], [t1, t2]), [markRowKey(t2)]);
+  assert.deepEqual(diffMarkRows([t1, t2], [{ ...t1, obtainedmarks: 9 }, t2]), [markRowKey(t1)]);
+});
+
+test("getScoreBand maps score percentages to good, neutral, warning and low tiers", () => {
+  assert.equal(getScoreBand({ obtainedmarks: 12, fullmarks: 15 }), "good");
+  assert.equal(getScoreBand({ obtainedmarks: 9, fullmarks: 15 }), "neutral");
+  assert.equal(getScoreBand({ obtainedmarks: 7.5, fullmarks: 15 }), "warning");
+  assert.equal(getScoreBand({ obtainedmarks: 5, fullmarks: 15 }), "low");
+  assert.equal(getScoreBand({ obtainedmarks: "AB", fullmarks: 15 }), "neutral");
 });

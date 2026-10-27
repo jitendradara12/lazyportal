@@ -12,6 +12,23 @@ function mockFetch(handler) {
 const ok = (obj) => ({ ok: true, status: 200, text: async () => JSON.stringify(obj) });
 
 describe("client", () => {
+  it("authenticated PDF reads preserve bytes and retry after session recovery", async () => {
+    let token = "old";
+    const requests = [];
+    const bytes = new Uint8Array([37, 80, 68, 70, 45, 255]);
+    const client = createClient({ baseUrl: "https://x", now: () => NOW, getToken: () => token,
+      onRefresh: async () => { token = "new"; return true; },
+      fetchImpl: async (url, init) => {
+        requests.push(init);
+        return requests.length === 1 ? new Response("", { status: 401 }) : new Response(bytes, { headers: { "content-type": "application/pdf" } });
+      },
+    });
+    assert.deepEqual(await client.getReport("/fixture/report"), bytes);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].headers.Authorization, "Bearer new");
+    assert.equal(requests[1].method, "GET");
+    assert.ok(requests[1].headers.LocalName);
+  });
   it("encrypts body and sends Auth+LocalName", async () => {
     let seen;
     const fetchImpl = mockFetch(async (url, init) => {

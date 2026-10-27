@@ -21,6 +21,20 @@ all service-request grids, medical info.
 
 `401` means log in again. The official refresh call never stores a new token, so it buys nothing.
 
+## Marks history
+
+The JSON `getstudent-exammarks` response can contain only the latest event per
+subject. This is not a complete semester snapshot. The official event-wise report
+at `GET /studentsexamview/printstudent-exammarks/{instituteid}/{registrationid}/{registrationcode}`
+retains earlier events, including T1 after T2 appears in JSON. Verified live on
+2026-10-27. This GET requires the same Authorization and LocalName headers as other
+authenticated reads and returns PDF bytes.
+
+Recovery reads the report's OM/FM columns, not OW/WT, and validates its registration
+code against the selected semester. Fresh JSON rows override that exam's report
+row. PDF decoding is supplied by web; report paths, table interpretation and merging
+remain in core. No report, token or student identity belongs in committed fixtures.
+
 ## Crypto
 
 Key comes from the current date (`qa8y…ty1pn`, 16 chars), IV is `dcek9wb8frty1pnm`, AES-128-CBC with base64 output. Matches CryptoJS byte for byte.

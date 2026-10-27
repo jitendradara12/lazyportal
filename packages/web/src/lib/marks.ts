@@ -1,3 +1,6 @@
+import { formatEventCode } from "@juet/core";
+export { formatEventCode, mergeMarkRows } from "@juet/core";
+
 /**
  * Pure helper logic for marks section.
  * Kept zero-dependency and isolated from React/JSX so it can be tested directly in Node.
@@ -16,21 +19,48 @@ export interface SubjectMarks extends MarkRow {
   exams: MarkRow[];
 }
 
+export type ScoreBand = "good" | "neutral" | "warning" | "low";
+
 const num = (v: unknown): number | null =>
   v != null && String(v).trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 
 const round = (n: number): number => Math.round(n * 100) / 100;
 
-/** Format exam/test event codes into concise student-friendly labels (e.g. TEST-1 -> T1, P-1 -> P1). */
-export function formatEventCode(code?: unknown): string {
-  if (code == null) return "";
-  const s = String(code).trim().toUpperCase();
-  if (!s) return "";
-  const tMatch = s.match(/^(?:TEST|T)[-_\s]*([0-9]+)$/);
-  if (tMatch) return `T${tMatch[1]}`;
-  const pMatch = s.match(/^(?:PRACTICAL|PRAC|PR|P)[-_\s]*([0-9]+)$/);
-  if (pMatch) return `P${pMatch[1]}`;
-  return s;
+const normMark = (v: unknown): number | string => num(v) ?? String(v ?? "").trim().toUpperCase();
+
+/** Stable identity key for a (course, exam) row. */
+export function markRowKey(row: MarkRow): string | null {
+  const subject = row.subjectcode?.trim().toUpperCase() || row.subjectdesc?.trim().toUpperCase();
+  const event = formatEventCode(row.eventcode) || String(row.exameventid ?? "").trim();
+  return subject && event ? JSON.stringify([subject, event]) : null;
+}
+
+/** Return keys of exam rows that were newly added or had their marks changed relative to a non-empty baseline. */
+export function diffMarkRows(previous: MarkRow[], incoming: MarkRow[]): string[] {
+  if (!previous.length || !incoming.length) return [];
+  const prevMap = new Map<string, string>();
+  for (const row of previous) {
+    const id = markRowKey(row);
+    if (id) prevMap.set(id, JSON.stringify([normMark(row.obtainedmarks), normMark(row.fullmarks)]));
+  }
+  if (!prevMap.size) return [];
+  const changed = new Set<string>();
+  for (const row of incoming) {
+    const id = markRowKey(row);
+    if (!id) continue;
+    const sig = JSON.stringify([normMark(row.obtainedmarks), normMark(row.fullmarks)]);
+    if (prevMap.get(id) !== sig) changed.add(id);
+  }
+  return [...changed];
+}
+
+/** Semantic performance band for an obtained/full mark pair (>=80% good, >=60% neutral, >=40% warning, <40% low). */
+export function getScoreBand(row: MarkRow): ScoreBand {
+  const earned = num(row.obtainedmarks);
+  const maximum = num(row.fullmarks);
+  if (earned === null || maximum === null || maximum <= 0) return "neutral";
+  const pct = (earned / maximum) * 100;
+  return pct >= 80 ? "good" : pct >= 60 ? "neutral" : pct >= 40 ? "warning" : "low";
 }
 
 /** Sort T1, T2, T3 before P1, P2, then remaining event codes numerically. */
@@ -44,22 +74,6 @@ export function compareEventCodes(a: string, b: string): number {
     if (bP === "P") return 1;
   }
   return a.localeCompare(b, undefined, { numeric: true });
-}
-
-/** Portal refreshes may omit earlier exams. Keep them, replacing scores for exams returned again. */
-export function mergeMarkRows(previous: MarkRow[], incoming: MarkRow[]): MarkRow[] {
-  const key = (row: MarkRow) => {
-    const subject = row.subjectcode?.trim().toUpperCase() || row.subjectdesc?.trim().toUpperCase();
-    const event = formatEventCode(row.eventcode) || String(row.exameventid ?? "").trim();
-    return subject && event ? JSON.stringify([subject, event]) : null;
-  };
-  const rows = new Map<string, MarkRow>();
-  for (const row of previous) {
-    const id = key(row);
-    if (id) rows.set(id, row);
-  }
-  incoming.forEach((row, index) => rows.set(key(row) ?? `incoming-${index}`, row));
-  return [...rows.values()];
 }
 
 /** Sum the recorded exams per course, retaining their rows in exam order. */

@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 
 export const DISMISSAL_KEY = "juet.portal.install.dismissedAt.v1";
 export const DISMISSAL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -21,6 +22,9 @@ export async function mockPortal(page) {
         semlist: [],
       },
     },
+  }));
+  await page.route("**/api/studentsexamview/printstudent-exammarks/**", (route) => route.fulfill({
+    contentType: "application/pdf", path: fileURLToPath(new URL("../fixtures/marks-empty-current.pdf", import.meta.url)),
   }));
   await page.route("**/_vercel/**", (route) => route.fulfill({ status: 204 }));
   await page.route("https://va.vercel-scripts.com/**", (route) => route.fulfill({ contentType: "application/javascript", body: "" }));

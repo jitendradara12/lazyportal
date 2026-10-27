@@ -1,7 +1,7 @@
 import { authEndpoints } from "./auth.js";
 import { officialPortalPolicy } from "./officialPortal.js";
 import { PortalError } from "./errors.js";
-import { featurePostEndpoints } from "./features.js";
+import { featurePostEndpoints, isMarksReportPath, marksReportEndpoints } from "./features.js";
 
 // Separate APK policy: the isolated official view must never gain login access.
 export const portalApiPolicy = Object.freeze({
@@ -21,6 +21,9 @@ export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.
   const allows = (policy, method, path) =>
     (method === "POST" ? policy.post : method === "GET" ? policy.get : [])?.includes(path);
   const routeFor = async (method, path) => {
+    // Installed APKs only support exact JSON paths. Reports use the proxy until
+    // the native bridge explicitly supports parameterized binary report routes.
+    if (method === "GET" && (isMarksReportPath(path) || Object.values(marksReportEndpoints).includes(path))) return "proxy";
     if (!native) return "proxy";
     // Discovery has not sent an API request. An unavailable/older bridge can
     // safely use the proxy for this page's lifetime, including later retries.
@@ -36,7 +39,7 @@ export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.
   const fetch = !native ? fetchImpl : (url, init = {}) => {
     const path = typeof url === "string" && url.startsWith(baseUrl) ? url.slice(baseUrl.length) : "";
     const method = init.method ?? "GET";
-    if (!allows(portalApiPolicy, method, path)) {
+    if (!allows(portalApiPolicy, method, path) && !(method === "GET" && isMarksReportPath(path))) {
       return Promise.reject(new PortalError("This portal request is not supported.", { code: "UNSUPPORTED_ENDPOINT" }));
     }
     const { signal } = init;

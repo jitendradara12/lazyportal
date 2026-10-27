@@ -6,5 +6,6 @@ export { createPortalTransport } from "./portalTransport.js";
 export * as auth from "./auth.js";
 export * as captcha from "./captcha.js";
 export * as features from "./features.js";
+export { formatEventCode, mergeMarkRows } from "./marks.js";
 export * as credentials from "./credentials.js";
 export * as officialPortal from "./officialPortal.js";

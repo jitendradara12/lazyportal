@@ -139,7 +139,7 @@ export function MorePage({
             <span className="more-action-label">Logout</span>
           </button>
         </div>
-        <p className="more-tagline">Free and open source, always.</p>
+        <p className="more-tagline">ad free and open source, always :)</p>
       </div>
     </div>
   );

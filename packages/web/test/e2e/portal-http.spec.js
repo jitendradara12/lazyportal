@@ -125,7 +125,7 @@ test("a partially supported attendance batch retains proxy quotas even if its ov
   expect(hosted).toEqual([]);
 });
 
-test("marks refresh also uses the two-second native cooldown", async ({ page }) => {
+test("marks JSON uses native networking while report recovery uses the proxy and its cooldown", async ({ page }) => {
   const hosted = await setup(page, { seededAttendance: true });
   await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Marks", exact: true }).click();
   const reads = () => page.evaluate(() => window.__portalHttp.requests.filter((request) => request.path.endsWith("getstudent-exammarks")).length);
@@ -138,6 +138,12 @@ test("marks refresh also uses the two-second native cooldown", async ({ page }) 
   await expect(button).toBeEnabled();
   await page.clock.fastForward(2_001);
   await button.click();
+  await expect(button).toBeEnabled();
+  expect(await reads()).toBe(2);
+  await page.clock.fastForward(18_001);
+  await button.click();
   await expect.poll(reads).toBe(3);
-  expect(hosted).toEqual([]);
+  await expect(button).toBeEnabled();
+  expect(hosted).toHaveLength(3);
+  expect(hosted.every((url) => new URL(url).pathname.startsWith("/api/studentsexamview/printstudent-exammarks/"))).toBe(true);
 });

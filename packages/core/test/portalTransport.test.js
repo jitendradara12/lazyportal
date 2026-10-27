@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createPortalTransport, portalApiPolicy } from "../src/portalTransport.js";
-import { featurePostEndpoints } from "../src/features.js";
+import { featurePostEndpoints, marksReportEndpoints } from "../src/features.js";
 import { officialPortalPolicy } from "../src/officialPortal.js";
 import { createClient } from "../src/client.js";
 import { fetchCaptcha, login, refreshSession } from "../src/auth.js";
@@ -31,7 +31,7 @@ test("APK API policy matches core, covers existing reads/auth, and keeps officia
   assert.deepEqual(generated, portalApiPolicy);
   const features = await readFile(new URL("../src/features.js", import.meta.url), "utf8");
   for (const [, endpoint] of features.matchAll(/"(\/[A-Za-z][A-Za-z0-9_/-]+)"/g)) {
-    assert.ok(portalApiPolicy.post.includes(endpoint), `missing native read ${endpoint}`);
+    assert.ok(portalApiPolicy.post.includes(endpoint) || Object.values(marksReportEndpoints).includes(endpoint), `missing reviewed read ${endpoint}`);
   }
   for (const endpoint of ["/token/pretoken-check", "/token/generatewebtoken"]) {
     assert.ok(portalApiPolicy.post.includes(endpoint));
@@ -43,6 +43,16 @@ test("APK API policy matches core, covers existing reads/auth, and keeps officia
 test("browsers and old APKs retain the original fetch", () => {
   const fetchImpl = () => {};
   assert.equal(createPortalTransport({ baseUrl, fetchImpl }).fetch, fetchImpl);
+});
+
+test("reviewed marks reports use the proxy on existing APKs and reject unrelated report routes", async () => {
+  const s = setup();
+  const transport = createPortalTransport({ baseUrl, native: s.native, fetchImpl: s.fetchImpl });
+  assert.equal(await transport.usesProxyFor("GET", Object.values(marksReportEndpoints)), true);
+  await transport.fetch(baseUrl + "/studentsexamview/printstudent-exammarks/i1/sem1/2026ODDSEM");
+  assert.equal(s.requests.length, 0);
+  assert.equal(s.proxies.length, 1);
+  await assert.rejects(transport.fetch(baseUrl + "/studentsexamview/printstudent-exammarks/i1/sem1/2026ODDSEM/extra"), { code: "UNSUPPORTED_ENDPOINT" });
 });
 
 test("policy queries share the actual routing decision, including mixed APK capabilities and forced proxy", async () => {

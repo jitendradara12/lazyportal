@@ -177,7 +177,18 @@ Node handshakes over loopback, including wrong-host, expired and untrusted chain
 - Marks refreshes merge course/exam rows within the same semester, since the portal
   can return T2 while omitting T1. Returned scores replace that exam's cached score;
   omitted exams remain in totals and breakdowns. A new default semester starts
-  separately. Exams already lost from cache cannot be recovered from a partial response.
+  separately. The official event-wise PDF report retains earlier exams omitted by
+  JSON. `core/marksReport.js` parses its table from positioned text supplied by a
+  lazily loaded PDF.js adapter in web; core remains dependency-free. Marks refreshes
+  read both sources, with JSON taking precedence for the same course/exam. Existing
+  caches without `historyRecovered` revalidate once when Marks opens, recovering
+  already lost exams. Failed or unrecognized reports preserve available marks and
+  expose Retry without marking recovery complete. The report's registration code
+  must match the selected semester. No student PDFs are bundled or stored in cache.
+- Parameterized marks-report GETs use the proxy on existing APKs. Their exact
+  three-identifier route is reviewed separately in core; unrelated GETs remain
+  blocked. The JSON calls still use native transport when supported. Marks uses
+  the proxy's cooldown because a refresh includes a report read.
 - Refresh buttons target only their page, with independent transport-based cooldowns per
   account/institute/page. Marks refreshes only the selected semester; More
   refreshes only expanded sections. Hidden tabs and collapsed sections do no work.

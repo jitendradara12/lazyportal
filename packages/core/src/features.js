@@ -3,6 +3,14 @@
 // encrypts, client.postRaw sends plain JSON (see client.js header for which).
 
 import { PortalError } from "./errors.js";
+import { mergeMarkRows } from "./marks.js";
+import { parseMarksReport } from "./marksReport.js";
+
+export const marksReportEndpoints = Object.freeze({
+  standard: "/studentsexamview/printstudent-exammarks",
+});
+
+export const isMarksReportPath = (path) => /^\/studentsexamview\/printstudent-exammarks\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(path);
 
 // Shared by feature readers and transport-aware refresh policy.
 export const featurePostEndpoints = Object.freeze({
@@ -348,23 +356,38 @@ export async function getMarksSemesters(client, session) {
 }
 
 /** Marks detail rows + display flags. Encrypted {instituteid, registrationid, companyid}. */
-export async function getMarks(client, session, { registrationid }) {
+export async function getMarks(client, session, { registrationid, registrationcode, readPdfText }) {
   const body = await client.post(featurePostEndpoints.marks.rows, {
     instituteid: session.instituteid,
     registrationid,
     companyid: session.companyid,
   });
-  return {
+  const detail = {
     rows: body.response?.viewmarksbystudent ?? [],
     fullMarksFlag: body.response?.fullMarksFlag,
     passingMarksFlag: body.response?.passingMarksFlag,
     weightageMarksFlag: body.response?.weightageMarksFlag,
     obtainedweightagemarksflag: body.response?.obtainedweightagemarksflag,
   };
+  if (!readPdfText) return detail;
+  try {
+    const history = await getMarksReport(client, session, { registrationid, registrationcode, readPdfText });
+    return { ...detail, rows: mergeMarkRows(history, detail.rows), historyRecovered: true };
+  } catch (error) {
+    if (error.code === "SESSION_EXPIRED") throw error;
+    return { ...detail, historyRecovered: false, historyError: "Earlier exam marks could not be recovered from the portal's report. Please retry." };
+  }
+}
+
+/** The official PDF retains every event even when the JSON read returns only the latest. */
+export async function getMarksReport(client, session, { registrationid, registrationcode, readPdfText }) {
+  const path = `${marksReportEndpoints.standard}/${session.instituteid}/${registrationid}/${registrationcode}`;
+  if (!isMarksReportPath(path)) throw new PortalError("Invalid marks report selection.", { code: "INVALID_RESPONSE" });
+  return parseMarksReport(await readPdfText(await client.getReport(path)), registrationcode);
 }
 
 /** Marks in one call: LOV -> latest registration -> detail rows. */
-export async function getMarksLatest(client, session) {
+export async function getMarksLatest(client, session, options = {}) {
   const semesters = await getMarksSemesters(client, session);
   const sem = semesters[0];
   if (!sem)
@@ -376,8 +399,9 @@ export async function getMarksLatest(client, session) {
       passingMarksFlag: null,
       weightageMarksFlag: null,
       obtainedweightagemarksflag: null,
+      historyRecovered: true,
     };
-  const detail = await getMarks(client, session, { registrationid: sem.registrationid });
+  const detail = await getMarks(client, session, { ...options, registrationid: sem.registrationid, registrationcode: sem.registrationcode });
   return { semesters, registrationcode: sem.registrationcode, ...detail };
 }
 
