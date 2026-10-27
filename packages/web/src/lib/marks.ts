@@ -46,6 +46,22 @@ export function compareEventCodes(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
+/** Portal refreshes may omit earlier exams. Keep them, replacing scores for exams returned again. */
+export function mergeMarkRows(previous: MarkRow[], incoming: MarkRow[]): MarkRow[] {
+  const key = (row: MarkRow) => {
+    const subject = row.subjectcode?.trim().toUpperCase() || row.subjectdesc?.trim().toUpperCase();
+    const event = formatEventCode(row.eventcode) || String(row.exameventid ?? "").trim();
+    return subject && event ? JSON.stringify([subject, event]) : null;
+  };
+  const rows = new Map<string, MarkRow>();
+  for (const row of previous) {
+    const id = key(row);
+    if (id) rows.set(id, row);
+  }
+  incoming.forEach((row, index) => rows.set(key(row) ?? `incoming-${index}`, row));
+  return [...rows.values()];
+}
+
 /** Sum the recorded exams per course, retaining their rows in exam order. */
 export function groupSubjectMarks(rows: MarkRow[]): SubjectMarks[] {
   const map = new Map<

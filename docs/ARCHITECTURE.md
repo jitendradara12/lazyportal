@@ -174,6 +174,10 @@ Node handshakes over loopback, including wrong-host, expired and untrusted chain
 - Marks, exams, faculty, and registered subjects use persistent, manual-only caches.
   Missing selections fetch once; returning to a page, reopening the app, focus,
   and attendance day rollover do not revalidate cached entries.
+- Marks refreshes merge course/exam rows within the same semester, since the portal
+  can return T2 while omitting T1. Returned scores replace that exam's cached score;
+  omitted exams remain in totals and breakdowns. A new default semester starts
+  separately. Exams already lost from cache cannot be recovered from a partial response.
 - Refresh buttons target only their page, with independent transport-based cooldowns per
   account/institute/page. Marks refreshes only the selected semester; More
   refreshes only expanded sections. Hidden tabs and collapsed sections do no work.

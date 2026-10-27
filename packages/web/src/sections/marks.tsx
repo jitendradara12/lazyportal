@@ -2,10 +2,10 @@ import { usePageRefresh } from "../hooks/usePageRefresh";
 import { useId, useMemo, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, sessionCacheKey } from "../hooks/useFeature";
+import { useFeature, sessionCacheKey, getCached } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
-import { formatEventCode, groupSubjectMarks, type MarkRow, type SubjectMarks } from "../lib/marks.ts";
+import { formatEventCode, groupSubjectMarks, mergeMarkRows, type MarkRow, type SubjectMarks } from "../lib/marks.ts";
 import { SectionError, titleCase, formatSemester } from "../components/DataViews";
 import { TopBar, SemesterPicker } from "../components/AppBar";
 import { ChevronRight } from "../components/icons";
@@ -89,21 +89,32 @@ function CourseCard({ course }: { course: SubjectMarks }) {
 }
 
 export function MarksSection({ session }: SectionProps) {
+  const latestKey = sessionCacheKey("marks.latest", session);
   const lov = useFeature<MarksLatest>({
-    run: () => features.getMarksLatest(client, session),
+    run: async () => {
+      const latest = await features.getMarksLatest(client, session);
+      const previous = getCached<MarksLatest>(latestKey).data;
+      const registrationid = latest.semesters[0]?.registrationid;
+      const sameSemester = registrationid != null && String(registrationid) === String(previous?.semesters[0]?.registrationid);
+      return { ...latest, rows: mergeMarkRows(sameSemester ? previous?.rows ?? [] : [], latest.rows) };
+    },
     deps: [session],
     enabled: true,
-    cacheKey: sessionCacheKey("marks.latest", session),
+    cacheKey: latestKey,
     staleTimeMs: FEATURE_TTL.marks,
     manualRefreshEnabled: () => semId === null || isDefault,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
+  const detailKey = semId ? sessionCacheKey("marks.detail", session, semId) : undefined;
   const detail = useFeature<MarksDetail>({
-    run: () => features.getMarks(client, session, { registrationid: sem?.registrationid }),
+    run: async () => {
+      const latest = await features.getMarks(client, session, { registrationid: sem?.registrationid });
+      return { ...latest, rows: mergeMarkRows(getCached<MarksDetail>(detailKey).data?.rows ?? [], latest.rows) };
+    },
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
-    cacheKey: semId ? sessionCacheKey("marks.detail", session, semId) : undefined,
+    cacheKey: detailKey,
     staleTimeMs: FEATURE_TTL.marks,
   });
 

@@ -125,6 +125,58 @@ test("past marks refresh only the selected semester and failed refresh keeps cac
   expect(calls).toEqual([]);
 });
 
+for (const semester of ["current", "past"]) test(`${semester} marks refresh retains T1 when the portal returns only T2, including after reload`, async ({ page }) => {
+  await setup(page);
+  const t1 = { subjectcode: "CS303", subjectdesc: "ARTIFICIAL INTELLIGENCE", eventcode: "TEST-1", obtainedmarks: 7, fullmarks: 15 };
+  await page.evaluate(({ session, semesters, t1 }) => {
+    const key = ["marks.latest", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify({ data: { semesters, rows: [t1] }, updatedAt: Date.now() }));
+    const detailKey = ["marks.detail", session.username, session.instituteid, "past"].map(encodeURIComponent).join(":");
+    localStorage.setItem(`juet.cache.${detailKey}`, JSON.stringify({ data: { rows: [t1] }, updatedAt: Date.now() }));
+  }, { session: SESSION, semesters, t1 });
+  await page.route("**/api/studentsexamview/getstudent-exammarks", (route) => route.fulfill({
+    json: { status: { responseStatus: "Success" }, response: { viewmarksbystudent: [
+      { ...t1, eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 },
+    ] } },
+  }));
+  await navigate(page, "Marks");
+  if (semester === "past") await page.getByRole("combobox", { name: "Select semester" }).selectOption("past");
+  await expect(page.locator(".score-header .score-value")).toHaveText("7/15");
+  await refresh(page, "Refresh marks");
+  await expect(page.locator(".score-header .score-value")).toHaveText("20/40");
+  await page.locator(".score-header").click();
+  await expect(page.locator(".score-exam-label")).toHaveText(["T1", "T2"]);
+  await expect(page.locator(".score-exam .score-value")).toHaveText(["7/15", "13/25"]);
+  await page.reload();
+  await expect(page.locator(".score-header .score-value")).toHaveText("20/40");
+  await page.clock.install();
+  await page.clock.fastForward(20_001);
+  await page.route("**/api/studentsexamview/getstudent-exammarks", (route) => route.fulfill({
+    json: { status: { responseStatus: "Success" }, response: { viewmarksbystudent: [
+      { ...t1, eventcode: "T1", obtainedmarks: 0 },
+    ] } },
+  }));
+  await refresh(page, "Refresh marks");
+  await expect(page.locator(".score-header .score-value")).toHaveText("13/40");
+  await page.locator(".score-header").click();
+  await expect(page.locator(".score-exam .score-value")).toHaveText(["0/15", "13/25"]);
+});
+
+test("a new default semester does not inherit the previous semester's marks", async ({ page }) => {
+  await setup(page);
+  await page.route("**/api/studentcommonsontroller/getsemestercode-exammarks", (route) => route.fulfill({
+    json: { status: { responseStatus: "Success" }, response: { semestercode: [
+      { registrationid: "new", registrationcode: "2027EVESEM" }, ...semesters,
+    ] } },
+  }));
+  await navigate(page, "Marks");
+  await refresh(page, "Refresh marks");
+  await page.getByRole("combobox", { name: "Select semester" }).selectOption("new");
+  await expect(page.locator(".score-header .score-value")).toHaveText("8/10");
+  await expect(page.locator(".score-card")).toHaveCount(1);
+  await expect(page.getByText("Cached Subject", { exact: true })).toHaveCount(0);
+});
+
 
 test("cooldown survives blocked storage, expires after 20s, and offline refresh does no work", async ({ page }) => {
   const calls = await setup(page);

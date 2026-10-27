@@ -1,7 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { formatEventCode, groupSubjectMarks } = await import("../src/lib/marks.ts");
+const { formatEventCode, groupSubjectMarks, mergeMarkRows } = await import("../src/lib/marks.ts");
+
+test("partial refreshes keep earlier exams and replace corrected scores without double counting", () => {
+  const t1 = Object.freeze({ subjectcode: "CS303", eventcode: "TEST-1", obtainedmarks: 7, fullmarks: 15 });
+  const t2 = Object.freeze({ subjectcode: "CS303", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 });
+  const previous = Object.freeze([t1]);
+  const merged = mergeMarkRows(previous, [t2]);
+  assert.deepEqual(summarize(merged), [
+    { subjectcode: "CS303", subjectdesc: undefined, eventcode: "T1 · T2", obtainedmarks: 20, fullmarks: 40 },
+  ]);
+  const corrected = { ...t1, subjectcode: " cs303 ", eventcode: "T 1", obtainedmarks: 0 };
+  assert.deepEqual(mergeMarkRows(merged, [corrected]), [corrected, t2]);
+  assert.deepEqual(mergeMarkRows(merged, [t2]), merged);
+  assert.deepEqual(mergeMarkRows(merged, []), merged);
+  assert.deepEqual(previous, [t1]);
+});
 
 // Check course totals and the exact exams contributing to each total together.
 function summarize(rows) {
