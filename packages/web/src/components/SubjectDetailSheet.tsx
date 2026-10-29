@@ -219,8 +219,6 @@ export function SubjectDetailSheet({
             )}
           </div>
 
-          {savedBreakdown && <p className="muted">You're viewing cached details</p>}
-
           {/* Interactive Target Selector & Actionable Advice in Same Compact Row */}
           {attInfo.hasHeldClasses && (
             <div className="att-target-row">

@@ -71,8 +71,19 @@ export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.
           return fetchImpl(url, init);
         }
         sent = true;
-        const reply = await native.request({ id, method, path, body: init.body ?? "",
-          headers: Object.fromEntries(new Headers(init.headers).entries()) });
+        let reply;
+        try {
+          reply = await native.request({ id, method, path, body: init.body ?? "",
+            headers: Object.fromEntries(new Headers(init.headers).entries()) });
+        } catch (nativeErr) {
+          if (signal?.aborted) throw signal.reason;
+          const isAttendanceDetail = path === featurePostEndpoints.attendance.current ||
+            path === featurePostEndpoints.attendance.previous;
+          if (isAttendanceDetail && (nativeErr?.code === "NETWORK_ERROR" || /reach.*portal|portal.*busy|timeout/i.test(nativeErr?.message ?? ""))) {
+            return fetchImpl(url, init);
+          }
+          throw nativeErr;
+        }
         const bytes = Uint8Array.from(atob(reply.body), (char) => char.charCodeAt(0));
         return new Response(reply.status === 204 ? null : bytes, { status: reply.status, headers: reply.headers });
       }).then((response) => finish(resolve, response), (error) => finish(reject, error));

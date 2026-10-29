@@ -16,7 +16,7 @@ System design, boundaries, and operational invariants.
 - **Dual API transport**: The web client routes requests through either the native HTTP bridge (`PortalHttpPlugin`) or the hosted proxy (`/api`).
   - Native transport communicates directly with JUET, bypassing serverless limits and proxy refresh quotas.
   - Proxy transport is used by browsers, pre-bridge APKs, and endpoints not yet allowlisted in the APK policy.
-  - Native errors/timeouts do not silently retry across the proxy.
+  - Native errors/timeouts do not silently retry across the proxy, except for slow attendance breakdown queries (/getstudentsubjectpersentage) which fall back to the proxy on older APKs with shorter native timeouts.
 - **TLS validation**: Node and Android environments supply JUET's missing GoDaddy G2 intermediate (`shared/portal-intermediate.pem`) to the system validator without disabling root or hostname checks.
 - **Sandboxed official portal**: Android's official portal view runs in an isolated WebView (`https://official.lazyportal.invalid`) with in-memory storage, strict route allowlisting, and no network fallback to Vercel. Session expiry triggers silent recovery in the main app.
 

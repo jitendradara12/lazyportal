@@ -223,3 +223,24 @@ test("stalled native capability discovery falls back once before sending any por
   assert.equal(discoveries, 1);
   assert.equal(proxyCalls, 1);
 });
+
+test("native network failure on attendance breakdown falls back to proxy", async () => {
+  const detailPath = featurePostEndpoints.attendance.current;
+  const error = Object.assign(new Error("Could not reach JUET's portal. Please retry."), { code: "NETWORK_ERROR" });
+  const s = setup({ answer: () => Promise.reject(error) });
+  const res = await s.fetch(baseUrl + detailPath, { method: "POST" });
+  assert.equal(s.requests.length, 1);
+  assert.equal(s.proxies.length, 1);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.response.proxy, true);
+});
+
+test("native network failure on non-attendance endpoints does not fall back to proxy", async () => {
+  const marksPath = featurePostEndpoints.marks.rows;
+  const error = Object.assign(new Error("Could not reach JUET's portal. Please retry."), { code: "NETWORK_ERROR" });
+  const s = setup({ answer: () => Promise.reject(error) });
+  await assert.rejects(s.fetch(baseUrl + marksPath, { method: "POST" }), (err) => err === error);
+  assert.equal(s.requests.length, 1);
+  assert.equal(s.proxies.length, 0);
+});

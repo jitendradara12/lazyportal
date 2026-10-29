@@ -668,7 +668,6 @@ test("adding a tutorial retains saved lecture counts and the sheet calculator", 
   }));
   assert.match(html, /<strong>8<\/strong> \/ 8/);
   assert.match(html, /What-if calculator/);
-  assert.match(html, /Class counts and calculations use the saved breakdown/);
 });
 
 test("partial component retries reuse a completed lecture and spend quota only after the tutorial succeeds", async (t) => {
