@@ -93,6 +93,7 @@ export async function getAttendance(client, session, cachedLov) {
     const isFatal =
       err?.code === "SESSION_EXPIRED" ||
       err?.code === "NETWORK_ERROR" ||
+      err?.code === "REQUEST_TIMEOUT" ||
       err?.code === "INVALID_RESPONSE" ||
       err?.status === 401 ||
       (typeof err?.status === "number" && err.status >= 500);
@@ -270,8 +271,9 @@ function isComponentKnownEmpty(row, t) {
   return true;
 }
 
-/** L/T/P detail for one attendance row in parallel. Skips types with no components or known 0-class components. */
-export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current") {
+/** L/T/P detail in parallel. The caller may retain successful components for
+ * retries of one exact overview snapshot; completed results stay caller-owned. */
+export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current", { completed } = {}) {
   const out = {};
   let lastErr = null;
   const read = (csv) => ({
@@ -285,8 +287,13 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
       if (!csv) return;
+      if (completed?.has(t)) {
+        out[t] = completed.get(t);
+        return;
+      }
       if (which === "current" && isComponentKnownEmpty(row, t)) {
         out[t] = { summary: [] };
+        completed?.set(t, out[t]);
         return;
       }
       try {
@@ -294,24 +301,12 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
       } catch (e) {
         if (isNoAttendance(e)) {
           out[t] = { summary: [] };
+        } else {
+          lastErr = e;
           return;
         }
-        // Transient network/proxy 502/504 retry: one retry on mobile transport blips
-        if (e?.code === "NETWORK_ERROR" || e?.status === 502 || e?.status === 504) {
-          try {
-            out[t] = await fetchSubjectAttendance(client, session, which, read(csv));
-            return;
-          } catch (retryErr) {
-            if (isNoAttendance(retryErr)) {
-              out[t] = { summary: [] };
-              return;
-            }
-            lastErr = retryErr;
-            return;
-          }
-        }
-        lastErr = e;
       }
+      completed?.set(t, out[t]);
     })
   );
   if (lastErr) {

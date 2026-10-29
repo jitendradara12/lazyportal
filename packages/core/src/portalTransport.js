@@ -13,7 +13,7 @@ export const portalApiPolicy = Object.freeze({
 
 /** One routing decision for client fetches and policy queries. The APK owns
  * networking; live core owns encryption, payloads, parsing and recovery. */
-export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.fetch, mode = "auto" }) {
+export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.fetch, mode = "auto", capabilityTimeoutMs = 5_000 }) {
   if (mode === "proxy") native = undefined;
   let capabilities;
   let sequence = 0;
@@ -27,11 +27,17 @@ export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.
     if (!native) return "proxy";
     // Discovery has not sent an API request. An unavailable/older bridge can
     // safely use the proxy for this page's lifetime, including later retries.
-    capabilities ??= Promise.resolve().then(() => native.capabilities()).then((value) =>
-      value?.version === portalApiPolicy.version &&
-      Array.isArray(value.post) && value.post.every((path) => typeof path === "string") &&
-      Array.isArray(value.get) && value.get.every((path) => typeof path === "string") ? value : null,
-    ).catch(() => null);
+    if (!capabilities) {
+      let timer;
+      capabilities = Promise.race([
+        Promise.resolve().then(() => native.capabilities()),
+        new Promise((resolve) => { timer = setTimeout(() => resolve(null), capabilityTimeoutMs); }),
+      ]).then((value) =>
+        value?.version === portalApiPolicy.version &&
+        Array.isArray(value.post) && value.post.every((path) => typeof path === "string") &&
+        Array.isArray(value.get) && value.get.every((path) => typeof path === "string") ? value : null,
+      ).catch(() => null).finally(() => clearTimeout(timer));
+    }
     const installed = await capabilities;
     return installed && allows(installed, method, path) ? "native" : "proxy";
   };

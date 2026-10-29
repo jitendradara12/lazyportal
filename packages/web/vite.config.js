@@ -18,7 +18,15 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
         secure: true,
-        agent: new https.Agent(portalTlsOptions()),
+        agent: new https.Agent({ ...portalTlsOptions(), keepAlive: true, maxFreeSockets: 8, timeout: 5_000 }),
+        proxyTimeout: 55_000,
+        configure(proxy) {
+          proxy.on("proxyReq", (upstream, _req, res) => {
+            const disconnect = () => { if (!res.writableFinished) upstream.destroy(); };
+            res.once("close", disconnect);
+            upstream.once("close", () => res.removeListener("close", disconnect));
+          });
+        },
         // Upstream 403s non-portal Origin/Referer (browser sends localhost).
         // Same-origin from the browser's view; spoof portal origin upstream.
         headers: {

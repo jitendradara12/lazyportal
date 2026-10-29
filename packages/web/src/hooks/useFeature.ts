@@ -11,6 +11,8 @@ interface UseFeatureOptions<T> {
   enabled?: boolean;
   /** Optional key to enable stale-while-revalidate local caching. */
   cacheKey?: string;
+  /** Serialize different snapshots that write to the same persistent cache. */
+  requestVersion?: string;
   /** Skip network when cache is fresher than this (default 2h). */
   staleTimeMs?: number;
   /** Custom freshness check (e.g. portal day schedule). Overrides staleTimeMs when provided. */
@@ -20,13 +22,6 @@ interface UseFeatureOptions<T> {
   manualRefreshEnabled?: boolean | (() => boolean);
   /** Optional extra metadata to persist in the cache entry (e.g. checksum). */
   writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>);
-}
-
-function isUnauthorized(e: unknown): boolean {
-  if (!e || typeof e !== "object") return false;
-  const code = (e as { code?: unknown }).code;
-  const status = (e as { status?: unknown }).status;
-  return code === "SESSION_EXPIRED" || status === 401;
 }
 
 function toMessage(e: unknown): string {
@@ -69,7 +64,7 @@ export function resolveFeatureState<T>(
 }
 
 // ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
-const inFlight = new Map<string, Promise<{ data: unknown; updatedAt: number }>>();
+const inFlight = new Map<string, { promise: Promise<{ data: unknown; updatedAt: number }>; version?: string }>();
 // In-memory read-through cache to eliminate redundant localStorage + JSON.parse on mobile renders
 const memoryCache = new Map<string, { raw: string; volatile?: boolean; parsed: { data: unknown; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> }>();
 let storageListenerBound = false;
@@ -195,20 +190,30 @@ export function requestFeature<T>(
   cacheKey: string | undefined,
   run: () => Promise<T>,
   writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>),
+  requestVersion?: string,
 ): Promise<{ data: T; updatedAt: number }> {
-  const existing = cacheKey ? inFlight.get(cacheKey) : undefined;
-  if (existing) return existing as Promise<{ data: T; updatedAt: number }>;
   const generation = getCacheGeneration();
-  const request = Promise.resolve().then(run).then((data) => {
+  const existing = cacheKey ? inFlight.get(cacheKey) : undefined;
+  if (existing) {
+    if (existing.version === requestVersion) return existing.promise as Promise<{ data: T; updatedAt: number }>;
+    return existing.promise.then(() => {
+      if (!isCacheGenerationCurrent(generation)) throw new DOMException("Request cancelled.", "AbortError");
+      return requestFeature(cacheKey, run, writeExtra, requestVersion);
+    });
+  }
+  const request = Promise.resolve().then(() => {
+    if (!isCacheGenerationCurrent(generation)) throw new DOMException("Request cancelled.", "AbortError");
+    return run();
+  }).then((data) => {
     let updatedAt = Date.now();
     if (isCacheGenerationCurrent(generation)) {
       updatedAt = setCached(cacheKey, data, typeof writeExtra === "function" ? writeExtra(data) : writeExtra);
     }
     return { data, updatedAt };
   }).finally(() => {
-    if (cacheKey && inFlight.get(cacheKey) === request) inFlight.delete(cacheKey);
+    if (cacheKey && inFlight.get(cacheKey)?.promise === request) inFlight.delete(cacheKey);
   });
-  if (cacheKey) inFlight.set(cacheKey, request);
+  if (cacheKey) inFlight.set(cacheKey, { promise: request, version: requestVersion });
   return request;
 }
 
@@ -217,6 +222,7 @@ export function useFeature<T>({
   deps = [],
   enabled = true,
   cacheKey,
+  requestVersion,
   staleTimeMs = STALE_MS,
   isFresh,
   scope,
@@ -269,7 +275,7 @@ export function useFeature<T>({
     setRefreshing(true);
     setStateForKey(cacheKey, { error: null });
     try {
-      const result = await requestFeature(cacheKey, runRef.current, writeExtraRef.current);
+      const result = await requestFeature(cacheKey, runRef.current, writeExtraRef.current, requestVersion);
       if (current()) setStateForKey(cacheKey, { ...result, loading: false, error: null });
       return result.data;
     } catch (error) {
@@ -278,7 +284,7 @@ export function useFeature<T>({
     } finally {
       if (current()) setRefreshing(false);
     }
-  }, [cacheKey, setStateForKey]);
+  }, [cacheKey, requestVersion, setStateForKey]);
 
   // A completed manual/background read updates every mounted consumer without
   // broadcasting another network refresh (e.g. the dashboard attendance hero).
@@ -303,7 +309,7 @@ export function useFeature<T>({
         if (detail?.requests) detail.requests.push(refresh());
         return;
       }
-      forceRef.current = true;
+      forceRef.current = (event as CustomEvent<{ force?: boolean }>).detail?.force === true;
       setStateForKey(cacheKey, { error: null });
       setRetryKey((k) => k + 1);
     };
@@ -325,11 +331,10 @@ export function useFeature<T>({
     const isForce = forceRef.current;
     forceRef.current = false;
     const cached = getCached<T>(cacheKey);
-    const isVeryFresh = cached.data && cached.updatedAt && Date.now() - cached.updatedAt < 15_000;
     const isFreshEntry = isFresh
       ? isFresh(cached.updatedAt)
       : Boolean(cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs);
-    if ((!isForce || isVeryFresh) && cached.data && cached.updatedAt && isFreshEntry) {
+    if (!isForce && cached.data && cached.updatedAt && isFreshEntry) {
       setRefreshing(false);
       setStateForKey(cacheKey, {
         data: cached.data,
@@ -339,13 +344,10 @@ export function useFeature<T>({
       });
       return () => void (live = false);
     }
-    if (cached.data === null && !visibleState.error) {
-      // Keep this key's loading state visible while its request is in flight.
-      setStateForKey(cacheKey, { loading: true });
-    }
+    setStateForKey(cacheKey, { error: null, loading: cached.data === null });
 
     setRefreshing(true);
-    const promise = requestFeature(cacheKey, runRef.current, writeExtraRef.current);
+    const promise = requestFeature(cacheKey, runRef.current, writeExtraRef.current, requestVersion);
 
     promise.then(
       ({ data: d, updatedAt: time }) => {
@@ -356,22 +358,13 @@ export function useFeature<T>({
       (e) => {
         if (!live) return;
         setRefreshing(false);
-        if (isUnauthorized(e)) {
-          // Only suppress auth errors when this key itself has stale cached
-          // data. Data left over from a previous key is not a valid fallback.
-          setStateForKey(cacheKey, {
-            ...(cached.data === null ? { error: toMessage(e) } : {}),
-            loading: false,
-          });
-          return;
-        }
         setStateForKey(cacheKey, { error: toMessage(e), loading: false });
       },
     );
     return () => void (live = false);
     // Deps are caller-controlled (session, selected ids) plus retry counter and cacheKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, retryKey, cacheKey, ...deps]);
+  }, [enabled, retryKey, cacheKey, requestVersion, ...deps]);
 
   return {
     data: visibleState.data,

@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
-import { useFeature, setCached, getCached, sessionCacheKey, requestFeature } from "../hooks/useFeature";
+import { useFeature, setCached, getCached, sessionCacheKey, requestFeature, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import {
   isCurrentPortalDay,
+  getPortalDayKey,
   computeSubjectRowChecksum,
   FEATURE_TTL,
   type SessionRef,
@@ -231,19 +232,41 @@ export async function readSubjectDetail(
   session: SectionProps["session"], row: AttRow & Record<string, unknown>,
   base: { registrationid?: string | null; registrationcode?: string | null },
 ) {
-  const data = await features.getSubjectAttendanceAll(client, session, row, base, "current");
-  if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
-  return data;
+  const generation = getCacheGeneration();
+  const portalDay = getPortalDayKey();
+  const key = sessionCacheKey("att.subject.pending", session, base.registrationid, rowSubId(row));
+  const snapshot = JSON.stringify([computeSubjectRowChecksum(row), base,
+    row.individualsubjectcode ?? row.subjectcode,
+    ...["L", "T", "P"].map((type) => row[`${type}subjectcomponentid`] ?? null),
+  ]);
+  const checkpoint = getCached<Record<string, Record<string, unknown>>>(key);
+  const validComponent = ([type, data]: [string, Record<string, unknown>]) =>
+    ["L", "T", "P"].includes(type) && Boolean(row[`${type}subjectcomponentid`]) &&
+    isSubjectDetailComplete({ [`${type}subjectcomponentid`]: row[`${type}subjectcomponentid`] }, { [type]: data });
+  const reusable = checkpoint.snapshot === snapshot && checkpoint.portalDay === portalDay ? checkpoint.data : null;
+  const completed = new Map(Object.entries(reusable ?? {}).filter(validComponent));
+  const current = () => isCacheGenerationCurrent(generation) && getPortalDayKey() === portalDay;
+  try {
+    const data = await features.getSubjectAttendanceAll(client, session, row, base, "current", { completed });
+    if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
+    if (current() && checkpoint.data) setCached(key, {}, { snapshot, portalDay });
+    return data;
+  } catch (error) {
+    if (current()) setCached(key, Object.fromEntries([...completed].filter(validComponent)), { snapshot, portalDay });
+    throw error;
+  }
 }
 
 export function refreshSubjectDetail(
   session: SectionProps["session"], row: AttRow & Record<string, unknown>,
   base: { registrationid?: string | null; registrationcode?: string | null },
 ) {
+  const checksum = computeSubjectRowChecksum(row);
   return requestFeature(
     getSubjectCacheKey(session.username, base.registrationid, row, session.instituteid),
     () => readSubjectDetail(session, row, base),
-    { checksum: computeSubjectRowChecksum(row) },
+    { checksum },
+    checksum,
   );
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type PointerEvent } from "react";
+import { useState, useEffect, useRef, useCallback, useContext, type PointerEvent } from "react";
 import { useFeature } from "../hooks/useFeature";
 import { SectionError } from "./DataViews";
 import type { Session } from "../types";
@@ -22,9 +22,12 @@ import {
   doesSubjectNeedDeepFetch,
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
-import { useAppBack } from "../hooks/useAppBack";
+import { BackScope, useAppBack } from "../hooks/useAppBack";
 import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget, type AttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { selectionHaptic } from "../lib/nativeInteractions";
+import { getSessionStatus, onSessionStatus } from "../lib/portal";
+import { pauseAttendanceSync } from "../lib/attendanceSync";
+import { SLOW_PORTAL_MESSAGE, useSlowRequest } from "../hooks/useSlowRequest";
 
 export function SubjectDetailSheet({
   row,
@@ -32,7 +35,6 @@ export function SubjectDetailSheet({
   registrationcode,
   session,
   cachedDetail,
-  enabled = true,
   onDetailLoaded,
   onClose,
   onLogout: _onLogout,
@@ -42,7 +44,6 @@ export function SubjectDetailSheet({
   registrationcode?: string;
   session: Session;
   cachedDetail?: Record<string, Record<string, unknown>>;
-  enabled?: boolean;
   onDetailLoaded?: (subId: string, data: Record<string, Record<string, unknown>>, updatedAt?: number | null) => void;
   onClose: () => void;
   onLogout: () => void;
@@ -56,6 +57,14 @@ export function SubjectDetailSheet({
   const [target, setTarget] = useState<AttendanceTarget>(defaultTarget);
   const [attendCount, setAttendCount] = useState(0);
   const [missCount, setMissCount] = useState(0);
+  const [sessionStatus, setSessionStatus] = useState(getSessionStatus);
+  useEffect(() => {
+    const unsubscribe = onSessionStatus(setSessionStatus);
+    setSessionStatus(getSessionStatus());
+    return unsubscribe;
+  }, []);
+  const visible = useContext(BackScope);
+  useEffect(() => { if (visible) return pauseAttendanceSync(); }, [visible]);
 
   const { name } = subjectName(row.subjectcode);
   const base = { registrationid, registrationcode };
@@ -67,7 +76,7 @@ export function SubjectDetailSheet({
     run: () => readSubjectDetail(session, row, base),
     deps: [session, registrationid, String(row.subjectid), rowChecksum],
     cacheKey,
-    enabled,
+    requestVersion: rowChecksum,
     isFresh: (updatedAt) => {
       const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
       return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
@@ -76,6 +85,7 @@ export function SubjectDetailSheet({
   });
 
   const onDetailLoadedRef = useRef(onDetailLoaded);
+  const slow = useSlowRequest(detail.loading || detail.refreshing);
   onDetailLoadedRef.current = onDetailLoaded;
 
   useEffect(() => {
@@ -86,8 +96,9 @@ export function SubjectDetailSheet({
   }, [detail.data, detail.updatedAt, row]);
 
   const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
-  const activeDetail = entry.checksum && entry.checksum !== rowChecksum ? undefined : detail.data ?? cachedDetail;
-  const attInfo = combinedAttendance(row, activeDetail, target / 100);
+  const activeDetail = detail.data ?? cachedDetail ?? entry.data;
+  const savedBreakdown = Boolean(activeDetail) && doesSubjectNeedDeepFetch(row, activeDetail, entry.updatedAt, entry.checksum);
+  const attInfo = combinedAttendance(row, activeDetail, target / 100, savedBreakdown);
 
   // Simulation calculations (supports attending X and leaving Y simultaneously)
   const totalSimPresent = attInfo.totalPresent + attendCount;
@@ -208,6 +219,8 @@ export function SubjectDetailSheet({
             )}
           </div>
 
+          {savedBreakdown && <p className="muted">You're viewing cached details</p>}
+
           {/* Interactive Target Selector & Actionable Advice in Same Compact Row */}
           {attInfo.hasHeldClasses && (
             <div className="att-target-row">
@@ -264,11 +277,17 @@ export function SubjectDetailSheet({
 
         {/* Detailed Class History Log */}
         <div className="att-sheet-history-section">
-          {(detail.loading || detail.refreshing || !enabled) && !activeDetail && <p className="muted">Loading class breakdown…</p>}
+          {(detail.loading || detail.refreshing) && (
+            <p className="muted" role="status">
+              {sessionStatus === "recovering" ? "Reconnecting to JUET's portal…"
+                : slow ? SLOW_PORTAL_MESSAGE
+                : activeDetail ? "Updating breakdown…" : "Loading class breakdown…"}
+            </p>
+          )}
           {detail.error && (
             <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />
           )}
-          {activeDetail && Object.keys(activeDetail).length > 0 && (
+          {activeDetail && (
             <div className="att-detail-grid">
               <CombinedClassLog data={activeDetail} />
             </div>

@@ -736,3 +736,13 @@ test("blocked refresh notices reassure users without a countdown", async () => {
   }
   assert.equal(getRefreshQuotaNotice({ blockedReason: null }), "Refresh attendance");
 });
+
+test("component reassignment invalidates equal-percentage history without treating ID order as a change", () => {
+  const row = { subjectid: "component-snapshot", subjectcode: "CS101", Lsubjectcomponentid: "a,b", Lpercentage: 100 };
+  const data = { L: { summary: [{ present: "Y" }] } };
+  const checksum = computeSubjectRowChecksum(row);
+  assert.equal(computeSubjectRowChecksum({ ...row, Lsubjectcomponentid: "b,a" }), checksum);
+  const reassigned = { ...row, Lsubjectcomponentid: "a,c" };
+  assert.notEqual(computeSubjectRowChecksum(reassigned), checksum);
+  assert.equal(doesSubjectNeedDeepFetch(reassigned, data, Date.now(), checksum), true);
+});

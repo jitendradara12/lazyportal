@@ -310,7 +310,8 @@ function pickComponent(row: Record<string, unknown>, prefix: string): string {
   const tot = pick(row, `${prefix}totalclass`, `${prefix}Totalclass`, `${prefix.toLowerCase()}totalclass`);
   const pres = pick(row, `${prefix}totalpresent`, `${prefix}Totalpresent`, `${prefix.toLowerCase()}totalpresent`);
   const pct = pick(row, `${prefix}percentage`);
-  return `${tot}:${pres}:${pct}`;
+  const components = pick(row, `${prefix}subjectcomponentid`).split(",").filter(Boolean).sort().join(",");
+  return `${tot}:${pres}:${pct}:${components}`;
 }
 
 /**

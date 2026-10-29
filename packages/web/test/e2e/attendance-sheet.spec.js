@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { computeSubjectRowChecksum } from "../../src/lib/portalSchedule.ts";
+import { decrypt } from "../../../core/src/crypto.js";
 import { mockPortal, SESSION } from "./helpers.js";
 
 test.beforeEach(async ({ page }) => {
@@ -135,4 +136,249 @@ test("desktop keeps its centered dialog and Escape dismissal", async ({ page }) 
   expect(Math.abs(box.x + box.width / 2 - 500)).toBeLessThan(1);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+for (const addTutorial of [false, true]) {
+test(`${addTutorial ? "adding a tutorial" : "changed overview"} keeps saved history and calculator visible during a failed update`, async ({ page }) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/**/getstudentsubjectpersentage", async (route) => {
+    await gate;
+    await route.fulfill({ status: 503, body: "Unavailable" });
+  });
+  await page.evaluate(({ session, addTutorial }) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0].Ppercentage = 90;
+    if (addTutorial) {
+      const row = entry.data.rows[0];
+      delete row.Psubjectcomponentid;
+      delete row.Ppercentage;
+      Object.assign(row, { Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "new-tutorial", LTpercentage: 90 });
+      const subjectKey = ["att.subject", session.username, session.instituteid, "sem1", "subject1"].map(encodeURIComponent).join(":");
+      const saved = JSON.parse(localStorage.getItem(`juet.cache.${subjectKey}`));
+      saved.data = { L: saved.data.P };
+      localStorage.setItem(`juet.cache.${subjectKey}`, JSON.stringify(saved));
+    }
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, { session: SESSION, addTutorial });
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  const dialog = page.getByRole("dialog");
+  try {
+    await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("radiogroup", { name: "Target percentage", exact: true })).toBeVisible();
+    await expect(dialog.locator(".att-sheet-score")).toHaveText("90.0%");
+    await expect(dialog.locator(".att-sheet-ratio-val")).toHaveText("28 / 28");
+  } finally {
+    release();
+  }
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "What-if calculator", exact: true })).toBeVisible();
+  await expect(dialog.locator(".att-sheet-ratio-val")).toHaveText("28 / 28");
+});
+}
+
+test("yesterday's overview failing does not block an uncached subject", async ({ page }) => {
+  await page.addInitScript((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.updatedAt = Date.now() - 86400000;
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    const subject = ["att.subject", session.username, session.instituteid, "sem1", "subject1"].map(encodeURIComponent).join(":");
+    localStorage.removeItem(`juet.cache.${subject}`);
+  }, SESSION);
+  await page.route("**/api/**/getstudentattendancedetail", (route) => route.fulfill({ status: 503, body: "Unavailable" }));
+  await page.route("**/api/**/getstudentsubjectpersentage", (route) => route.fulfill({ json: {
+    status: { responseStatus: "Success" }, response: { student_attdsummarylist: [{ datetime: "28/10/2026 09:00 AM", present: "Y" }] },
+  } }));
+  await page.reload();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("Loading class breakdown…", { exact: true })).toHaveCount(0);
+});
+
+test("a timed-out read releases shared work so reopening can retry without losing saved history", async ({ page }) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.clock.install();
+  let calls = 0, release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/**/getstudentsubjectpersentage", async (route) => {
+    calls++;
+    if (calls === 1) await gate;
+    await route.fulfill({ json: { status: { responseStatus: "Success" }, response: {
+      student_attdsummarylist: Array.from({ length: 30 }, () => ({ present: "Y", datetime: "28/10/2026 09:00 AM" })),
+    } } });
+  });
+  await page.evaluate((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0].Ppercentage = 90;
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  await expect.poll(() => calls).toBe(1);
+  try {
+    await page.clock.fastForward(60_001);
+    await expect(page.getByRole("dialog").getByRole("alert")).toContainText("too long");
+    await expect(page.getByRole("dialog").getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close subject details" }).click();
+    await page.clock.runFor(250);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+    await expect(page.getByRole("dialog").getByRole("button", { name: "All (30)", exact: true })).toBeVisible();
+    expect(calls).toBe(2);
+  } finally {
+    release();
+  }
+});
+
+test("session recovery is visible and its failure preserves saved history with a retry", async ({ page }) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/**/getstudentsubjectpersentage", (route) => route.fulfill({ status: 401, body: "" }));
+  await page.route("**/api/token/refreshTokenRequest", async (route) => {
+    await gate;
+    await route.fulfill({ status: 401, body: "" });
+  });
+  await page.evaluate((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0].Ppercentage = 90;
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  const dialog = page.getByRole("dialog");
+  try {
+    await expect(dialog.getByRole("status")).toHaveText("Reconnecting to JUET's portal…");
+    await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+  } finally {
+    release();
+  }
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+});
+
+test("a newer overview arriving during a breakdown read gets its own revalidation", async ({ page }) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  let calls = 0, release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/**/getstudentsubjectpersentage", async (route) => {
+    calls++;
+    if (calls === 1) await gate;
+    await route.fulfill({ json: { response: {
+      student_attdsummarylist: Array.from({ length: calls === 1 ? 30 : 32 }, () => ({ present: "Y", datetime: "28/10/2026 09:00 AM" })),
+    } } });
+  });
+  const update = (percentage) => page.evaluate(({ session, percentage }) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0].Ppercentage = percentage;
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, { session: SESSION, percentage });
+  await update(90);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  await expect.poll(() => calls).toBe(1);
+  await update(80);
+  release();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "All (32)", exact: true })).toBeVisible();
+  expect(calls).toBe(2);
+});
+
+test("a normal 25-second portal response shows progress and succeeds on its first attempt", async ({ page }, testInfo) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.clock.install();
+  let release, calls = 0;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/**/getstudentsubjectpersentage", async (route) => {
+    calls++;
+    await gate;
+    await route.fulfill({ json: { response: { student_attdsummarylist: [
+      { datetime: "28/10/2026 09:00 AM", present: "Y" },
+    ] } } });
+  });
+  await page.evaluate((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0].Ppercentage = 90;
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  await expect.poll(() => calls).toBe(1);
+  const dialog = page.getByRole("dialog");
+  try {
+    await expect(dialog.getByRole("status")).toHaveText("Updating breakdown…");
+    await page.clock.runFor(100);
+    await page.clock.fastForward(8_001);
+    await expect(dialog.getByRole("status")).toContainText("Just wait, JUET's server is responding really slow.");
+    await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+    for (const [name, width, height] of [["mobile", 412, 839], ["desktop", 1280, 900]]) {
+      await page.setViewportSize({ width, height });
+      await page.screenshot({ path: testInfo.outputPath(`slow-portal-${name}.png`), animations: "disabled" });
+    }
+    await page.clock.fastForward(17_000);
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await expect(dialog.getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("status")).toHaveCount(0);
+  expect(calls).toBe(1);
+});
+
+test("retrying a failed tutorial preserves saved history and reuses its successful lecture", async ({ page }) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  let lectureReads = 0, tutorialReads = 0, releaseTutorial;
+  const firstTutorial = new Promise((resolve) => { releaseTutorial = resolve; });
+  const record = (present) => ({ present, datetime: "28/10/2026 09:00 AM" });
+  await page.route("**/api/**/getstudentsubjectpersentage", async (route) => {
+    const payload = JSON.parse(await decrypt(route.request().postData()));
+    const lecture = payload.cmpidkey[0].subjectcomponentid === "lecture";
+    if (lecture) lectureReads++;
+    else tutorialReads++;
+    if (!lecture && tutorialReads === 1) {
+      await firstTutorial;
+      return route.fulfill({ status: 503, body: "Unavailable" });
+    }
+    await route.fulfill({ json: { response: { student_attdsummarylist: lecture
+      ? [record("Y"), record("Y"), record("Y")] : [record("N")] } } });
+  });
+  await page.evaluate((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0] = { subjectid: "subject1", subjectcode: "TEST SUBJECT(CS101)",
+      Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 75 };
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    const detailKey = ["att.subject", session.username, session.instituteid, "sem1", "subject1"].map(encodeURIComponent).join(":");
+    const component = { student_attdsummarylist: [{ present: "Y", datetime: "27/10/2026 09:00 AM" }] };
+    localStorage.setItem(`juet.cache.${detailKey}`, JSON.stringify({ data: { L: component, T: component }, updatedAt: Date.now(), checksum: "old" }));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("status")).toHaveText("Updating breakdown…");
+  releaseTutorial();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "All (2)", exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "All (4)", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  expect(lectureReads).toBe(1);
+  expect(tutorialReads).toBe(2);
 });

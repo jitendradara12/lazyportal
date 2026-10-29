@@ -10,6 +10,8 @@ import { encrypt, makeLocalName } from "./crypto.js";
 import { toPortalError, SessionExpiredError, PortalError } from "./errors.js";
 
 const DEFAULT_REFRESH_TIMEOUT_MS = 90_000;
+// Lecture history can take about 25s even without competing requests.
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
  * @param baseUrl e.g. https://studentportal.juet.ac.in/StudentPortalAPI
@@ -27,6 +29,7 @@ export function createClient({
   onSessionStatusChange,
   now = () => new Date(),
   refreshTimeoutMs = DEFAULT_REFRESH_TIMEOUT_MS,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 } = {}) {
   if (!baseUrl) throw new Error("baseUrl required");
   let refreshing = null;
@@ -60,10 +63,36 @@ export function createClient({
     return headers?.Authorization ?? headers?.authorization;
   }
 
-  async function safeFetch(url, init) {
+  async function safeFetch(url, init, responseType) {
+    const controller = new AbortController();
+    const abort = () => controller.abort(init.signal.reason);
+    if (init.signal?.aborted) abort();
+    else init.signal?.addEventListener("abort", abort, { once: true });
+    const timeoutMs = Number.isFinite(requestTimeoutMs)
+      ? Math.max(0, requestTimeoutMs) : DEFAULT_REQUEST_TIMEOUT_MS;
+    const timer = setTimeout(() => controller.abort(new PortalError(
+      "JUET's portal took too long to respond. Please retry.", { code: "REQUEST_TIMEOUT" },
+    )), timeoutMs);
+    let rejectAbort;
+    const aborted = new Promise((_, reject) => {
+      rejectAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", rejectAbort, { once: true });
+      if (controller.signal.aborted) rejectAbort();
+    });
     try {
-      return await fetchImpl(url, init);
+      return await Promise.race([aborted, (async () => {
+        if (controller.signal.aborted) throw controller.signal.reason;
+        const res = await fetchImpl(url, { ...init, signal: controller.signal });
+        // Keep the deadline through the body read. Recovery starts after this
+        // response finishes and retains its separate shared 90-second budget.
+        if (res.status === 401 || res.status === 204) return res;
+        const pdf = responseType === "pdf" && res.ok && res.headers?.get("content-type")?.includes("application/pdf");
+        const body = pdf ? await res.arrayBuffer() : await res.text();
+        return { ok: res.ok, status: res.status, headers: res.headers,
+          text: async () => body, arrayBuffer: async () => body };
+      })()]);
     } catch (err) {
+      if (controller.signal.aborted) throw controller.signal.reason;
       // Aborts are control flow for recovery/logout, not a portal outage.
       if (err && (err.name === "AbortError" || err.code === "ABORT_ERR")) throw err;
       if (err instanceof PortalError) throw err;
@@ -73,6 +102,10 @@ export function createClient({
           : "JUET's portal is down (not us).",
         { code: "NETWORK_ERROR" }
       );
+    } finally {
+      clearTimeout(timer);
+      init.signal?.removeEventListener("abort", abort);
+      controller.signal.removeEventListener("abort", rejectAbort);
     }
   }
 
@@ -88,7 +121,7 @@ export function createClient({
   async function fetchSent(sent) {
     const init = await sent.build();
     const request = { ...sent, usedAuthorization: authorizationFrom(init) };
-    const response = await safeFetch(`${baseUrl}${sent.endpoint}`, init);
+    const response = await safeFetch(`${baseUrl}${sent.endpoint}`, init, sent.responseType);
     return { response, sent: request };
   }
 
@@ -336,7 +369,7 @@ export function createClient({
   }
 
   async function dispatch(endpoint, build, opts) {
-    const { response, sent } = await fetchSent({ endpoint, build });
+    const { response, sent } = await fetchSent({ endpoint, build, responseType: opts?.responseType });
     return handle(response, sent, opts);
   }
 

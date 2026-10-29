@@ -27,7 +27,7 @@ const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 // Share connections across warm/Fluid invocations, but retain only a small
 // idle pool. Active requests are not capped/queued (maxSockets is Infinity).
-// The idle timeout is at most 5s, separate from each request's 45s upstream inactivity timeout.
+// The idle timeout is at most 5s, separate from each request's 55s upstream inactivity timeout.
 const upstreamAgent = new https.Agent({
   ...portalTlsOptions(),
   keepAlive: true,
@@ -197,7 +197,7 @@ function fetchUpstream(target, { method, headers, body, signal }) {
       resolve
     );
     req.once("error", reject);
-    req.setTimeout(45_000, () => req.destroy(new Error("upstream timeout")));
+    req.setTimeout(55_000, () => req.destroy(new Error("upstream timeout")));
     req.end(body);
   });
 }

@@ -202,7 +202,7 @@ export function MarksSection({ session }: SectionProps) {
   const retry = lov.error || (isDefault && lov.data?.historyError) ? lov.retry : detail.retry;
   const courses = useMemo(() => groupSubjectMarks(rawRows), [rawRows]);
 
-  const pageRefresh = usePageRefresh("marks", session, loading);
+  const pageRefresh = usePageRefresh("marks", session, loading || lov.refreshing || detail.refreshing);
 
   return (
     <div className="page">

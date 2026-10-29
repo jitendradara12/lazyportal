@@ -201,3 +201,25 @@ test("in-flight abort cancels exactly its native ID and ignores late responses",
   await Promise.resolve();
   assert.equal(s.proxies.length, 0);
 });
+
+test("stalled native capability discovery falls back once before sending any portal request", async () => {
+  let finishCapabilities, discoveries = 0, proxyCalls = 0;
+  const transport = createPortalTransport({ baseUrl, capabilityTimeoutMs: 5,
+    native: {
+      capabilities() { discoveries++; return new Promise((resolve) => { finishCapabilities = resolve; }); },
+      request() { throw new Error("Stale capabilities must not change the chosen route"); },
+    },
+    fetchImpl: async () => { proxyCalls++; return new Response("{}"); },
+  });
+  const paths = Object.values(featurePostEndpoints.attendance);
+  const routed = await Promise.race([
+    transport.usesProxyFor("POST", paths),
+    new Promise((resolve) => setTimeout(() => resolve("hung"), 50)),
+  ]);
+  assert.equal(routed, true);
+  assert.equal(proxyCalls, 0);
+  finishCapabilities({ version: 1, post: paths, get: [] });
+  await transport.fetch(`${baseUrl}${paths[0]}`, { method: "POST" });
+  assert.equal(discoveries, 1);
+  assert.equal(proxyCalls, 1);
+});

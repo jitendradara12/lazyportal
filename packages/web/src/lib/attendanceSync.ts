@@ -7,6 +7,25 @@ import type { RefreshPolicy } from "./refreshPolicy";
 
 type Detail = Record<string, Record<string, unknown>>;
 
+let openSheets = 0;
+const resumeListeners = new Set<() => void>();
+
+/** Let the open subject use the network before starting another queued subject. */
+export function pauseAttendanceSync() {
+  openSheets++;
+  return () => {
+    openSheets--;
+    if (openSheets === 0) {
+      for (const resume of resumeListeners) resume();
+      resumeListeners.clear();
+    }
+  };
+}
+
+async function waitForOpenSheets() {
+  while (openSheets > 0) await new Promise<void>((resolve) => resumeListeners.add(resolve));
+}
+
 /** Preserve change detection across retries within the same portal day. */
 export interface ManualAttendanceRefreshCheckpoint {
   portalDay?: string;
@@ -58,32 +77,31 @@ export async function syncAttendanceDetails({
   const errors: unknown[] = [];
   const progress = () => { if (isCurrent()) onProgress?.(new Set(pending), done, total); };
   progress();
-  await Promise.all(Array.from({ length: Math.min(2, total) }, async () => {
-    while (queue.length && !cancelled) {
+  while (queue.length && !cancelled) {
+    await waitForOpenSheets();
+    if (!isCurrent()) { cancelled = true; break; }
+    const { row, entry } = queue.shift()!;
+    const id = rowSubId(row);
+    try {
+      // A sheet may have loaded this queued subject while the worker was
+      // busy. Recheck at dequeue time, not just when the batch was created.
+      const latest = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
+      const needsRead = doesSubjectNeedDeepFetch(row, latest.data, latest.updatedAt, latest.checksum);
+      const result = needsRead ? await refreshSubjectDetail(session, row, base) : { data: latest.data!, updatedAt: latest.updatedAt };
       if (!isCurrent()) { cancelled = true; break; }
-      const { row, entry } = queue.shift()!;
-      const id = rowSubId(row);
-      try {
-        // A sheet may have loaded this queued subject while other workers were
-        // busy. Recheck at dequeue time, not just when the batch was created.
-        const latest = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
-        const needsRead = doesSubjectNeedDeepFetch(row, latest.data, latest.updatedAt, latest.checksum);
-        const result = needsRead ? await refreshSubjectDetail(session, row, base) : { data: latest.data!, updatedAt: latest.updatedAt };
-        if (!isCurrent()) { cancelled = true; break; }
-        syncedAt = Math.max(syncedAt, result.updatedAt ?? 0);
-        changed ||= detailSignature(entry.data) !== detailSignature(result.data);
-        onDetail?.(id, result.data);
-      } catch (error) {
-        errors.push(error);
-        const e = error as { code?: string; status?: number };
-        if (e.code === "SESSION_EXPIRED" || e.status === 401) cancelled = true;
-      } finally {
-        pending.delete(id);
-        done++;
-        progress();
-      }
+      syncedAt = Math.max(syncedAt, result.updatedAt ?? 0);
+      changed ||= detailSignature(entry.data) !== detailSignature(result.data);
+      onDetail?.(id, result.data);
+    } catch (error) {
+      errors.push(error);
+      const e = error as { code?: string; status?: number };
+      if (e.code === "SESSION_EXPIRED" || e.status === 401) cancelled = true;
+    } finally {
+      pending.delete(id);
+      done++;
+      progress();
     }
-  }));
+  }
   const complete = isCurrent() && !cancelled && errors.length === 0 && done === total;
   if (complete && syncedAt > 0) {
     try {

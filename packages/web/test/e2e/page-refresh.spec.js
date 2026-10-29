@@ -181,7 +181,7 @@ for (const semester of ["current", "past"]) test(`${semester} marks refresh reta
   await refresh(page, "Refresh marks");
   await expect(page.locator(".score-header .score-value")).toHaveText("20/40");
   await page.locator(".score-header").click();
-  await expect(page.locator(".score-exam-label")).toHaveText(["T1", "T2"]);
+  await expect(page.locator(".score-exam-label")).toHaveText(["T1", "T2New"]);
   await expect(page.locator(".score-exam .score-value")).toHaveText(["7/15", "13/25"]);
   await page.reload();
   await expect(page.locator(".score-header .score-value")).toHaveText("20/40");
@@ -235,4 +235,35 @@ test("cooldown survives blocked storage, expires after 20s, and offline refresh 
   await page.context().setOffline(true);
   await refresh(page, "Refresh marks");
   expect(calls).toEqual([]);
+});
+
+test("Retry revalidates a recent cached result after a failed refresh", async ({ page }) => {
+  await setup(page);
+  await page.evaluate((session) => {
+    const key = ["marks.latest", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.updatedAt = Date.now();
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+  }, SESSION);
+  let fail = true, calls = 0;
+  await page.route("**/api/studentsexamview/getstudent-exammarks", (route) => {
+    calls++;
+    return fail ? route.fulfill({ status: 503, body: "Unavailable" }) : route.fulfill({ json: {
+      response: { viewmarksbystudent: [{ ...marksRow, subjectdesc: "Recovered subject" }] },
+    } });
+  });
+  await navigate(page, "Marks");
+  await refresh(page, "Refresh marks");
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByText("Cached Subject", { exact: true })).toBeVisible();
+  fail = false;
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.getByText("Recovered Subject", { exact: true })).toBeVisible();
+  expect(calls).toBe(2);
+});
+
+test("reconnecting explicitly revalidates even freshly cached attendance", async ({ page }) => {
+  const calls = await setup(page);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("juet:refresh-attendance", { detail: { force: true } })));
+  await expect.poll(() => paths(calls)).toEqual(["getstudentattendancedetail"]);
 });

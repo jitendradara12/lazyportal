@@ -10,7 +10,7 @@ import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
 import {
   isCurrentPortalDay,
-  computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
   getManualRefreshQuota,
   getRefreshQuotaNotice,
   subscribePortalDayRollover,
@@ -154,18 +154,21 @@ export function AttendancePage({
     return map;
   });
 
-  // Old logs can otherwise override a newly fetched percentage after a partial
-  // failure. Keep cached numbers only while they describe the same overview.
-  const visibleDetailsMap = useMemo(() => {
-    const compatible: typeof detailsMap = {};
+  // Read scoped cache entries so counts survive revalidation without carrying
+  // another semester's in-memory data into the current overview.
+  const subjectStates = useMemo(() => {
+    const states: Record<string, {
+      data: Record<string, Record<string, unknown>> | null;
+      saved: boolean;
+      attendance: ReturnType<typeof combinedAttendance>;
+    }> = {};
     for (const row of rows) {
       const id = rowSubId(row);
       const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
-      if (!entry.checksum || entry.checksum === computeSubjectRowChecksum(row)) {
-        if (detailsMap[id]) compatible[id] = detailsMap[id];
-      }
+      const saved = Boolean(entry.data) && doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum);
+      states[id] = { data: entry.data, saved, attendance: combinedAttendance(row, entry.data, 0.7, saved) };
     }
-    return compatible;
+    return states;
   }, [rows, detailsMap, session, semId]);
 
   const activeSelectedSubject = useMemo(() => {
@@ -247,14 +250,14 @@ export function AttendancePage({
     const filtered: (AttRow & Record<string, unknown>)[] = [];
     for (const r of rows) {
       const subId = rowSubId(r);
-      const isShort = combinedAttendance(r, visibleDetailsMap[subId]).isShort;
+      const isShort = subjectStates[subId].attendance.isShort;
       if (isShort) count++;
       if (filter === "all" || isShort) {
         filtered.push(r as AttRow & Record<string, unknown>);
       }
     }
     return { shortsCount: count, filteredRows: filtered };
-  }, [rows, visibleDetailsMap, filter]);
+  }, [rows, subjectStates, filter]);
 
   const { setShorts } = shell;
   useEffect(() => setShorts(shortsCount), [shortsCount, setShorts]);
@@ -385,9 +388,10 @@ export function AttendancePage({
               const { name, badge } = subjectName(r.subjectcode);
               const subId = rowSubId(r);
               const isSubjectSyncing = syncingIds.has(subId);
-              const attInfo = combinedAttendance(r, visibleDetailsMap[subId]);
+              const subject = subjectStates[subId];
+              const attInfo = subject.attendance;
               const hasPercentage = attInfo.pctNum !== null;
-              const hasDetail = isSubjectDetailComplete(r, visibleDetailsMap[subId]);
+              const hasDetail = isSubjectDetailComplete(r, subject.data);
 
               return (
                 <button
@@ -403,7 +407,7 @@ export function AttendancePage({
                       {badge && <span className="att-code">{badge}</span>}
                       {badge && " · "}
                       {attInfo.totalClasses > 0 ? (
-                        `${attInfo.totalPresent}/${attInfo.totalClasses} classes`
+                        `${subject.saved ? "Saved " : ""}${attInfo.totalPresent}/${attInfo.totalClasses} classes`
                       ) : !hasDetail || hasPercentage ? (
                         isSyncing ? "Loading classes…" : "Class details unavailable"
                       ) : (
@@ -450,8 +454,7 @@ export function AttendancePage({
           registrationid={sem?.registrationid}
           registrationcode={sem?.registrationcode}
           session={session}
-          cachedDetail={visibleDetailsMap[subjectRowId(activeSelectedSubject)]}
-          enabled={!att.refreshing && isCurrentPortalDay(att.updatedAt)}
+          cachedDetail={subjectStates[subjectRowId(activeSelectedSubject)]?.data ?? undefined}
           onDetailLoaded={handleDetailLoaded}
           onClose={() => setSelectedSubject(null)}
           onLogout={onLogout}

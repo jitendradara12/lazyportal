@@ -594,6 +594,31 @@ describe("features", () => {
     assert.equal(calls[0][1].subjectcode, "ISC1");
   });
 
+  it("retries only failed components of the exact attendance snapshot", async () => {
+    const calls = [];
+    let failTutorial = true;
+    const fake = { async post(endpoint, payload) {
+      const type = payload.cmpidkey[0].subjectcomponentid;
+      calls.push(type);
+      if (type === "t" && failTutorial) throw new Error("tutorial unavailable");
+      return { response: { summary: [{ present: "Y" }] } };
+    } };
+    const session = { username: "student", instituteid: "i1", token: "token" };
+    const row = { subjectid: "s1", Lsubjectcomponentid: "l", Tsubjectcomponentid: "t", Lpercentage: 80 };
+    const base = { registrationid: "r1", registrationcode: "RC1" };
+    const completed = new Map();
+    const read = () => getSubjectAttendanceAll(fake, session, row, base, "current", { completed });
+    await assert.rejects(read(), /tutorial unavailable/);
+    failTutorial = false;
+    const result = await read();
+    assert.deepEqual(Object.keys(result).sort(), ["L", "T"]);
+    assert.deepEqual(calls, ["l", "t", "t"], "successful lecture must survive tutorial retry");
+    assert.deepEqual([...completed.keys()].sort(), ["L", "T"]);
+    // A new snapshot gets a new checkpoint from the caller.
+    await getSubjectAttendanceAll(fake, session, { ...row, Lpercentage: 90 }, base, "current", { completed: new Map() });
+    assert.deepEqual(calls.slice(-2), ["l", "t"]);
+  });
+
   it("getSubjectAttendanceAll handles NO Attendance Found as empty summary", async () => {
     const fake = {
       async post() {
@@ -684,131 +709,21 @@ describe("features", () => {
     );
   });
 
-  it("getSubjectAttendanceAll retries transient 502/network errors once before succeeding", async () => {
-    let lecAttempts = 0;
-    const fake = {
-      async post(endpoint, payload) {
-        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_lec") {
-          lecAttempts++;
-          if (lecAttempts === 1) {
-            const err = new Error("Upstream unreachable");
-            err.status = 502;
-            throw err;
-          }
-          return { response: { summary: [{ present: "Y" }] } };
-        }
-        return { response: { summary: [{ present: "Y" }] } };
-      },
-    };
-    const row = {
-      subjectid: "s1", subjectcode: "SC1",
-      Lsubjectcomponentid: "c_lec",
-      Tsubjectcomponentid: "c_tut",
-    };
-    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
-    assert.equal(lecAttempts, 2, "retried lecture component once");
-    assert.ok(out.L);
-    assert.ok(out.T);
-  });
-
-  it("getSubjectAttendanceAll retries on code NETWORK_ERROR without status 502", async () => {
-    let lecAttempts = 0;
-    const fake = {
-      async post(endpoint, payload) {
-        if (payload.cmpidkey?.[0]?.subjectcomponentid === "c_lec") {
-          lecAttempts++;
-          if (lecAttempts === 1) {
-            const err = new Error("Transport failed");
-            err.code = "NETWORK_ERROR";
-            throw err;
-          }
-          return { response: { summary: [{ present: "Y" }] } };
-        }
-        return { response: { summary: [{ present: "Y" }] } };
-      },
-    };
-    const row = {
-      subjectid: "s1", subjectcode: "SC1",
-      Lsubjectcomponentid: "c_lec",
-      Tsubjectcomponentid: "c_tut",
-    };
-    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
-    assert.equal(lecAttempts, 2, "retried lecture component once on NETWORK_ERROR");
-    assert.ok(out.L);
-    assert.ok(out.T);
-  });
-
-  it("getSubjectAttendanceAll does not retry on 401 or non-gateway 500 error", async () => {
+  for (const failure of [
+    { code: "NETWORK_ERROR" }, { code: "REQUEST_TIMEOUT" },
+    { status: 502 }, { status: 504 }, { status: 500 }, { status: 401 },
+  ]) it(`getSubjectAttendanceAll leaves ${JSON.stringify(failure)} retries to the caller`, async () => {
     let calls = 0;
-    const fake = {
-      async post() {
-        calls++;
-        const err = new Error("Session expired");
-        err.code = "SESSION_EXPIRED";
-        err.status = 401;
-        throw err;
-      },
-    };
-    const row = {
-      subjectid: "s1", subjectcode: "SC1",
-      Lsubjectcomponentid: "c_lec",
-    };
-    await assert.rejects(
-      getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }),
-      { code: "SESSION_EXPIRED" }
-    );
-    assert.equal(calls, 1, "does not retry auth errors");
+    const error = Object.assign(new Error("Unavailable"), failure);
+    const fake = { async post() { calls++; throw error; } };
+    const row = { subjectid: "s1", subjectcode: "SC1", Lsubjectcomponentid: "c_lec" };
+    const read = () => getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    await assert.rejects(read, (err) => err === error);
+    assert.equal(calls, 1);
+    fake.post = async () => { calls++; return { response: { summary: [] } }; };
+    assert.deepEqual(await read(), { L: { summary: [] } });
+    assert.equal(calls, 2);
   });
-
-  it("getSubjectAttendanceAll throws when retry attempts are exhausted", async () => {
-    let calls = 0;
-    const fake = {
-      async post() {
-        calls++;
-        const err = new Error("Gateway timeout");
-        err.status = 504;
-        throw err;
-      },
-    };
-    const row = {
-      subjectid: "s1", subjectcode: "SC1",
-      Lsubjectcomponentid: "c_lec",
-    };
-    await assert.rejects(
-      getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" }),
-      /Gateway timeout/
-    );
-    assert.equal(calls, 2, "attempted once and retried once before giving up");
-  });
-
-  it("getSubjectAttendanceAll normalizes to empty summary if retry returns NO Attendance Found", async () => {
-    let calls = 0;
-    const fake = {
-      async post() {
-        calls++;
-        if (calls === 1) {
-          const err = new Error("Bad gateway");
-          err.status = 502;
-          throw err;
-        }
-        const err = new Error("NO Attendance Found");
-        err.errors = ["NO Attendance Found"];
-        throw err;
-      },
-    };
-    const row = {
-      subjectid: "s1", subjectcode: "SC1",
-      Lsubjectcomponentid: "c_lec",
-    };
-    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
-    assert.equal(calls, 2, "retried after initial 502");
-    assert.deepEqual(out, { L: { summary: [] } });
-  });
-
-
-
-
-
 
   it("getChoiceSemesters posts empty object and returns registrationcodelist", async () => {
     let seen;

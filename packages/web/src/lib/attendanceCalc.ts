@@ -183,16 +183,41 @@ export function parseClassLogs(raw: unknown, type?: string): {
   return { total, attended, absent, pct: percentage, classes };
 }
 
-export function combinedAttendance(
-  r: Record<string, unknown>,
-  detail?: Record<string, Record<string, unknown>> | null,
-  target = 0.70
-): CombinedAttResult {
-  const isLab = Boolean(
+function isLabRow(r: Record<string, unknown>): boolean {
+  return Boolean(
     (r.Psubjectcomponentid || r.Ppercentage) &&
     !r.Lsubjectcomponentid &&
     !r.Tsubjectcomponentid
   );
+}
+
+function hasExplicitOverviewPercentage(r: Record<string, unknown>): boolean {
+  // Mirror the percentage sources used by the overview calculation below.
+  return [
+    r.Lpercentage,
+    r.Tpercentage,
+    r.Ppercentage,
+    isLabRow(r) ? null : r.LTpercantage ?? r.LTpercentage,
+  ].some((value) => pct(value as string | number | null | undefined) !== null);
+}
+
+export function combinedAttendance(
+  r: Record<string, unknown>,
+  detail?: Record<string, Record<string, unknown>> | null,
+  target = 0.70,
+  preferOverviewPercentage = false,
+): CombinedAttResult {
+  if (detail && preferOverviewPercentage) {
+    const saved = combinedAttendance({}, detail, target);
+    const overview = combinedAttendance(r, null, target);
+    // A missing percentage may fall back to saved counts. An explicit fresh
+    // 0% is rendered as "—" and must not resurrect the saved percentage.
+    return overview.pctNum === null && !hasExplicitOverviewPercentage(r) ? saved : {
+      ...saved, pct: overview.pct, pctNum: overview.pctNum,
+      isShort: overview.isShort, colorClass: overview.colorClass,
+    };
+  }
+  const isLab = isLabRow(r);
 
   // Fallback row counts to guard against stale cached detail
   const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);

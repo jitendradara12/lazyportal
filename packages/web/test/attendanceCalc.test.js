@@ -83,6 +83,66 @@ test("combinedAttendance falls back to row counts when detail is incomplete", ()
   assert.equal(att.isShort, false);
 });
 
+test("saved counts use saved components independently of the latest overview", () => {
+  const detail = { L: { summary: Array.from({ length: 8 }, () => ({ present: "Y" })) } };
+  for (const row of [
+    { Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "new-tutorial", LTpercentage: 80 },
+    { Psubjectcomponentid: "new-practical", Ppercentage: 80 },
+    { Lsubjectcomponentid: "lecture", totalclass: 10, totalpresent: 8 },
+  ]) {
+    const result = combinedAttendance(row, detail, 0.9, true);
+    assert.equal(result.totalClasses, 8);
+    assert.equal(result.totalPresent, 8);
+    assert.equal(result.hasHeldClasses, true);
+    assert.equal(result.margin.type, "bunk");
+    assert.equal(result.margin.count, 0);
+    assert.equal(result.pct, "80.0%");
+    assert.equal(result.colorClass, "att-normal");
+  }
+});
+
+test("a fresh explicit zero does not restore a stale saved percentage", () => {
+  const detail = { P: { summary: Array.from({ length: 8 }, () => ({ present: "Y" })) } };
+  for (const zero of [0, "0.00%"]) {
+    const row = { Psubjectcomponentid: "practical", Ppercentage: zero };
+
+    const result = combinedAttendance(row, detail, 0.7, true);
+    assert.equal(result.pct, "—", "fresh 0% is not replaced by the stale saved 100%");
+    assert.equal(result.pctNum, null);
+    assert.equal(result.isShort, false);
+    assert.equal(result.colorClass, "");
+    assert.equal(result.totalClasses, 8, "saved counts remain available");
+    assert.equal(result.totalPresent, 8);
+    assert.equal(result.hasHeldClasses, true);
+  }
+});
+
+test("an explicit zero overview suppresses the saved percentage for L/T rows too", () => {
+  const detail = { L: { summary: Array.from({ length: 8 }, () => ({ present: "Y" })) } };
+  const result = combinedAttendance({ Lsubjectcomponentid: "lecture", LTpercantage: 0 }, detail, 0.7, true);
+  assert.equal(result.pct, "—");
+  assert.equal(result.pctNum, null);
+  assert.equal(result.totalClasses, 8);
+});
+
+test("an irrelevant LT percentage does not suppress a lab's saved percentage", () => {
+  const detail = { P: { summary: Array.from({ length: 8 }, () => ({ present: "Y" })) } };
+  const result = combinedAttendance({ Psubjectcomponentid: "practical", LTpercantage: 50 }, detail, 0.7, true);
+  assert.equal(result.pct, "100.0%", "labs only use Ppercentage");
+  assert.equal(result.pctNum, 100);
+  assert.equal(result.totalClasses, 8);
+});
+
+test("a missing overview percentage still falls back to saved counts", () => {
+  const detail = { L: { summary: Array.from({ length: 8 }, () => ({ present: "Y" })) } };
+  const row = { Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "new-tutorial" };
+
+  const result = combinedAttendance(row, detail, 0.7, true);
+  assert.equal(result.pct, "100.0%");
+  assert.equal(result.pctNum, 100);
+  assert.equal(result.totalClasses, 8);
+});
+
 test("combinedAttendance displays '—' when 0 classes have been held", () => {
   // Minor Project or Internship with 0 classes and 0% or undefined percentage
   const rowZeroHeld = {

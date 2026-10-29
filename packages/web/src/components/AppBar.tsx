@@ -1,6 +1,7 @@
 /** App shell context + top app bar shared by every tab. */
 import { createContext, useContext, type ReactNode } from "react";
 import { RefreshIcon } from "./icons";
+import { SLOW_PORTAL_MESSAGE, useSlowRequest } from "../hooks/useSlowRequest";
 
 export interface Shell {
   isExpired: boolean;
@@ -42,12 +43,15 @@ export function TopBar({
   actions?: ReactNode;
 }) {
   const shell = useShell();
+  const slow = useSlowRequest(busy);
+  const waitMessage = busy && shell.isRecovering ? "Reconnecting to JUET's portal…" : slow ? SLOW_PORTAL_MESSAGE : null;
   const spinning = busy;
   return (
     <header className="app-bar">
       <div className="app-bar-titles">
         <h1 className="app-bar-title">{title}</h1>
         {subtitle && <div className="app-bar-sub">{subtitle}</div>}
+        {waitMessage && <div className="app-bar-sub" role="status">{waitMessage}</div>}
       </div>
       <div className="app-bar-actions">
         {actions}

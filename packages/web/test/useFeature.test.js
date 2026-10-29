@@ -233,3 +233,50 @@ test("blocked storage retains reads for the tab but logout clears them", (t) => 
   invalidateCacheGeneration();
   assert.equal(getCached("audit.blocked-storage").data, null);
 });
+
+test("new overview versions wait for older reads, share their own read, and write the matching checksum", async () => {
+  let finishOld, calls = 0;
+  const old = requestFeature("audit.version", () => new Promise((resolve) => { finishOld = resolve; }), { checksum: "old" }, "old");
+  await Promise.resolve();
+  const readNew = () => { calls++; return Promise.resolve("new data"); };
+  const latest = requestFeature("audit.version", readNew, { checksum: "new" }, "new");
+  const joined = requestFeature("audit.version", readNew, { checksum: "new" }, "new");
+  assert.equal(calls, 0);
+  finishOld("old data");
+  await old;
+  assert.equal((await latest).data, "new data");
+  assert.deepEqual(await joined, await latest);
+  assert.equal(calls, 1);
+  assert.equal(getCached("audit.version").checksum, "new");
+});
+
+test("logout cancels queued versions and reads that have not started", async () => {
+  let finishOld, calls = 0;
+  const old = requestFeature("audit.version-logout", () => new Promise((resolve) => { finishOld = resolve; }), {}, "old");
+  await Promise.resolve();
+  const queued = requestFeature("audit.version-logout", async () => { calls++; }, {}, "new");
+  const notStarted = requestFeature("audit.not-started", async () => { calls++; });
+  invalidateCacheGeneration();
+  finishOld("discard");
+  await Promise.all([
+    old,
+    assert.rejects(queued, { name: "AbortError" }),
+    assert.rejects(notStarted, { name: "AbortError" }),
+  ]);
+  assert.equal(calls, 0);
+});
+
+test("a failed older version does not silently retry a waiting version", async () => {
+  let fail, calls = 0;
+  const error = new Error("Portal unavailable");
+  const old = requestFeature("audit.version-error", () => new Promise((_, reject) => { fail = reject; }), {}, "old");
+  await Promise.resolve();
+  const queued = requestFeature("audit.version-error", async () => { calls++; }, {}, "new");
+  fail(error);
+  await Promise.all([
+    assert.rejects(old, (err) => err === error),
+    assert.rejects(queued, (err) => err === error),
+  ]);
+  assert.equal(calls, 0);
+  assert.equal((await requestFeature("audit.version-error", async () => "retried", {}, "new")).data, "retried");
+});

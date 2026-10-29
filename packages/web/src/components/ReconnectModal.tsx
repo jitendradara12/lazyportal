@@ -121,7 +121,7 @@ export function ReconnectModal({
 
       onRenewed(preserveSelectedInstitute(s, session));
       hideKeyboard();
-      window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
+      window.dispatchEvent(new CustomEvent("juet:refresh-attendance", { detail: { force: true } }));
       onClose();
     } catch (err: unknown) {
       if (!submitController.signal.aborted) {

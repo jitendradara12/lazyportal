@@ -24,6 +24,11 @@ share one refresh attempt; a late 401 reuses a token that attempt already renewe
 A 90-second guard aborts stuck refresh/captcha/login work before publishing
 `expired`. The portal's HTTP 200 `Failure` session-expired payload follows the
 same path as HTTP 401.
+Each HTTP exchange, including its response body, has a 60-second client deadline
+and aborts the browser/native transport when it expires. Recovery retains its
+separate 90-second budget; a retried exchange gets a new request deadline.
+Lecture history has been observed taking about 25 seconds with no competing
+subject request, so a 20-second deadline rejects otherwise successful reads.
 `recoverSession(token)` joins that same recovery when another transport reports
 expiry. Passing the token used by that transport lets a late expiry reuse a newer
 session. Failed attempts stay final for that token; logout/session changes cancel
@@ -135,6 +140,9 @@ Node handshakes over loopback, including wrong-host, expired and untrusted chain
 - POST bodies are capped at 512 KiB (HTTP 413) without tearing down the socket.
 - Warm invocations share a keep-alive HTTPS agent (≤8 idle sockets, ≤5s retention).
 - Downstream disconnect cleanly aborts the upstream request.
+- Upstream inactivity is bounded at 55 seconds, beneath the function's 60-second
+  duration. The Vite development proxy also cancels upstream reads after a
+  downstream disconnect and reuses a bounded idle connection pool.
 
 ### Client scheduling & caching
 
@@ -158,6 +166,23 @@ Node handshakes over loopback, including wrong-host, expired and untrusted chain
 - Automatic refresh, manual refresh, and expanded subjects share pending reads
   and cache updates (`requestFeature`, `attendanceSync.ts`). Expanding fresh
   history does not make another request; queued jobs recheck the cache before fetching.
+- Pending subject reads share only when their overview checksums match. A new
+  checksum waits for the previous read, then makes its own read before the batch
+  can commit quota. Failed reads expose Retry without automatic component retries.
+- Failed multi-component reads retain only validated successful components in a
+  separate scoped retry checkpoint. The same snapshot can retry a failed tutorial
+  without repeating a successful lecture. Account, institute, semester, overview,
+  component IDs, and portal-day changes prevent reuse; a complete result clears
+  the checkpoint. The visible full cache and quota remain unchanged on failure.
+- Overview checksums include normalized component IDs, so registration changes
+  invalidate history even at the same percentage. Existing checksum entries need
+  one background recheck after this format change; saved history stays visible.
+- Background history sync processes one subject at a time and pauses between
+  subjects while a visible sheet is open. An already-started subject can finish.
+  Sheets fetch independently of overview refresh/failure. Saved logs, counts and
+  calculations stay visible during revalidation and errors, with saved counts
+  labeled separately from the latest overview percentage. Waiting reads show
+  session recovery immediately and slow-server feedback after eight seconds.
 - Explicit attendance refresh reads a fresh overview and fetches only changed,
   missing, or incomplete subject history. Quota is committed only after the whole batch succeeds. An unfinished
   manual refresh retains successful reads and change detection for retry on the
@@ -230,7 +255,7 @@ uses that proxy, selected before dispatch. Native failures, redirects, HTTP erro
 and cancellation never retry through the proxy. An explicit `VITE_NATIVE_API_BASE`
 override uses the proxy for development/forks.
 
-Rejected or malformed capability discovery selects the proxy for that page's
+Rejected, malformed, or five-second timed-out capability discovery selects the proxy for that page's
 lifetime. Discovery sends no JUET request, so this cannot duplicate a request.
 Keep bridge version `1` for additive endpoint changes. A future breaking contract
 must retain an adapter for already shipped APKs rather than replacing version 1.

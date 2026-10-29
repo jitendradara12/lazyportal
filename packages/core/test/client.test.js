@@ -298,7 +298,7 @@ describe("client", () => {
     assert.equal(seen.init.headers.Authorization, undefined);
     assert.equal(seen.init.headers.LocalName, undefined);
     assert.equal(seen.init.headers["Content-Type"], undefined);
-    assert.equal(seen.init.signal, controller.signal);
+    assert.equal(seen.init.signal.aborted, false);
   });
 
   it("maps network failures to PortalError with NETWORK_ERROR code", async () => {
@@ -566,3 +566,46 @@ describe("client", () => {
   });
 });
 
+
+describe("request deadlines", () => {
+  for (const method of ["post", "postRaw", "getPublic", "getReport"]) {
+    it(`${method} times out and aborts a transport that never settles`, async () => {
+      let signal;
+      const client = createClient({ baseUrl: "https://x", requestTimeoutMs: 10,
+        fetchImpl: async (_url, init) => { signal = init.signal; return new Promise(() => {}); },
+      });
+      const read = method === "post" || method === "postRaw" ? client[method]("/hung", {}) : client[method]("/hung");
+      await assert.rejects(read, (error) => error.code === "REQUEST_TIMEOUT");
+      assert.equal(signal.aborted, true);
+    });
+  }
+
+  it("bounds response body reads as well as waiting for headers", async () => {
+    const client = createClient({ baseUrl: "https://x", requestTimeoutMs: 10,
+      fetchImpl: async () => ({ ok: true, status: 200, text: () => new Promise(() => {}) }),
+    });
+    await assert.rejects(client.getPublic("/hung-body"), (error) => error.code === "REQUEST_TIMEOUT");
+  });
+
+  it("caller cancellation settles even when the transport ignores its signal", async () => {
+    const controller = new AbortController();
+    const client = createClient({ baseUrl: "https://x", requestTimeoutMs: 100,
+      fetchImpl: async () => new Promise(() => {}),
+    });
+    const read = client.getPublic("/cancel", { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(read, (error) => error.name === "AbortError");
+  });
+
+  it("session recovery has its own deadline and the replay gets a fresh request deadline", async () => {
+    let calls = 0;
+    const statuses = [];
+    const client = createClient({ baseUrl: "https://x", requestTimeoutMs: 10, refreshTimeoutMs: 100,
+      onRefresh: async () => { await new Promise((resolve) => setTimeout(resolve, 25)); return true; },
+      onSessionStatusChange: (status) => statuses.push(status),
+      fetchImpl: async () => ++calls === 1 ? { status: 401 } : ok({ response: { fresh: true } }),
+    });
+    assert.equal((await client.getReport("/recover")).response.fresh, true);
+    assert.deepEqual(statuses, ["recovering", "authenticated"]);
+  });
+});

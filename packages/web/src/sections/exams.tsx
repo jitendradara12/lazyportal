@@ -78,7 +78,7 @@ export function ExamsSection({ session }: SectionProps) {
   const exportable = upcoming.filter((row) => examCalendarEvent(row) !== null);
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
-  const pageRefresh = usePageRefresh("exams", session, loading);
+  const pageRefresh = usePageRefresh("exams", session, loading || examSems.refreshing || examEvents.refreshing || examRows.refreshing);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   async function exportUpcoming() {

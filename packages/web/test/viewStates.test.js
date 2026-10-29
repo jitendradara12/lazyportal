@@ -16,7 +16,7 @@ globalThis.window = { addEventListener() {}, removeEventListener() {}, dispatchE
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
 let server, MarksSection, ExamsSection, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS;
-let readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
+let invalidateCacheGeneration, pauseAttendanceSync, readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
 
 before(async () => {
   server = await createServer({
@@ -31,9 +31,9 @@ before(async () => {
   ({ sessionCacheKey } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ client } = await server.ssrLoadModule("/src/lib/portal.ts"));
   ({ fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
-  ({ syncAttendanceDetails, runManualAttendanceRefresh } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
+  ({ pauseAttendanceSync, syncAttendanceDetails, runManualAttendanceRefresh } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
   ({ getManualRefreshQuota, computeSubjectRowChecksum } = await server.ssrLoadModule("/src/lib/portalSchedule.ts"));
-  ({ getCached } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
+  ({ getCached, invalidateCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ refreshSubjectDetail, readAttendanceOverview } = await server.ssrLoadModule("/src/sections/attendance.tsx"));
 });
 after(async () => { await server?.close(); });
@@ -461,17 +461,16 @@ test("a queued subject loaded by expansion is not fetched again when its worker 
   t.mock.method(client, "post", async (_path, payload) => {
     const id = payload.subjectid;
     calls[id]++;
-    if (id === "p3") return { response: auditLogs(8) };
+    if (id !== "p1") return { response: auditLogs(8) };
     return new Promise((resolve) => {
       pending[id] = resolve;
-      if (pending.p1 && pending.p2) started();
+      if (pending.p1) started();
     });
   });
   const batch = syncAttendanceDetails({ session, rows, base });
   await ready;
   await refreshSubjectDetail(session, rows[2], base);
   pending.p1({ response: auditLogs(8) });
-  pending.p2({ response: auditLogs(8) });
   assert.equal((await batch).complete, true);
   assert.deepEqual(calls, { p1: 1, p2: 1, p3: 1 });
 });
@@ -533,4 +532,231 @@ test("background detail retry reuses successful subjects and spends no quota", a
   assert.deepEqual(calls.sort(), ["retry1", "retry2", "retry2"]);
   assert.equal(getManualRefreshQuota(session).used, 0);
   assert.equal(getManualRefreshQuota(session).unchanged, 0);
+});
+
+test("an open sheet pauses queued subjects and resume reuses its completed read", async (t) => {
+  const rows = [auditRow("pause1"), auditRow("pause2")];
+  let finishFirst, firstStarted;
+  const started = new Promise((resolve) => { firstStarted = resolve; });
+  const calls = [];
+  t.mock.method(client, "post", async (_path, payload) => {
+    calls.push(payload.subjectid);
+    if (payload.subjectid === "pause1") {
+      firstStarted();
+      await new Promise((resolve) => { finishFirst = resolve; });
+    }
+    return { response: auditLogs(8) };
+  });
+  const batch = syncAttendanceDetails({ session, rows, base });
+  await started;
+  const resume = pauseAttendanceSync();
+  try {
+    finishFirst();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, ["pause1"]);
+    await refreshSubjectDetail(session, rows[1], base);
+    assert.deepEqual(calls, ["pause1", "pause2"]);
+  } finally {
+    resume();
+  }
+  assert.equal((await batch).complete, true);
+  assert.deepEqual(calls, ["pause1", "pause2"]);
+  assert.equal(getManualRefreshQuota(session).used, 0);
+});
+
+test("a timed-out manual refresh keeps cache and quota, releases both shared maps, and retries once", async (t) => {
+  const { createClient } = await import("../../core/src/client.js");
+  const row = auditRow("timeout", 80);
+  cacheHistory({ ...row, Ppercentage: 100 }, 7);
+  let signal, fail = true, calls = 0;
+  const transportClient = createClient({ baseUrl: "https://fixture.invalid", requestTimeoutMs: 10,
+    fetchImpl: async (_url, init) => {
+      calls++;
+      signal = init.signal;
+      if (fail) return new Promise(() => {});
+      return new Response(JSON.stringify({ response: auditLogs(10, 8) }));
+    },
+  });
+  t.mock.method(client, "post", transportClient.post);
+  const run = () => runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) });
+  const key = sessionCacheKey("att.subject", session, "sem1", row.subjectid);
+  const before = getCached(key);
+  await assert.rejects(run, (error) => error.code === "REQUEST_TIMEOUT");
+  assert.equal(signal.aborted, true);
+  assert.deepEqual(getCached(key), before);
+  assert.equal(getManualRefreshQuota(session).used, 0);
+  assert.equal(values.get("juet.portal.last_sync"), undefined);
+  fail = false;
+  const result = await run();
+  assert.equal(result.changed, true);
+  assert.equal(getManualRefreshQuota(session).used, 1);
+  assert.equal(calls, 2);
+});
+
+test("a manual refresh cannot commit quota using a shared read from an older overview", async (t) => {
+  const oldRow = auditRow("overview-race", 100);
+  const row = { ...oldRow, Ppercentage: 80 };
+  let resolveOld, startedOld, resolveNew, startedNew;
+  const oldStarted = new Promise((resolve) => { startedOld = resolve; });
+  const newStarted = new Promise((resolve) => { startedNew = resolve; });
+  let calls = 0;
+  t.mock.method(client, "post", async () => {
+    calls++;
+    return new Promise((resolve) => {
+      if (calls === 1) { resolveOld = resolve; startedOld(); }
+      else { resolveNew = resolve; startedNew(); }
+    });
+  });
+  const expanded = refreshSubjectDetail(session, oldRow, base);
+  await oldStarted;
+  const manual = runManualAttendanceRefresh({ session, baselineRows: [oldRow], readOverview: async () => overview([row]) });
+  // Let manual refresh join the older in-flight read before completing it.
+  await new Promise((resolve) => setImmediate(resolve));
+  resolveOld({ response: auditLogs(8) });
+  await expanded;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(getManualRefreshQuota(session).used, 0, "old checksum is not a completed refresh");
+  assert.equal(calls, 2, "read again using the newer overview");
+  await newStarted;
+  resolveNew({ response: auditLogs(10, 8) });
+  await manual;
+  assert.equal(getManualRefreshQuota(session).used, 1);
+});
+
+test("changed overview rows retain labeled saved counts alongside the latest percentage", () => {
+  selectSemester("attendance");
+  const oldRow = auditRow("saved-counts", 100);
+  cacheHistory(oldRow, 8);
+  cache("att.initial", { semesters: [semester], rows: [{ ...oldRow, Ppercentage: 80 }] });
+  const html = render(AttendancePage);
+  assert.match(html, /Saved 8\/8 classes/);
+  assert.match(html, /80\.0<span class="att-pct-sign">%<\/span>/);
+});
+
+test("a fresh zero overview keeps saved counts without a stale percentage", () => {
+  selectSemester("attendance");
+  const oldRow = auditRow("fresh-zero", 100);
+  cacheHistory(oldRow, 8);
+  const row = { ...oldRow, Ppercentage: 0 };
+  cache("att.initial", { semesters: [semester], rows: [row] });
+
+  const html = render(AttendancePage);
+  assert.match(html, /Saved 8\/8 classes/);
+  assert.match(html, /<span class="att-row-pct is-empty">--<\/span>/);
+  assert.doesNotMatch(html, /100\.0<span class="att-pct-sign">%<\/span>/);
+
+  const sheet = renderToStaticMarkup(createElement(SubjectDetailSheet, {
+    session, row, ...semester, onClose() {}, onLogout() {},
+  }));
+  assert.match(sheet, /<strong>8<\/strong> \/ 8/);
+  assert.match(sheet, /<span class="att-sheet-score ">—<\/span>/);
+});
+
+test("adding a tutorial retains saved lecture counts and the sheet calculator", () => {
+  selectSemester("attendance");
+  const oldRow = { subjectid: "added-tutorial", subjectcode: "Test(PC1)",
+    Lsubjectcomponentid: "lecture", LTpercentage: 100 };
+  const detail = { L: auditLogs(8) };
+  values.set(`juet.cache.${sessionCacheKey("att.subject", session, "sem1", oldRow.subjectid)}`, JSON.stringify({
+    data: detail, updatedAt: Date.now(), checksum: computeSubjectRowChecksum(oldRow),
+  }));
+  const row = { ...oldRow, Tsubjectcomponentid: "new-tutorial", LTpercentage: 80 };
+  cache("att.initial", { semesters: [semester], rows: [row] });
+  assert.match(render(AttendancePage), /Saved 8\/8 classes/);
+  const html = renderToStaticMarkup(createElement(SubjectDetailSheet, {
+    session, row, ...semester, onClose() {}, onLogout() {},
+  }));
+  assert.match(html, /<strong>8<\/strong> \/ 8/);
+  assert.match(html, /What-if calculator/);
+  assert.match(html, /Class counts and calculations use the saved breakdown/);
+});
+
+test("partial component retries reuse a completed lecture and spend quota only after the tutorial succeeds", async (t) => {
+  const row = { subjectid: "partial-components", subjectcode: "Test(PC1)",
+    Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
+  const key = sessionCacheKey("att.subject", session, "sem1", row.subjectid);
+  values.set(`juet.cache.${key}`, JSON.stringify({
+    data: { L: auditLogs(8), T: auditLogs(3) }, updatedAt: Date.now() - 1000, checksum: "old",
+  }));
+  const before = getCached(key);
+  const calls = [];
+  let failTutorial = true;
+  t.mock.method(client, "post", async (_path, payload) => {
+    const component = payload.cmpidkey[0].subjectcomponentid;
+    calls.push(component);
+    if (component === "tutorial" && failTutorial) throw new Error("Tutorial unavailable");
+    return { response: auditLogs(component === "lecture" ? 9 : 4) };
+  });
+  const run = () => runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) });
+  await assert.rejects(run, /Tutorial unavailable/);
+  assert.deepEqual(getCached(key), before);
+  assert.equal(getManualRefreshQuota(session).used, 0);
+  failTutorial = false;
+  await run();
+  assert.deepEqual(calls, ["lecture", "tutorial", "tutorial"]);
+  assert.equal(getManualRefreshQuota(session).used, 1);
+});
+
+for (const change of ["overview", "component", "semester", "account", "institute", "portal day"]) {
+  test(`partial components are discarded after a changed ${change}`, async (t) => {
+    const row = { subjectid: "partial-scope", subjectcode: "Test(PS1)",
+      Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
+    let fail = true, lectureReads = 0;
+    t.mock.method(client, "post", async (_path, payload) => {
+      if (payload.cmpidkey[0].subjectcomponentid.startsWith("lecture")) { lectureReads++; return { response: auditLogs(9) }; }
+      if (fail) throw new Error("Tutorial unavailable");
+      return { response: auditLogs(4) };
+    });
+    await assert.rejects(refreshSubjectDetail(session, row, base));
+    fail = false;
+    const nextRow = { ...row }, nextSession = { ...session }, nextBase = { ...base };
+    if (change === "overview") nextRow.LTpercentage = 90;
+    if (change === "component") nextRow.Lsubjectcomponentid = "lecture-new";
+    if (change === "semester") nextBase.registrationid = "sem2";
+    if (change === "account") nextSession.username = "other-student";
+    if (change === "institute") nextSession.instituteid = "other-campus";
+    if (change === "portal day") {
+      const nextDay = Date.now() + 86400000;
+      t.mock.method(Date, "now", () => nextDay);
+    }
+    await refreshSubjectDetail(nextSession, nextRow, nextBase);
+    assert.equal(lectureReads, 2);
+  });
+}
+
+test("malformed completed components are fetched again and a full success clears partial retry reuse", async (t) => {
+  const row = { subjectid: "partial-malformed", subjectcode: "Test(PM1)",
+    Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
+  let fail = true, lectureReads = 0;
+  t.mock.method(client, "post", async (_path, payload) => {
+    if (payload.cmpidkey[0].subjectcomponentid === "lecture") {
+      lectureReads++;
+      return { response: fail ? {} : auditLogs(9) };
+    }
+    if (fail) throw new Error("Tutorial unavailable");
+    return { response: auditLogs(4) };
+  });
+  await assert.rejects(refreshSubjectDetail(session, row, base));
+  fail = false;
+  await refreshSubjectDetail(session, row, base);
+  assert.equal(lectureReads, 2, "malformed lecture was not reused");
+  await refreshSubjectDetail(session, row, base);
+  assert.equal(lectureReads, 3, "full success did not leave a hidden completed cache");
+});
+
+test("logout prevents a late component failure from restoring its partial checkpoint", async (t) => {
+  const row = { subjectid: "partial-logout", subjectcode: "Test(PL1)",
+    Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
+  let failTutorial;
+  t.mock.method(client, "post", async (_path, payload) => {
+    if (payload.cmpidkey[0].subjectcomponentid === "lecture") return { response: auditLogs(9) };
+    return new Promise((_, reject) => { failTutorial = reject; });
+  });
+  const read = refreshSubjectDetail(session, row, base);
+  await new Promise((resolve) => setImmediate(resolve));
+  invalidateCacheGeneration();
+  values.clear();
+  failTutorial(new Error("Late tutorial failure"));
+  await assert.rejects(read, /Late tutorial failure/);
+  assert.deepEqual([...values.keys()], []);
 });
