@@ -89,5 +89,6 @@
     "student/moocsubjectstatus",
     "student/subjectadddropstatus",
     "student/servicerequest"
-  ]
+  ],
+  "timeoutMs": 55000
 }

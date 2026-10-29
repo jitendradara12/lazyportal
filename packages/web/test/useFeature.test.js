@@ -266,6 +266,22 @@ test("logout cancels queued versions and reads that have not started", async () 
   assert.equal(calls, 0);
 });
 
+test("logout aborts active shared transports, not just their eventual cache writes", async () => {
+  let signal;
+  const pending = requestFeature("audit.active-abort", (requestSignal) => {
+    signal = requestSignal;
+    return new Promise((_, reject) => requestSignal?.addEventListener("abort", () => reject(requestSignal.reason), { once: true }));
+  });
+  await Promise.resolve();
+  invalidateCacheGeneration();
+  if (!signal) {
+    assert.fail("the shared request must supply a transport cancellation signal");
+  }
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.equal(signal.aborted, true);
+  assert.equal(getCached("audit.active-abort").data, null);
+});
+
 test("a failed older version does not silently retry a waiting version", async () => {
   let fail, calls = 0;
   const error = new Error("Portal unavailable");

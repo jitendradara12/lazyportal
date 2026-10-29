@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, setCached, getCached, sessionCacheKey, requestFeature, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
@@ -6,6 +6,7 @@ import {
   isCurrentPortalDay,
   getPortalDayKey,
   computeSubjectRowChecksum,
+  doesSubjectNeedDeepFetch,
   FEATURE_TTL,
   type SessionRef,
 } from "../lib/portalSchedule";
@@ -228,33 +229,78 @@ export function setCachedSubjectDetail(
   return setCached(key, data, checksum ? { checksum } : undefined);
 }
 
-export async function readSubjectDetail(
+function subjectDetailRequest(
   session: SectionProps["session"], row: AttRow & Record<string, unknown>,
   base: { registrationid?: string | null; registrationcode?: string | null },
 ) {
-  const generation = getCacheGeneration();
   const portalDay = getPortalDayKey();
   const key = sessionCacheKey("att.subject.pending", session, base.registrationid, rowSubId(row));
   const snapshot = JSON.stringify([computeSubjectRowChecksum(row), base,
     row.individualsubjectcode ?? row.subjectcode,
-    ...["L", "T", "P"].map((type) => row[`${type}subjectcomponentid`] ?? null),
+    ...["L", "T", "P"].map((type) => features.getAttendanceComponentIds(row[`${type}subjectcomponentid`])),
   ]);
-  const checkpoint = getCached<Record<string, Record<string, unknown>>>(key);
-  const validComponent = ([type, data]: [string, Record<string, unknown>]) =>
-    ["L", "T", "P"].includes(type) && Boolean(row[`${type}subjectcomponentid`]) &&
+  return { key, snapshot, portalDay };
+}
+
+function validSubjectComponent(row: AttRow & Record<string, unknown>, [type, data]: [string, Record<string, unknown>]) {
+  return ["L", "T", "P"].includes(type) && features.getAttendanceComponentIds(row[`${type}subjectcomponentid`]).length > 0 &&
     isSubjectDetailComplete({ [`${type}subjectcomponentid`]: row[`${type}subjectcomponentid`] }, { [type]: data });
+}
+
+export async function readSubjectDetail(
+  session: SectionProps["session"], row: AttRow & Record<string, unknown>,
+  base: { registrationid?: string | null; registrationcode?: string | null },
+  signal?: AbortSignal,
+) {
+  const generation = getCacheGeneration();
+  const { key, snapshot, portalDay } = subjectDetailRequest(session, row, base);
+  const checkpoint = getCached<Record<string, Record<string, unknown>>>(key);
+  const validComponent = (entry: [string, Record<string, unknown>]) => validSubjectComponent(row, entry);
   const reusable = checkpoint.snapshot === snapshot && checkpoint.portalDay === portalDay ? checkpoint.data : null;
   const completed = new Map(Object.entries(reusable ?? {}).filter(validComponent));
-  const current = () => isCacheGenerationCurrent(generation) && getPortalDayKey() === portalDay;
-  try {
-    const data = await features.getSubjectAttendanceAll(client, session, row, base, "current", { completed });
-    if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
-    if (current() && checkpoint.data) setCached(key, {}, { snapshot, portalDay });
-    return data;
-  } catch (error) {
+  const current = () => !signal?.aborted && isCacheGenerationCurrent(generation) && getPortalDayKey() === portalDay;
+  const saveProgress = () => {
     if (current()) setCached(key, Object.fromEntries([...completed].filter(validComponent)), { snapshot, portalDay });
-    throw error;
-  }
+  };
+  const data = await features.getSubjectAttendanceAll(client, session, row, base, "current", {
+    completed, signal, onComponent: saveProgress,
+  });
+  if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
+  if (current()) setCached(key, {}, { snapshot, portalDay });
+  return data;
+}
+
+/** Full saved history stays visible; a first load can show completed components. */
+export function useSubjectDetail(
+  session: SectionProps["session"], row: AttRow & Record<string, unknown>,
+  base: { registrationid?: string | null; registrationcode?: string | null },
+) {
+  const checksum = computeSubjectRowChecksum(row);
+  const { key, snapshot, portalDay } = subjectDetailRequest(session, row, base);
+  const [, updateProgress] = useState(0);
+  useEffect(() => {
+    const update = (event: Event) => {
+      if ((event as CustomEvent<{ key: string }>).detail?.key === key) updateProgress(n => n + 1);
+    };
+    window.addEventListener("juet:cache-updated", update);
+    return () => window.removeEventListener("juet:cache-updated", update);
+  }, [key]);
+  const detail = useFeature<Record<string, Record<string, unknown>>>({
+    run: signal => readSubjectDetail(session, row, base, signal),
+    deps: [session, base.registrationid, base.registrationcode, rowSubId(row), checksum],
+    cacheKey: getSubjectCacheKey(session.username, base.registrationid, row, session.instituteid),
+    requestVersion: checksum,
+    isFresh: () => {
+      const entry = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
+      return !doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum);
+    },
+    writeExtra: { checksum },
+  });
+  const progress = getCached<Record<string, Record<string, unknown>>>(key);
+  const partial = useMemo(() => progress.snapshot === snapshot && progress.portalDay === portalDay
+    ? Object.fromEntries(Object.entries(progress.data ?? {}).filter(entry => validSubjectComponent(row, entry))) : {},
+  [progress.data, progress.snapshot, progress.portalDay, snapshot, portalDay, row]);
+  return { ...detail, data: detail.data ?? (Object.keys(partial).length ? partial : null) };
 }
 
 export function refreshSubjectDetail(
@@ -264,7 +310,7 @@ export function refreshSubjectDetail(
   const checksum = computeSubjectRowChecksum(row);
   return requestFeature(
     getSubjectCacheKey(session.username, base.registrationid, row, session.instituteid),
-    () => readSubjectDetail(session, row, base),
+    signal => readSubjectDetail(session, row, base, signal),
     { checksum },
     checksum,
   );

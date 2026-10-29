@@ -16,9 +16,18 @@ System design, boundaries, and operational invariants.
 - **Dual API transport**: The web client routes requests through either the native HTTP bridge (`PortalHttpPlugin`) or the hosted proxy (`/api`).
   - Native transport communicates directly with JUET, bypassing serverless limits and proxy refresh quotas.
   - Proxy transport is used by browsers, pre-bridge APKs, and endpoints not yet allowlisted in the APK policy.
-  - Native errors/timeouts do not silently retry across the proxy, except for slow attendance breakdown queries (/getstudentsubjectpersentage) which fall back to the proxy on older APKs with shorter native timeouts.
+  - Native errors/timeouts do not silently retry across the proxy. Attendance detail selects the proxy before dispatch on APKs without a declared 55-second read timeout. Published APKs without timeout metadata have a 20-second native read timeout, which is too short for normal history responses.
 - **TLS validation**: Node and Android environments supply JUET's missing GoDaddy G2 intermediate (`shared/portal-intermediate.pem`) to the system validator without disabling root or hostname checks.
 - **Sandboxed official portal**: Android's official portal view runs in an isolated WebView (`https://official.lazyportal.invalid`) with in-memory storage, strict route allowlisting, and no network fallback to Vercel. Session expiry triggers silent recovery in the main app.
+
+## Attendance history
+
+- Saved history remains visible during automatic and manual updates. A matching overview checksum keeps complete history fresh across portal days; age does not trigger a full refetch.
+- Background sync loads changed, missing, or incomplete subjects one at a time, with each subject's L/T/P reads in parallel. An open sheet shares the same pending read and pauses queued subjects only while it is loading.
+- Sync progress has one phase: idle, running, paused, complete, failed, or cancelled. A portal outage stops queued reads. Failed or cancelled batches preserve successful reads and spend no manual refresh quota.
+- Valid completed components are checkpointed as they arrive. A first load can display them immediately; an existing full history stays visible until its replacement is complete. Retry reuse requires the same account, institute, registration, overview snapshot, and portal day.
+- Only a missing component ID, an explicit zero component count without positive evidence, or a recognized attendance absence response can establish empty history. JUET's HTTP 404 with `NO Attendance Found` is an empty result; generic HTTP 404s and outages remain failures. Unknown percentages cannot establish empty history.
+- Shared history reads own their cancellation signal. Closing a sheet keeps useful reads running for the cache; logout aborts them and invalidates late writes. Manual quota policy includes every route used by the batch, including detail reads through the proxy.
 
 ## Compatibility & Deployment
 

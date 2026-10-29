@@ -224,16 +224,13 @@ test("stalled native capability discovery falls back once before sending any por
   assert.equal(proxyCalls, 1);
 });
 
-test("native network failure on attendance breakdown falls back to proxy", async () => {
+test("native attendance failure does not start a second wait through the proxy", async () => {
   const detailPath = featurePostEndpoints.attendance.current;
   const error = Object.assign(new Error("Could not reach JUET's portal. Please retry."), { code: "NETWORK_ERROR" });
   const s = setup({ answer: () => Promise.reject(error) });
-  const res = await s.fetch(baseUrl + detailPath, { method: "POST" });
+  await assert.rejects(s.fetch(baseUrl + detailPath, { method: "POST" }), err => err === error);
   assert.equal(s.requests.length, 1);
-  assert.equal(s.proxies.length, 1);
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.equal(data.response.proxy, true);
+  assert.equal(s.proxies.length, 0);
 });
 
 test("native network failure on non-attendance endpoints does not fall back to proxy", async () => {
@@ -244,3 +241,36 @@ test("native network failure on non-attendance endpoints does not fall back to p
   assert.equal(s.requests.length, 1);
   assert.equal(s.proxies.length, 0);
 });
+
+test("native overview failure also leaves retry to the user", async () => {
+  const overviewPath = featurePostEndpoints.attendance.overview;
+  const error = Object.assign(new Error("Could not reach JUET's portal. Please retry."), { code: "NETWORK_ERROR" });
+  const s = setup({ answer: () => Promise.reject(error) });
+  await assert.rejects(s.fetch(baseUrl + overviewPath, { method: "POST" }), err => err === error);
+  assert.equal(s.requests.length, 1);
+  assert.equal(s.proxies.length, 0);
+});
+
+test("older APKs without high read timeout route attendance breakdown directly to proxy and overview natively", async () => {
+  const olderPolicy = { ...portalApiPolicy, timeoutMs: 20_000 };
+  const s = setup({ policy: olderPolicy });
+  const resDetail = await s.fetch(baseUrl + featurePostEndpoints.attendance.current, { method: "POST" });
+  assert.equal(resDetail.status, 200);
+  assert.equal(s.requests.length, 0, "native was bypassed to avoid 20s wasted wait");
+  assert.equal(s.proxies.length, 1, "routed directly to proxy");
+  const resOverview = await s.fetch(baseUrl + featurePostEndpoints.attendance.overview, { method: "POST" });
+  assert.equal(resOverview.status, 200);
+  assert.equal(s.requests.length, 1, "overview runs natively");
+});
+
+test("released APKs without timeout metadata bypass their 20s native timeout before dispatch", async () => {
+  const { timeoutMs, ...olderPolicy } = portalApiPolicy;
+  const s = setup({ policy: olderPolicy });
+  const res = await s.fetch(baseUrl + featurePostEndpoints.attendance.current, { method: "POST" });
+  assert.equal(s.requests.length, 0);
+  assert.equal(s.proxies.length, 1);
+  assert.equal(res.status, 200);
+});
+
+
+

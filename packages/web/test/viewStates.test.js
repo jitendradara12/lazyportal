@@ -118,10 +118,10 @@ test("attendance displays overview percentages before class logs arrive", () => 
   }] });
   const html = render(AttendancePage);
   assert.match(html, /83\.3<span class="att-pct-sign">%<\/span>/);
-  assert.doesNotMatch(html, /No classes yet/);
+  assert.doesNotMatch(html, /No attendance recorded/);
   // An empty log response still must not contradict a known overview percent.
   cache("att.subject", { P: { student_attdsummarylist: [] } }, "sem1", "subject1");
-  assert.doesNotMatch(render(AttendancePage), /No classes yet/);
+  assert.doesNotMatch(render(AttendancePage), /No attendance recorded/);
 });
 
 test("attendance keeps cached counts and percentages on returning to the page", () => {
@@ -141,14 +141,14 @@ test("subject sheet never calls a known attendance percentage No classes held", 
   const renderSheet = () => renderToStaticMarkup(createElement(SubjectDetailSheet, {
     row, session, registrationid: "sem1", onClose() {}, onLogout() {},
   }));
-  assert.doesNotMatch(renderSheet(), /No classes held yet/);
+  assert.doesNotMatch(renderSheet(), /No attendance recorded for this subject/);
   cache("att.subject", { P: { student_attdsummarylist: [] } }, "sem1", "subject1");
   const html = renderSheet();
   assert.match(html, /83\.3%/);
-  assert.doesNotMatch(html, /No classes held yet/);
+  assert.doesNotMatch(html, /No attendance recorded for this subject/);
   assert.match(html, /No class records available/);
   row.Ppercentage = 0;
-  assert.match(renderSheet(), /No classes held yet/);
+  assert.match(renderSheet(), /No attendance recorded for this subject/);
 });
 
 // Simulate a browser whose image decoder fails, so a fetched image must remain
@@ -759,3 +759,139 @@ test("logout prevents a late component failure from restoring its partial checkp
   await assert.rejects(read, /Late tutorial failure/);
   assert.deepEqual([...values.keys()], []);
 });
+
+test("a request timeout halts the background sync queue to protect slow portals", async (t) => {
+  const rows = [auditRow("to1"), auditRow("to2")];
+  const calls = [];
+  t.mock.method(client, "post", async (_path, payload) => {
+    calls.push(payload.subjectid);
+    if (payload.subjectid === "to1") {
+      const err = new Error("JUET's portal took too long to respond. Please retry.");
+      err.code = "REQUEST_TIMEOUT";
+      throw err;
+    }
+    return { response: auditLogs(5) };
+  });
+  const res = await syncAttendanceDetails({ session, rows, base });
+  assert.equal(res.complete, false);
+  assert.deepEqual(calls, ["to1"], "queued subjects were cancelled after timeout");
+});
+
+test("a network error or 504 halts the background sync queue", async (t) => {
+  const rows = [auditRow("net1"), auditRow("net2")];
+  const calls = [];
+  t.mock.method(client, "post", async (_path, payload) => {
+    calls.push(payload.subjectid);
+    if (payload.subjectid === "net1") {
+      const err = new Error("Gateway Timeout");
+      err.code = "NETWORK_ERROR";
+      err.status = 504;
+      throw err;
+    }
+    return { response: auditLogs(5) };
+  });
+  const res = await syncAttendanceDetails({ session, rows, base });
+  assert.equal(res.complete, false);
+  assert.deepEqual(calls, ["net1"], "queued subjects were cancelled after network error");
+});
+
+test("subjects without attendance complete sync and reuse their empty history checksums", async (t) => {
+  const rows = [auditRow("minor", 0), auditRow("internship", 0)];
+  const calls = t.mock.method(client, "post", async () => {
+    throw Object.assign(new Error("NO Attendance Found"), { code: "PORTAL_ERROR", status: 404, errors: ["NO Attendance Found"] });
+  });
+  const first = await syncAttendanceDetails({ session, rows, base });
+  assert.equal(first.complete, true);
+  assert.deepEqual(first.errors, []);
+  assert.equal(calls.mock.callCount(), 2);
+  assert.equal((await syncAttendanceDetails({ session, rows, base })).complete, true);
+  assert.equal(calls.mock.callCount(), 2, "matching empty history is cached like populated history");
+  cache("att.initial", overview(rows));
+  selectSemester("attendance");
+  const html = render(AttendancePage);
+  assert.equal((html.match(/No attendance recorded/g) ?? []).length, 2);
+  assert.doesNotMatch(html, /Class details unavailable/);
+});
+
+test("successful components are saved and visible while a sibling is still pending", async (t) => {
+  const row = { subjectid: "progressive", subjectcode: "Test(PR1)",
+    Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
+  let finishTutorial;
+  t.mock.method(client, "post", async (_path, payload) => {
+    if (payload.cmpidkey[0].subjectcomponentid === "tutorial") await new Promise(resolve => { finishTutorial = resolve; });
+    return { response: auditLogs(9) };
+  });
+  const read = refreshSubjectDetail(session, row, base);
+  await new Promise(resolve => setImmediate(resolve));
+  try {
+    const partialKey = sessionCacheKey("att.subject.pending", session, "sem1", row.subjectid);
+    assert.deepEqual(getCached(partialKey).data, { L: auditLogs(9) });
+    const html = renderToStaticMarkup(createElement(SubjectDetailSheet, {
+      session, row, ...semester, onClose() {}, onLogout() {},
+    }));
+    assert.match(html, /All \(9\)/);
+    assert.equal(getCached(sessionCacheKey("att.subject", session, "sem1", row.subjectid)).checksum, undefined);
+  } finally { finishTutorial(); await read; }
+});
+
+test("sync reports one coherent terminal failure with its unfinished subjects", async (t) => {
+  const states = [];
+  const rows = [auditRow("state1"), auditRow("state2")];
+  t.mock.method(client, "post", async () => { throw Object.assign(new Error("Timed out"), { code: "REQUEST_TIMEOUT" }); });
+  const result = await syncAttendanceDetails({ session, rows, base, onProgress: state => states.push(state) });
+  assert.equal(result.complete, false);
+  assert.deepEqual(states.map(state => state.phase), ["running", "failed"]);
+  assert.equal(states.at(-1).done, 1);
+  assert.equal(states.at(-1).total, 2);
+  assert.deepEqual([...states.at(-1).pending], ["state2"]);
+});
+
+test("a paused sync cancels immediately without waiting for the open sheet", async (t) => {
+  const resume = pauseAttendanceSync();
+  const controller = new AbortController();
+  const calls = t.mock.method(client, "post", async () => ({ response: auditLogs(5) }));
+  let settled = false;
+  const batch = syncAttendanceDetails({ session, rows: [auditRow("paused-cancel")], base, signal: controller.signal })
+    .then(result => { settled = true; return result; });
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await new Promise(resolve => setImmediate(resolve));
+  try { assert.equal(settled, true); }
+  finally { resume(); await batch; }
+  assert.equal((await batch).complete, false);
+  assert.equal(calls.mock.callCount(), 0);
+});
+
+test("cancelling a sync releases its owner while a shared history read can finish into cache", async (t) => {
+  const row = auditRow("cancel-shared");
+  let finish;
+  const calls = t.mock.method(client, "post", () => new Promise(resolve => { finish = () => resolve({ response: auditLogs(5) }); }));
+  const controller = new AbortController();
+  let settled = false;
+  const batch = syncAttendanceDetails({ session, rows: [row], base, signal: controller.signal })
+    .then(result => { settled = true; return result; });
+  await new Promise(resolve => setImmediate(resolve));
+  const joined = refreshSubjectDetail(session, row, base);
+  controller.abort();
+  await new Promise(resolve => setImmediate(resolve));
+  try { assert.equal(settled, true); }
+  finally { finish(); await Promise.all([batch, joined]); }
+  assert.equal((await batch).complete, false);
+  assert.equal(calls.mock.callCount(), 1);
+  assert.deepEqual((await joined).data, { P: auditLogs(5) });
+});
+
+test("releasing a sheet twice cannot break the next sheet's pause", async (t) => {
+  const oldResume = pauseAttendanceSync();
+  oldResume();
+  oldResume();
+  const resume = pauseAttendanceSync();
+  const calls = t.mock.method(client, "post", async () => ({ response: auditLogs(5) }));
+  const batch = syncAttendanceDetails({ session, rows: [auditRow("idempotent-pause")], base });
+  await new Promise(resolve => setImmediate(resolve));
+  try { assert.equal(calls.mock.callCount(), 0); }
+  finally { resume(); await batch; }
+  assert.equal(calls.mock.callCount(), 1);
+});
+
+

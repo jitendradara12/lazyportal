@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useContext, type PointerEvent } from "react";
-import { useFeature } from "../hooks/useFeature";
 import { SectionError } from "./DataViews";
 import type { Session } from "../types";
 import {
   type AttRow,
   subjectName,
   subjectRowId,
-  getSubjectCacheKey,
   getCachedSubjectDetailEntry,
-  readSubjectDetail,
+  useSubjectDetail,
   CombinedClassLog,
 } from "../sections/attendance";
 import {
@@ -18,7 +16,6 @@ import {
   isSubjectDetailComplete,
 } from "../lib/attendanceCalc";
 import {
-  computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
@@ -64,28 +61,17 @@ export function SubjectDetailSheet({
     return unsubscribe;
   }, []);
   const visible = useContext(BackScope);
-  useEffect(() => { if (visible) return pauseAttendanceSync(); }, [visible]);
 
   const { name } = subjectName(row.subjectcode);
   const base = { registrationid, registrationcode };
-  const cacheKey = getSubjectCacheKey(session.username, registrationid, row, session.instituteid);
-
-  const rowChecksum = computeSubjectRowChecksum(row);
-
-  const detail = useFeature<Record<string, Record<string, unknown>>>({
-    run: () => readSubjectDetail(session, row, base),
-    deps: [session, registrationid, String(row.subjectid), rowChecksum],
-    cacheKey,
-    requestVersion: rowChecksum,
-    isFresh: (updatedAt) => {
-      const fresh = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
-      return !doesSubjectNeedDeepFetch(row, fresh.data, updatedAt, fresh.checksum);
-    },
-    writeExtra: (d) => (isSubjectDetailComplete(row, d) ? { checksum: computeSubjectRowChecksum(row) } : {}),
-  });
+  const detail = useSubjectDetail(session, row, base);
+  const pending = detail.loading || detail.refreshing;
+  useEffect(() => {
+    if (visible && pending) return pauseAttendanceSync();
+  }, [visible, pending]);
 
   const onDetailLoadedRef = useRef(onDetailLoaded);
-  const slow = useSlowRequest(detail.loading || detail.refreshing);
+  const slow = useSlowRequest(pending);
   onDetailLoadedRef.current = onDetailLoaded;
 
   useEffect(() => {
@@ -99,6 +85,7 @@ export function SubjectDetailSheet({
   const activeDetail = detail.data ?? cachedDetail ?? entry.data;
   const savedBreakdown = Boolean(activeDetail) && doesSubjectNeedDeepFetch(row, activeDetail, entry.updatedAt, entry.checksum);
   const attInfo = combinedAttendance(row, activeDetail, target / 100, savedBreakdown);
+  const emptyHistory = !attInfo.hasHeldClasses && attInfo.pctNum === null && isSubjectDetailComplete(row, activeDetail);
 
   // Simulation calculations (supports attending X and leaving Y simultaneously)
   const totalSimPresent = attInfo.totalPresent + attendCount;
@@ -264,11 +251,10 @@ export function SubjectDetailSheet({
           )}
 
           {/* Empty state when no classes held yet */}
-          {!attInfo.hasHeldClasses && attInfo.pctNum === null &&
-            isSubjectDetailComplete(row, activeDetail) && !detail.loading && !detail.error && (
+          {emptyHistory && !detail.loading && !detail.error && (
             <div className="att-empty-held-card">
               <span className="att-empty-icon" aria-hidden="true">📋</span>
-              <p>No classes held yet.</p>
+              <p>No attendance recorded for this subject.</p>
             </div>
           )}
         </div>
@@ -285,7 +271,7 @@ export function SubjectDetailSheet({
           {detail.error && (
             <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />
           )}
-          {activeDetail && (
+          {activeDetail && !emptyHistory && (
             <div className="att-detail-grid">
               <CombinedClassLog data={activeDetail} />
             </div>

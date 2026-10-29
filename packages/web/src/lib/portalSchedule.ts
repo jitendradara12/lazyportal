@@ -314,17 +314,50 @@ function pickComponent(row: Record<string, unknown>, prefix: string): string {
   return `${tot}:${pres}:${pct}:${components}`;
 }
 
+function pickLegacyComponent(row: Record<string, unknown>, prefix: string): string {
+  const tot = pick(row, `${prefix}totalclass`, `${prefix}Totalclass`, `${prefix.toLowerCase()}totalclass`);
+  const pres = pick(row, `${prefix}totalpresent`, `${prefix}Totalpresent`, `${prefix.toLowerCase()}totalpresent`);
+  const pct = pick(row, `${prefix}percentage`);
+  return `${tot}:${pres}:${pct}`;
+}
+
+function isValidComponentId(id: unknown): boolean {
+  if (!id) return false;
+  const s = String(id).trim();
+  return s !== "" && s !== "0" && s !== "null" && s !== "undefined";
+}
+
+/**
+ * Legacy row checksum prior to component ID inclusion (e.g. before commit bf74c24).
+ * Retained for backward compatibility so existing user caches do not trigger full background refetches.
+ */
+export function computeLegacySubjectRowChecksum(row: Record<string, unknown>): string {
+  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
+  const hasL = isValidComponentId(row.Lsubjectcomponentid);
+  const hasT = isValidComponentId(row.Tsubjectcomponentid);
+  const hasP = isValidComponentId(row.Psubjectcomponentid) || Boolean(row.Ppercentage);
+  const isLab = Boolean(hasP && !hasL && !hasT);
+  const overall = isLab
+    ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
+    : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
+  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
+  const pres = pick(row, "totalpresent", "Totalpresent");
+  const L = pickLegacyComponent(row, "L");
+  const T = pickLegacyComponent(row, "T");
+  const P = pickLegacyComponent(row, "P");
+  return `${subId}|${tot}|${pres}|${overall}|${L}|${T}|${P}`;
+}
+
 /**
  * Fast composite row checksum to determine if attendance breakdown has changed.
  * Captures all component counts, totals, and percentages.
  */
 export function computeSubjectRowChecksum(row: Record<string, unknown>): string {
   const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
-  const isLab = Boolean(
-    (row.Psubjectcomponentid || row.Ppercentage) &&
-    !row.Lsubjectcomponentid &&
-    !row.Tsubjectcomponentid
-  );
+  const hasL = isValidComponentId(row.Lsubjectcomponentid);
+  const hasT = isValidComponentId(row.Tsubjectcomponentid);
+  const hasP = isValidComponentId(row.Psubjectcomponentid) || Boolean(row.Ppercentage);
+  const isLab = Boolean(hasP && !hasL && !hasT);
   const overall = isLab
     ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
     : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
@@ -346,6 +379,24 @@ function getComponentTotal(comp: unknown): number {
 }
 
 
+function computeRawLegacySubjectRowChecksum(row: Record<string, unknown>): string {
+  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
+  const isLab = Boolean(
+    (row.Psubjectcomponentid || row.Ppercentage) &&
+    !row.Lsubjectcomponentid &&
+    !row.Tsubjectcomponentid
+  );
+  const overall = isLab
+    ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
+    : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
+  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
+  const pres = pick(row, "totalpresent", "Totalpresent");
+  const L = pickLegacyComponent(row, "L");
+  const T = pickLegacyComponent(row, "T");
+  const P = pickLegacyComponent(row, "P");
+  return `${subId}|${tot}|${pres}|${overall}|${L}|${T}|${P}`;
+}
+
 export function doesSubjectNeedDeepFetch(
   row: Record<string, unknown>,
   cached: Record<string, Record<string, unknown>> | null,
@@ -362,7 +413,13 @@ export function doesSubjectNeedDeepFetch(
 
   const currentChecksum = computeSubjectRowChecksum(row);
   if (cachedChecksum) {
-    if (cachedChecksum !== currentChecksum) return true;
+    if (
+      cachedChecksum !== currentChecksum &&
+      cachedChecksum !== computeLegacySubjectRowChecksum(row) &&
+      cachedChecksum !== computeRawLegacySubjectRowChecksum(row)
+    ) {
+      return true;
+    }
     // Missing or corrupted timestamp
     if (!cachedUpdatedAt) return true;
     // A valid checksum is the freshness signal; age alone must not trigger a refetch.

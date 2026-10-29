@@ -28,7 +28,7 @@ import {
   useAttendanceInitial,
 } from "../sections/attendance";
 import { combinedAttendance, isSubjectDetailComplete } from "../lib/attendanceCalc";
-import { runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanceRefreshCheckpoint } from "../lib/attendanceSync";
+import { idleAttendanceSync, runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanceRefreshCheckpoint } from "../lib/attendanceSync";
 
 export function AttendancePage({
   session,
@@ -55,15 +55,15 @@ export function AttendancePage({
       if (pageIsLive.current) setQuotaNotice(null);
     }, ms);
   };
-  const refreshInProgress = useRef(false);
+  const manualController = useRef<AbortController | null>(null);
   const lastRefreshAttempt = useRef({ key: "", at: 0 });
   const refreshKey = sessionCacheKey("refresh.attendance", session);
   const activeRefreshKey = useRef(refreshKey);
   activeRefreshKey.current = refreshKey;
   const manualCheckpoint = useRef<ManualAttendanceRefreshCheckpoint>({});
   const pageIsLive = useRef(true);
-  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
-  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const [syncState, setSyncState] = useState(idleAttendanceSync);
+  const syncingHistory = syncState.phase === "running" || syncState.phase === "paused";
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
 
@@ -120,6 +120,19 @@ export function AttendancePage({
   const att = useAttendanceInitial(session);
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
+  const activeSemester = useRef(semId);
+  activeSemester.current = semId;
+  useEffect(() => {
+    setIsRefreshing(false);
+    setRefreshError(null);
+    setDetailSyncError(null);
+    setSyncState(idleAttendanceSync());
+    manualCheckpoint.current = {};
+    return () => {
+      manualController.current?.abort();
+      manualController.current = null;
+    };
+  }, [refreshKey, semId]);
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
   const lastSemRef = useRef(`${session.username}:${session.instituteid ?? "default"}:${semId}`);
 
@@ -197,19 +210,22 @@ export function AttendancePage({
   useEffect(() => {
     if (isExpired) {
       setIsRefreshing(false);
-      setSyncingIds(new Set());
-      setSyncProgress({ done: 0, total: 0 });
+      setSyncState(idleAttendanceSync());
     }
   }, [isExpired]);
 
   // Wait for today's overview before fetching logs, otherwise the old row
   // checksum can launch a second wave of identical reads when it is replaced.
   useEffect(() => {
-    if (!rows.length || isExpired || !isDefault || refreshInProgress.current ||
-      att.refreshing || !isCurrentPortalDay(att.updatedAt)) return;
+    if (!rows.length || isExpired || !isDefault || manualController.current ||
+      att.refreshing || !isCurrentPortalDay(att.updatedAt)) {
+      if (!manualController.current) setSyncState(previous => previous.phase === "idle" ? previous : idleAttendanceSync());
+      return;
+    }
     setDetailSyncError(null);
     const generation = getCacheGeneration();
     let active = true;
+    const controller = new AbortController();
     const current = () => active && pageIsLive.current && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired";
     const currentMap: Record<string, Record<string, unknown>> = {};
     for (const row of rows) {
@@ -226,23 +242,16 @@ export function AttendancePage({
       overviewUpdatedAt: att.updatedAt,
       base: { registrationid: sem?.registrationid, registrationcode: sem?.registrationcode },
       isCurrent: current,
+      signal: controller.signal,
       onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
-      onProgress: (pending, done, total) => {
-        setSyncingIds(pending);
-        setSyncProgress({ done, total });
-      },
+      onProgress: setSyncState,
     }).then((result) => {
       if (current() && !result.complete) setDetailSyncError("Some class details could not be updated. Retry to load the remaining subjects.");
-    }).finally(() => {
-      if (active) {
-        setSyncingIds(new Set());
-        setSyncProgress({ done: 0, total: 0 });
-      }
     });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [rows, semId, session, sem?.registrationid, sem?.registrationcode, isExpired, att.refreshing, att.updatedAt, detailSyncAttempt]);
 
-  const isSyncing = !isExpired && (isRefreshing || loading || att.refreshing || syncingIds.size > 0);
+  const isSyncing = !isExpired && (isRefreshing || loading || att.refreshing || syncingHistory);
 
   // Single-pass short-count + filter for cheap mobile renders.
   const { shortsCount, filteredRows } = useMemo(() => {
@@ -263,15 +272,16 @@ export function AttendancePage({
   useEffect(() => setShorts(shortsCount), [shortsCount, setShorts]);
 
   const handleRefresh = async () => {
-    if (refreshInProgress.current || isSyncing || refreshFeedback || isExpired || shell.isRecovering || navigator.onLine === false) return;
+    if (manualController.current || isSyncing || refreshFeedback || isExpired || shell.isRecovering || navigator.onLine === false) return;
     if (!isDefault) {
       showNotice("Only current semester updates", 2000);
       return;
     }
 
-    refreshInProgress.current = true;
+    const controller = new AbortController();
+    manualController.current = controller;
     const requestGeneration = getCacheGeneration();
-    const current = () => pageIsLive.current && activeRefreshKey.current === refreshKey && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
+    const current = () => !controller.signal.aborted && pageIsLive.current && activeRefreshKey.current === refreshKey && activeSemester.current === semId && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     try {
       const policy = await getRefreshPolicy("attendance");
       if (!current()) return;
@@ -295,18 +305,17 @@ export function AttendancePage({
       setDetailSyncError(null);
       setQuotaNotice(null);
       setIsRefreshing(true);
+      setSyncState(idleAttendanceSync());
       const baselineRows = rows;
 
       // Joins an automatic overview read if one is already pending. All callers
       // share its cache write, so a late older response cannot replace this one.
       const result = await runManualAttendanceRefresh({
         session, baselineRows, readOverview: att.refresh, isCurrent: current, policy,
+        signal: controller.signal,
         checkpoint: manualCheckpoint.current,
         onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
-        onProgress: (pending, done, total) => {
-          setSyncingIds(pending);
-          setSyncProgress({ done, total });
-        },
+        onProgress: setSyncState,
       });
       if (!result) return;
       setRefreshQuota(result.quota);
@@ -314,11 +323,12 @@ export function AttendancePage({
     } catch (err: unknown) {
       if (current()) setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
-      refreshInProgress.current = false;
-      if (pageIsLive.current) {
-        setIsRefreshing(false);
-        setSyncingIds(new Set());
-        setSyncProgress({ done: 0, total: 0 });
+      if (manualController.current === controller) {
+        manualController.current = null;
+        if (pageIsLive.current) {
+          setIsRefreshing(false);
+          setSyncState(idleAttendanceSync());
+        }
       }
     }
   };
@@ -331,7 +341,7 @@ export function AttendancePage({
   const status = isSyncing ? (
     <span className="att-sync-pill is-syncing" role="status" aria-live="polite">
       <span className="att-sync-dot" aria-hidden="true" />
-      <span>{syncProgress.total > 0 ? `Refreshing ${syncProgress.done}/${syncProgress.total}…` : "Refreshing…"}</span>
+      <span>{syncState.total > 0 ? `Refreshing ${syncState.done}/${syncState.total}…` : "Refreshing…"}</span>
     </span>
   ) : quotaNotice ? (
     <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">{quotaNotice}</span>
@@ -387,7 +397,7 @@ export function AttendancePage({
             filteredRows.map((r, i) => {
               const { name, badge } = subjectName(r.subjectcode);
               const subId = rowSubId(r);
-              const isSubjectSyncing = syncingIds.has(subId);
+              const isSubjectSyncing = syncingHistory && syncState.pending.has(subId);
               const subject = subjectStates[subId];
               const attInfo = subject.attendance;
               const hasPercentage = attInfo.pctNum !== null;
@@ -411,7 +421,7 @@ export function AttendancePage({
                       ) : !hasDetail || hasPercentage ? (
                         isSyncing ? "Loading classes…" : "Class details unavailable"
                       ) : (
-                        "No classes yet"
+                        "No attendance recorded"
                       )}
                       {isSubjectSyncing && (
                         <span className="att-count-syncing" role="status" aria-label="Updating class details">

@@ -4,8 +4,20 @@ import { getCachedSubjectDetailEntry, refreshSubjectDetail, rowSubId, type AttRo
 import type { Session } from "../types";
 import type { AttData } from "../sections/attendance";
 import type { RefreshPolicy } from "./refreshPolicy";
+import { features } from "@juet/core";
 
 type Detail = Record<string, Record<string, unknown>>;
+
+export interface AttendanceSyncState {
+  phase: "idle" | "running" | "paused" | "complete" | "failed" | "cancelled";
+  pending: Set<string>;
+  done: number;
+  total: number;
+}
+
+export function idleAttendanceSync(): AttendanceSyncState {
+  return { phase: "idle", pending: new Set(), done: 0, total: 0 };
+}
 
 let openSheets = 0;
 const resumeListeners = new Set<() => void>();
@@ -13,7 +25,10 @@ const resumeListeners = new Set<() => void>();
 /** Let the open subject use the network before starting another queued subject. */
 export function pauseAttendanceSync() {
   openSheets++;
+  let released = false;
   return () => {
+    if (released) return;
+    released = true;
     openSheets--;
     if (openSheets === 0) {
       for (const resume of resumeListeners) resume();
@@ -22,8 +37,28 @@ export function pauseAttendanceSync() {
   };
 }
 
-async function waitForOpenSheets() {
-  while (openSheets > 0) await new Promise<void>((resolve) => resumeListeners.add(resolve));
+async function waitForOpenSheets(signal?: AbortSignal) {
+  while (openSheets > 0 && !signal?.aborted) await new Promise<void>((resolve) => {
+    const resume = () => {
+      resumeListeners.delete(resume);
+      signal?.removeEventListener("abort", resume);
+      resolve();
+    };
+    resumeListeners.add(resume);
+    signal?.addEventListener("abort", resume, { once: true });
+  });
+}
+
+async function waitForHistory<T>(read: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return read;
+  let abort: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try { return await Promise.race([read, cancelled]); }
+  finally { signal.removeEventListener("abort", abort!); }
 }
 
 /** Preserve change detection across retries within the same portal day. */
@@ -49,14 +84,15 @@ export function attendanceRowsChanged(before: AttRow[], after: AttRow[]) {
 
 /** All syncs use overview checksums to avoid refetching unchanged history. */
 export async function syncAttendanceDetails({
-  session, rows, base, isCurrent = () => true, onDetail, onProgress, overviewUpdatedAt,
+  session, rows, base, isCurrent = () => true, onDetail, onProgress, overviewUpdatedAt, signal,
 }: {
   session: Session;
   rows: AttRow[];
   base: { registrationid?: string | null; registrationcode?: string | null };
   isCurrent?: () => boolean;
   onDetail?: (id: string, data: Detail) => void;
-  onProgress?: (pending: Set<string>, done: number, total: number) => void;
+  onProgress?: (state: AttendanceSyncState) => void;
+  signal?: AbortSignal;
   /** Time of the real overview read, so cache-only visits cannot claim a new sync. */
   overviewUpdatedAt?: number | null;
 }) {
@@ -72,14 +108,18 @@ export async function syncAttendanceDetails({
   const pending = new Set(queue.map(({ row }) => rowSubId(row)));
   let done = 0;
   let changed = false;
-  let cancelled = false;
+  let phase: AttendanceSyncState["phase"] = "running";
   let syncedAt = overviewUpdatedAt ?? 0;
   const errors: unknown[] = [];
-  const progress = () => { if (isCurrent()) onProgress?.(new Set(pending), done, total); };
+  const current = () => !signal?.aborted && isCurrent();
+  const progress = () => { if (isCurrent()) onProgress?.({ phase, pending: new Set(pending), done, total }); };
   progress();
-  while (queue.length && !cancelled) {
-    await waitForOpenSheets();
-    if (!isCurrent()) { cancelled = true; break; }
+  while (queue.length && phase === "running") {
+    if (!current()) { phase = "cancelled"; break; }
+    if (openSheets > 0) { phase = "paused"; progress(); }
+    await waitForOpenSheets(signal);
+    if (!current()) { phase = "cancelled"; break; }
+    if (phase === "paused") { phase = "running"; progress(); }
     const { row, entry } = queue.shift()!;
     const id = rowSubId(row);
     try {
@@ -87,22 +127,25 @@ export async function syncAttendanceDetails({
       // busy. Recheck at dequeue time, not just when the batch was created.
       const latest = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
       const needsRead = doesSubjectNeedDeepFetch(row, latest.data, latest.updatedAt, latest.checksum);
-      const result = needsRead ? await refreshSubjectDetail(session, row, base) : { data: latest.data!, updatedAt: latest.updatedAt };
-      if (!isCurrent()) { cancelled = true; break; }
+      const result = needsRead ? await waitForHistory(refreshSubjectDetail(session, row, base), signal)
+        : { data: latest.data!, updatedAt: latest.updatedAt };
+      if (!current()) { phase = "cancelled"; break; }
       syncedAt = Math.max(syncedAt, result.updatedAt ?? 0);
       changed ||= detailSignature(entry.data) !== detailSignature(result.data);
       onDetail?.(id, result.data);
     } catch (error) {
+      if (!current()) { phase = "cancelled"; break; }
       errors.push(error);
-      const e = error as { code?: string; status?: number };
-      if (e.code === "SESSION_EXPIRED" || e.status === 401) cancelled = true;
+      if (features.isAttendanceUnavailable(error)) phase = "failed";
     } finally {
       pending.delete(id);
       done++;
-      progress();
+      if (phase === "running" && queue.length) progress();
     }
   }
-  const complete = isCurrent() && !cancelled && errors.length === 0 && done === total;
+  const complete = current() && errors.length === 0 && done === total;
+  phase = !current() ? "cancelled" : complete ? "complete" : "failed";
+  progress();
   if (complete && syncedAt > 0) {
     try {
       const previous = Number(localStorage.getItem("juet.portal.last_sync"));
@@ -124,7 +167,8 @@ export async function runManualAttendanceRefresh({
   checkpoint?: ManualAttendanceRefreshCheckpoint;
   policy?: RefreshPolicy;
 }) {
-  const current = sync.isCurrent ?? (() => true);
+  const current = () => !sync.signal?.aborted && (sync.isCurrent?.() ?? true);
+  if (!current()) return null;
   const portalDay = getPortalDayKey();
   if (checkpoint.portalDay !== portalDay) {
     checkpoint.changed = false;

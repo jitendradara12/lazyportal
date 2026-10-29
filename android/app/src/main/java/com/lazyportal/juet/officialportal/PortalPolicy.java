@@ -17,6 +17,7 @@ import org.json.JSONObject;
  * endpoint allowlist supplied by the remotely updated UI. */
 public final class PortalPolicy {
     public final int version;
+    public final int timeoutMs;
     public final String origin, upstream, pagePrefix, apiPrefix, entry;
     private final Set<String> posts, gets, routes;
     public final Map<String, String> assetAliases = new HashMap<>();
@@ -36,6 +37,7 @@ public final class PortalPolicy {
 
     public PortalPolicy(JSONObject json) throws Exception {
         version = json.getInt("version");
+        timeoutMs = json.optInt("timeoutMs", 0);
         origin = json.getString("origin"); upstream = json.getString("upstream");
         pagePrefix = json.getString("pagePrefix"); apiPrefix = json.getString("apiPrefix");
         entry = json.getString("entry");
@@ -58,7 +60,9 @@ public final class PortalPolicy {
     }
 
     public JSONObject apiCapabilities() throws Exception {
-        return new JSONObject().put("version", version).put("post", new JSONArray(posts)).put("get", new JSONArray(gets));
+        JSONObject caps = new JSONObject().put("version", version).put("post", new JSONArray(posts)).put("get", new JSONArray(gets));
+        if (timeoutMs > 0) caps.put("timeoutMs", timeoutMs);
+        return caps;
     }
 
     public URL apiUrl(String method, String path) throws Exception {

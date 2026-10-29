@@ -382,3 +382,108 @@ test("retrying a failed tutorial preserves saved history and reuses its successf
   expect(lectureReads).toBe(1);
   expect(tutorialReads).toBe(2);
 });
+
+test("a cold history shows its completed lecture while the tutorial is still loading", async ({ page }) => {
+  const renderLoops = [];
+  page.on("console", message => {
+    if (/Maximum update depth/.test(message.text())) renderLoops.push(message.text());
+  });
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  let releaseTutorial;
+  const tutorial = new Promise(resolve => { releaseTutorial = resolve; });
+  const reads = [];
+  await page.route("**/api/**/getstudentsubjectpersentage", async route => {
+    const payload = JSON.parse(await decrypt(route.request().postData()));
+    const component = payload.cmpidkey[0].subjectcomponentid;
+    reads.push(component);
+    if (component === "tutorial") await tutorial;
+    await route.fulfill({ json: { response: { summary: [{ present: component === "lecture" ? "Y" : "N", datetime: "28/10/2026 09:00 AM" }] } } });
+  });
+  await page.evaluate(session => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0] = { subjectid: "subject1", subjectcode: "TEST SUBJECT(CS101)",
+      Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 75 };
+    const subjectKey = ["att.subject", session.username, session.instituteid, "sem1", "subject1"].map(encodeURIComponent).join(":");
+    localStorage.removeItem(`juet.cache.${subjectKey}`);
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
+  const dialog = page.getByRole("dialog");
+  try {
+    await expect(dialog.getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("status")).toHaveText("Updating breakdown…");
+    expect(reads.sort()).toEqual(["lecture", "tutorial"]);
+    await page.evaluate(() => new Promise(resolve => {
+      let frames = 0;
+      const frame = () => ++frames === 15 ? resolve() : requestAnimationFrame(frame);
+      requestAnimationFrame(frame);
+    }));
+    expect(renderLoops).toEqual([]);
+  } finally { releaseTutorial(); }
+  await expect(dialog.getByRole("button", { name: "All (2)", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("status")).toHaveCount(0);
+});
+
+test("subjects with no attendance cache the portal's empty result without a page error", async ({ page }) => {
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  let reads = 0;
+  await page.route("**/api/**/getstudentsubjectpersentage", route => {
+    reads++;
+    return route.fulfill({ status: 404, json: { status: { responseStatus: "Failure", errors: ["NO Attendance Found"] } } });
+  });
+  await page.evaluate(session => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows.push(
+      { subjectid: "minor", subjectcode: "MINOR PROJECT-1(CS211)", Lsubjectcomponentid: "minor", Lpercentage: 0 },
+      { subjectid: "internship", subjectcode: "SUMMER INTERNSHIP(CS003)", Psubjectcomponentid: "internship", Ppercentage: 0 },
+    );
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  for (const name of ["Minor Project-1", "Summer Internship"]) {
+    await expect(page.getByRole("button", { name: new RegExp(`^${name},`) })).toContainText("No attendance recorded");
+  }
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Minor Project-1,/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("No attendance recorded for this subject.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  expect(reads).toBe(2);
+});
+
+test("background caching resumes after the open subject finishes, while its sheet stays open", async ({ page }) => {
+  let releaseFirst;
+  const first = new Promise(resolve => { releaseFirst = resolve; });
+  const reads = [];
+  await page.route("**/api/**/getstudentsubjectpersentage", async route => {
+    const payload = JSON.parse(await decrypt(route.request().postData()));
+    reads.push(payload.subjectid);
+    if (payload.subjectid === "subject1") await first;
+    await route.fulfill({ json: { response: { summary: [{ present: "Y", datetime: "28/10/2026 09:00 AM" }] } } });
+  });
+  await page.evaluate(session => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows[0].Ppercentage = 90;
+    entry.data.rows.push({ subjectid: "subject2", subjectcode: "SECOND SUBJECT(CS102)", Psubjectcomponentid: "p2", Ppercentage: 100 });
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  const dialog = page.getByRole("dialog");
+  try {
+    await expect.poll(() => reads).toEqual(["subject1"]);
+    await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
+  } finally { releaseFirst(); }
+  await expect(dialog.getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
+  await expect.poll(() => reads).toEqual(["subject1", "subject2"]);
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => page.evaluate(session => {
+    const key = ["att.subject", session.username, session.instituteid, "sem1", "subject2"].map(encodeURIComponent).join(":");
+    return Boolean(JSON.parse(localStorage.getItem(`juet.cache.${key}`))?.checksum);
+  }, SESSION)).toBe(true);
+});

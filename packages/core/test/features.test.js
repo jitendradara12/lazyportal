@@ -635,6 +635,145 @@ describe("features", () => {
     assert.deepEqual(out, { L: { summary: [] } });
   });
 
+  for (const msg of [
+    "No Data Found", "No Record Found", "No data exist", "no attendance detail found",
+    "Record Not Found", "Data Not Found", "Attendance Not Found", "No Records Found",
+  ]) {
+    it(`getSubjectAttendanceAll handles "${msg}" as empty summary`, async () => {
+      const fake = {
+        async post() {
+          const err = new Error(msg);
+          err.errors = [msg];
+          throw err;
+        },
+      };
+      const row = {
+        subjectid: "s1", subjectcode: "SC1",
+        Lsubjectcomponentid: "c1",
+      };
+      const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+      assert.deepEqual(out, { L: { summary: [] } });
+    });
+  }
+
+  it("getSubjectAttendanceAll reads components with unknown percentages", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [{ present: "Y" }] } };
+      },
+    };
+    const row = {
+      subjectid: "s1",
+      subjectcode: "SC1",
+      Lsubjectcomponentid: "c_lec",
+      Lpercentage: 85,
+      Tsubjectcomponentid: "c_tut",
+      Tpercentage: null,
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(out.L, { summary: [{ present: "Y" }] });
+    assert.deepEqual(out.T, { summary: [{ present: "Y" }] });
+  });
+
+  it("getSubjectAttendanceAll does not infer component totals from the subject total", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [] } };
+      },
+    };
+    const row = {
+      subjectid: "s1",
+      subjectcode: "SC1",
+      totalclass: 0,
+      totalpresent: 0,
+      Lsubjectcomponentid: "c_lec",
+      Lpercentage: 0,
+      Tsubjectcomponentid: "c_tut",
+      Tpercentage: 0,
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(out.L, { summary: [] });
+    assert.deepEqual(out.T, { summary: [] });
+  });
+
+  it("getSubjectAttendanceAll does not infer an empty tutorial from lecture totals", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [{ present: "Y" }] } };
+      },
+    };
+    const row = {
+      subjectid: "s1",
+      subjectcode: "SC1",
+      totalclass: 20,
+      totalpresent: 17,
+      Lsubjectcomponentid: "c_lec",
+      Ltotalclass: 20,
+      Ltotalpresent: 17,
+      Lpercentage: 85,
+      Tsubjectcomponentid: "c_tut",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(out.L, { summary: [{ present: "Y" }] });
+    assert.deepEqual(out.T, { summary: [{ present: "Y" }] });
+  });
+
+  it("getSubjectAttendanceAll reads unknown totals even when percentages are blank", async () => {
+    for (const emptyPct of ["", "-", " — ", "N/A", null]) {
+      const calls = [];
+      const fake = {
+        async post(endpoint, payload) {
+          calls.push([endpoint, payload]);
+          return { response: { summary: [{ present: "Y" }] } };
+        },
+      };
+      const row = {
+        subjectid: "s1",
+        subjectcode: "SC1",
+        Lsubjectcomponentid: "c_lec",
+        Lpercentage: 85,
+        Tsubjectcomponentid: "c_tut",
+        Tpercentage: emptyPct,
+      };
+      const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+      assert.equal(calls.length, 2, `unknown Tpercentage ${JSON.stringify(emptyPct)} is not zero classes`);
+      assert.deepEqual(out.L, { summary: [{ present: "Y" }] });
+      assert.deepEqual(out.T, { summary: [{ present: "Y" }] });
+    }
+  });
+
+  it("getSubjectAttendanceAll skips network POST when component ID is 0 or null string", async () => {
+    for (const invalidId of ["0", "null", "undefined", "  "]) {
+      const calls = [];
+      const fake = {
+        async post(endpoint, payload) {
+          calls.push([endpoint, payload]);
+          return { response: { summary: [{ present: "Y" }] } };
+        },
+      };
+      const row = {
+        subjectid: "s1",
+        subjectcode: "SC1",
+        Lsubjectcomponentid: "c_lec",
+        Lpercentage: 85,
+        Tsubjectcomponentid: invalidId,
+      };
+      const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+      assert.equal(calls.length, 1, `skips T when Tsubjectcomponentid is ${JSON.stringify(invalidId)}`);
+      assert.deepEqual(out.L, { summary: [{ present: "Y" }] });
+      assert.deepEqual(out.T, { summary: [] });
+    }
+  });
+
   it("getSubjectAttendanceAll skips network POST when row explicitly reports 0 classes for a component", async () => {
     const calls = [];
     const fake = {
@@ -659,6 +798,30 @@ describe("features", () => {
     assert.equal(calls.length, 1, "only fetches L component, skipping 0-class T component");
     assert.deepEqual(out.L, { summary: [{ present: "Y" }] });
     assert.deepEqual(out.T, { summary: [] });
+  });
+
+  it("getSubjectAttendanceAll does not infer empty practicals from L/T totals", async () => {
+    const calls = [];
+    const fake = {
+      async post(endpoint, payload) {
+        calls.push([endpoint, payload]);
+        return { response: { summary: [{ present: "Y" }] } };
+      },
+    };
+    const row = {
+      subjectid: "s1",
+      subjectcode: "SC1",
+      totalclass: 30,
+      totalpresent: 25,
+      Lsubjectcomponentid: "c_lec",
+      Ltotalclass: 20,
+      Tsubjectcomponentid: "c_tut",
+      Ttotalclass: 10,
+      Psubjectcomponentid: "c_prac",
+    };
+    const out = await getSubjectAttendanceAll(fake, { instituteid: "i1" }, row, { registrationid: "r1", registrationcode: "RC1" });
+    assert.equal(calls.length, 3);
+    assert.deepEqual(out.P, { summary: [{ present: "Y" }] });
   });
 
   it("getSubjectAttendanceAll does not skip component if totalpresent > 0 or percentage > 0 even if totalclass is 0", async () => {

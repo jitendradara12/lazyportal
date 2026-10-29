@@ -48,6 +48,20 @@ test("isSubjectDetailComplete validates component completeness", () => {
   };
   assert.equal(isSubjectDetailComplete(rowLab, fullLT), false, "missing P is incomplete for lab");
   assert.equal(isSubjectDetailComplete(rowLab, { P: { summary: [] } }), true, "P present is complete for lab");
+
+  // Invalid/empty component IDs (0, null, undefined) must not require missing detail
+  for (const invalidId of ["0", "null", "undefined", "  "]) {
+    const rowWithInvalid = {
+      subjectcode: "CS103",
+      Lsubjectcomponentid: "comp_l",
+      Tsubjectcomponentid: invalidId,
+    };
+    assert.equal(
+      isSubjectDetailComplete(rowWithInvalid, { L: { summary: [{ present: "Y" }] } }),
+      true,
+      `component ID ${JSON.stringify(invalidId)} should not require T detail`
+    );
+  }
 });
 
 test("combinedAttendance falls back to row counts when detail is incomplete", () => {
@@ -387,5 +401,16 @@ test("malformed history list entries are rejected and safe to render from old ca
       assert.equal(parseClassLogs(P), null);
       assert.equal(combinedAttendance(row, { P }).pctNum, 80);
     }
+  }
+});
+
+test("placeholder lecture/tutorial IDs cannot hide a lab's percentage or cached counts", () => {
+  const P = { summary: [{ present: "Y" }, { present: "Y" }, { present: "Y" }, { present: "Y" }, { present: "N" }] };
+  for (const id of ["0", " null ", "undefined", "0, null, "]) {
+    const row = { Lsubjectcomponentid: id, Tsubjectcomponentid: id, Psubjectcomponentid: "lab", Ppercentage: 80, LTpercantage: 0 };
+    assert.equal(isSubjectDetailComplete(row, { P }), true);
+    assert.equal(combinedAttendance(row).pctNum, 80);
+    assert.equal(combinedAttendance(row, { P }).totalClasses, 5);
+    assert.equal(combinedAttendance(row, { P }).totalPresent, 4);
   }
 });

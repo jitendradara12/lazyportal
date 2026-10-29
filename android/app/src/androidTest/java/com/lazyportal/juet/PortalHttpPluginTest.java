@@ -88,7 +88,7 @@ public class PortalHttpPluginTest {
                 FakeConnection captchaConnection = plugin.opened.poll(5, TimeUnit.SECONDS);
                 assertNotNull(captchaConnection);
                 assertEquals("https://studentportal.juet.ac.in/StudentPortalAPI/token/getcaptcha", captchaConnection.getURL().toString());
-                assertTrue(captchaConnection.disconnected);
+                assertFalse(captchaConnection.disconnected);
 
                 for (String action : new String[] { "cancel", "reload", "destroy" }) {
                     Call waiting = new Call(action, "/token/productversion");

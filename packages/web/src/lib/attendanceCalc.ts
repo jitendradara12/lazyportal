@@ -1,5 +1,6 @@
 // Pure calculation and parsing logic for attendance data.
-// Kept zero-dependency and isolated from React/JSX so it can be tested directly in Node.
+// No React or browser APIs, so it can be tested directly in Node.
+import { features } from "@juet/core";
 
 export type AttColorClass = "att-red" | "att-yellow" | "att-normal" | "att-green" | "";
 
@@ -98,7 +99,7 @@ export function isSubjectDetailComplete(
 ): boolean {
   if (!detail || typeof detail !== "object") return false;
   for (const type of ["L", "T", "P"]) {
-    if (!row[`${type}subjectcomponentid`]) continue;
+    if (!features.getAttendanceComponentIds(row[`${type}subjectcomponentid`]).length) continue;
     const component = detail[type];
     if (!component || typeof component !== "object") return false;
     if (Array.isArray(component)) {
@@ -185,9 +186,9 @@ export function parseClassLogs(raw: unknown, type?: string): {
 
 function isLabRow(r: Record<string, unknown>): boolean {
   return Boolean(
-    (r.Psubjectcomponentid || r.Ppercentage) &&
-    !r.Lsubjectcomponentid &&
-    !r.Tsubjectcomponentid
+    (features.getAttendanceComponentIds(r.Psubjectcomponentid).length || r.Ppercentage) &&
+    !features.getAttendanceComponentIds(r.Lsubjectcomponentid).length &&
+    !features.getAttendanceComponentIds(r.Tsubjectcomponentid).length
   );
 }
 
@@ -218,6 +219,7 @@ export function combinedAttendance(
     };
   }
   const isLab = isLabRow(r);
+  const hasLecture = features.getAttendanceComponentIds(r.Lsubjectcomponentid).length > 0;
 
   // Fallback row counts to guard against stale cached detail
   const Ltotal = Number(r.Ltotalclass ?? r.LTotalclass ?? r.ltotalclass ?? 0);
@@ -232,8 +234,8 @@ export function combinedAttendance(
   // Tradeoff: Math.max ensures we do not undercount if component breakdown lags top-level summary
   // rows on the portal. Consistent portal data cannot produce >100%, but downward corrections
   // on individual components will yield to the higher summary count until fresh details arrive.
-  const rowTotalClasses = Math.max(topTotal, isLab ? Ptotal : Ltotal + Ttotal + (r.Lsubjectcomponentid ? 0 : Ptotal));
-  const rowTotalPresent = Math.max(topPres, isLab ? Ppres : Lpres + Tpres + (r.Lsubjectcomponentid ? 0 : Ppres));
+  const rowTotalClasses = Math.max(topTotal, isLab ? Ptotal : Ltotal + Ttotal + (hasLecture ? 0 : Ptotal));
+  const rowTotalPresent = Math.max(topPres, isLab ? Ppres : Lpres + Tpres + (hasLecture ? 0 : Ppres));
 
   // When class-by-class detail logs are available (from live fetch or cache)
   // Only trust detail if all expected components are present and non-null
@@ -259,7 +261,7 @@ export function combinedAttendance(
     }
     if (pStats && (pStats.total > 0 || r.Psubjectcomponentid)) {
       components.P = { total: pStats.total, present: pStats.attended, pct: pStats.pct };
-      if (isLab || (!components.L && !components.T && !r.Lsubjectcomponentid)) {
+      if (isLab || (!components.L && !components.T && !hasLecture)) {
         totalClasses += pStats.total;
         totalPresent += pStats.attended;
       }

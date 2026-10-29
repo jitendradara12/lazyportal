@@ -59,6 +59,7 @@ public final class PortalTransport implements AutoCloseable {
         byte[] body = request.optString("body", "").getBytes(StandardCharsets.UTF_8);
         if (body.length > BODY_LIMIT) throw new IOException("Request too large");
         HttpURLConnection connection = connect(id, target, method);
+        boolean success = false;
         try {
             JSONObject headers = request.optJSONObject("headers");
             if (headers != null) {
@@ -82,9 +83,16 @@ public final class PortalTransport implements AutoCloseable {
             JSONObject replyHeaders = new JSONObject();
             String type = connection.getHeaderField("Content-Type");
             if (type != null) replyHeaders.put("content-type", type);
+            success = true;
             return new JSONObject().put("id", id).put("status", status).put("headers", replyHeaders)
                 .put("body", Base64.encodeToString(bytes, Base64.NO_WRAP));
-        } finally { cancel(id); }
+        } finally {
+            if (!success) {
+                cancel(id);
+            } else {
+                active.remove(id);
+            }
+        }
     }
 
     public WebResourceResponse asset(String url, String bootstrap) {

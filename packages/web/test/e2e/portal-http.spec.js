@@ -3,6 +3,24 @@ import { portalApiPolicy } from "../../../core/src/portalTransport.js";
 import { computeSubjectRowChecksum, getPortalDayKey } from "../../src/lib/portalSchedule.ts";
 import { mockPortal, SESSION } from "./helpers.js";
 
+test("a cold attendance failure settles without repeatedly rendering the page", async ({ page }) => {
+  const renderLoops = [];
+  page.on("console", message => {
+    if (/Maximum update depth/.test(message.text())) renderLoops.push(message.text());
+  });
+  await mockPortal(page);
+  await page.route("**/api/**", route => route.fulfill({ status: 503, body: "Unavailable" }));
+  await page.addInitScript(session => localStorage.setItem("juet.portal.session.v1", JSON.stringify(session)), SESSION);
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("portal is down");
+  await page.evaluate(() => new Promise(resolve => {
+    let frames = 0;
+    const frame = () => ++frames === 15 ? resolve() : requestAnimationFrame(frame);
+    requestAnimationFrame(frame);
+  }));
+  expect(renderLoops).toEqual([]);
+});
+
 async function setup(page, { missingAttendance = false, missingDetail = false, seededAttendance = false, fail = false, failDiscovery = false } = {}) {
   await mockPortal(page);
   const hosted = [];

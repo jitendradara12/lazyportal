@@ -49,12 +49,12 @@ public class PortalTransportDeviceTest {
         assertTrue(connections.get(1).disconnected);
         assertEquals(policy.upstream, connections.get(1).getRequestProperty("Origin"));
     }
-    @Test public void apiResponsesAndErrorsUseAndroidEncodingAndAlwaysDisconnect() throws Exception {
+    @Test public void apiResponsesAndErrorsUseAndroidEncodingAndPoolConnections() throws Exception {
         JSONObject response = transport.api(new JSONObject().put("id", "1:1").put("path", "/clxuser/getmenulist")
             .put("method", "POST").put("headers", new JSONObject().put("authorization", "Bearer test")).put("body", "encrypted"));
         assertEquals(200, response.getInt("status"));
         assertEquals("{}", new String(Base64.decode(response.getString("body"), Base64.DEFAULT), StandardCharsets.UTF_8));
-        assertTrue(connections.get(0).disconnected);
+        assertFalse(connections.get(0).disconnected);
         assertEquals("encrypted", connections.get(0).output.toString("UTF-8"));
         assertEquals(403, transport.asset("https://lazyportal-tan.vercel.app/api/any", "").getStatusCode());
         assertEquals(1, connections.size());

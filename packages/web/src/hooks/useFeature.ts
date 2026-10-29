@@ -4,7 +4,7 @@ import type { PageRefreshRequest, RefreshPage } from "./usePageRefresh";
 type FeatureScope = RefreshPage | "attendance" | "subject";
 
 interface UseFeatureOptions<T> {
-  run: () => Promise<T>;
+  run: (signal: AbortSignal) => Promise<T>;
   /** Extra deps that retrigger the fetch (e.g. selected semester id). */
   deps?: unknown[];
   /** When false, the fetch is skipped (for chained selects). */
@@ -64,7 +64,7 @@ export function resolveFeatureState<T>(
 }
 
 // ponytail: in-flight request deduplication across concurrent hooks sharing a cacheKey
-const inFlight = new Map<string, { promise: Promise<{ data: unknown; updatedAt: number }>; version?: string }>();
+const inFlight = new Map<string, { promise: Promise<{ data: unknown; updatedAt: number }>; version?: string; controller: AbortController }>();
 // In-memory read-through cache to eliminate redundant localStorage + JSON.parse on mobile renders
 const memoryCache = new Map<string, { raw: string; volatile?: boolean; parsed: { data: unknown; updatedAt: number | null; checksum?: string | null } & Record<string, unknown> }>();
 let storageListenerBound = false;
@@ -95,6 +95,7 @@ export function isCacheGenerationCurrent(generation: number): boolean {
 /** Invalidate pending cache writes and deduplication after the user logs out. */
 export function invalidateCacheGeneration(): void {
   cacheGeneration++;
+  for (const request of inFlight.values()) request.controller.abort();
   inFlight.clear();
   memoryCache.clear();
 }
@@ -188,7 +189,7 @@ export const STALE_MS = 2 * 60 * 60 * 1000;
 /** Share hook and imperative reads, including their single cache write. */
 export function requestFeature<T>(
   cacheKey: string | undefined,
-  run: () => Promise<T>,
+  run: (signal: AbortSignal) => Promise<T>,
   writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>),
   requestVersion?: string,
 ): Promise<{ data: T; updatedAt: number }> {
@@ -201,9 +202,10 @@ export function requestFeature<T>(
       return requestFeature(cacheKey, run, writeExtra, requestVersion);
     });
   }
+  const controller = new AbortController();
   const request = Promise.resolve().then(() => {
     if (!isCacheGenerationCurrent(generation)) throw new DOMException("Request cancelled.", "AbortError");
-    return run();
+    return run(controller.signal);
   }).then((data) => {
     let updatedAt = Date.now();
     if (isCacheGenerationCurrent(generation)) {
@@ -213,7 +215,7 @@ export function requestFeature<T>(
   }).finally(() => {
     if (cacheKey && inFlight.get(cacheKey)?.promise === request) inFlight.delete(cacheKey);
   });
-  if (cacheKey) inFlight.set(cacheKey, { promise: request, version: requestVersion });
+  if (cacheKey) inFlight.set(cacheKey, { promise: request, version: requestVersion, controller });
   return request;
 }
 

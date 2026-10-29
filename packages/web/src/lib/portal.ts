@@ -31,7 +31,8 @@ export type RefreshPage = keyof typeof features.featurePostEndpoints;
 
 export async function getRefreshPolicy(page: RefreshPage) {
   // Unknown/unavailable native capabilities keep the conservative proxy policy.
-  const usesProxy = await transport.usesProxyFor("POST", Object.values(features.featurePostEndpoints[page])).catch(() => true) ||
+  const paths = Object.values(features.featurePostEndpoints[page]);
+  const usesProxy = await transport.usesProxyFor("POST", paths).catch(() => true) ||
     (page === "marks" && await transport.usesProxyFor("GET", Object.values(features.marksReportEndpoints)).catch(() => true));
   return selectRefreshPolicy(usesProxy, env.VITE_ATTENDANCE_QUOTA);
 }

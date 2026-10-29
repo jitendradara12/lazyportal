@@ -9,6 +9,7 @@ export const portalApiPolicy = Object.freeze({
   version: 1,
   post: [...new Set([...officialPortalPolicy.post, ...Object.values(featurePostEndpoints).flatMap(Object.values), ...authEndpoints.post])],
   get: [...new Set([...officialPortalPolicy.get, ...authEndpoints.get])],
+  timeoutMs: 55_000,
 });
 
 /** One routing decision for client fetches and policy queries. The APK owns
@@ -39,7 +40,15 @@ export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.
       ).catch(() => null).finally(() => clearTimeout(timer));
     }
     const installed = await capabilities;
-    return installed && allows(installed, method, path) ? "native" : "proxy";
+    if (!installed || !allows(installed, method, path)) return "proxy";
+    const isAttendanceDetail = path === featurePostEndpoints.attendance.current ||
+      path === featurePostEndpoints.attendance.previous;
+    // Released pre-metadata APKs have a 20s read timeout. Choose the proxy
+    // before dispatch, rather than spending 20s natively and then retrying.
+    if (isAttendanceDetail && (!Number.isFinite(installed.timeoutMs) || installed.timeoutMs < 55_000)) {
+      return "proxy";
+    }
+    return "native";
   };
 
   const fetch = !native ? fetchImpl : (url, init = {}) => {
@@ -71,19 +80,8 @@ export function createPortalTransport({ baseUrl, native, fetchImpl = globalThis.
           return fetchImpl(url, init);
         }
         sent = true;
-        let reply;
-        try {
-          reply = await native.request({ id, method, path, body: init.body ?? "",
-            headers: Object.fromEntries(new Headers(init.headers).entries()) });
-        } catch (nativeErr) {
-          if (signal?.aborted) throw signal.reason;
-          const isAttendanceDetail = path === featurePostEndpoints.attendance.current ||
-            path === featurePostEndpoints.attendance.previous;
-          if (isAttendanceDetail && (nativeErr?.code === "NETWORK_ERROR" || /reach.*portal|portal.*busy|timeout/i.test(nativeErr?.message ?? ""))) {
-            return fetchImpl(url, init);
-          }
-          throw nativeErr;
-        }
+        const reply = await native.request({ id, method, path, body: init.body ?? "",
+          headers: Object.fromEntries(new Headers(init.headers).entries()) });
         const bytes = Uint8Array.from(atob(reply.body), (char) => char.charCodeAt(0));
         return new Response(reply.status === 204 ? null : bytes, { status: reply.status, headers: reply.headers });
       }).then((response) => finish(resolve, response), (error) => finish(reject, error));

@@ -64,6 +64,7 @@ const {
   PORTAL_DAY_CUTOFF_MINUTE_IST,
   FEATURE_TTL,
   computeSubjectRowChecksum,
+  computeLegacySubjectRowChecksum,
   doesSubjectNeedDeepFetch,
   REFRESH_THROTTLE_MS,
   shouldThrottleRefresh,
@@ -746,3 +747,34 @@ test("component reassignment invalidates equal-percentage history without treati
   assert.notEqual(computeSubjectRowChecksum(reassigned), checksum);
   assert.equal(doesSubjectNeedDeepFetch(reassigned, data, Date.now(), checksum), true);
 });
+
+test("legacy checksum format from prior app versions is treated as fresh when row counts match", () => {
+  const row = { subjectid: "legacy-sub", subjectcode: "CS102", Lsubjectcomponentid: "comp1", Lpercentage: 85, Ltotalclass: 20, Ltotalpresent: 17 };
+  const data = { L: { summary: Array(20).fill({ present: "Y" }) } };
+  const legacyChecksum = computeLegacySubjectRowChecksum(row);
+  const newChecksum = computeSubjectRowChecksum(row);
+  assert.notEqual(legacyChecksum, newChecksum);
+  // Matching legacy checksum does not trigger deep fetch if cachedUpdatedAt is valid
+  assert.equal(doesSubjectNeedDeepFetch(row, data, Date.now(), legacyChecksum), false);
+  // If counts changed, legacy checksum no longer matches and triggers deep fetch
+  const changedRow = { ...row, Ltotalclass: 21 };
+  assert.equal(doesSubjectNeedDeepFetch(changedRow, data, Date.now(), legacyChecksum), true);
+});
+
+test("raw legacy checksum format with string zero component id is treated as fresh", () => {
+  const row = {
+    subjectid: "legacy-lab",
+    subjectcode: "CS103",
+    Psubjectcomponentid: "lab1",
+    Tsubjectcomponentid: "0",
+    Ppercentage: 90,
+    totalclass: 10,
+    totalpresent: 9,
+  };
+  const data = { P: { summary: Array(10).fill({ present: "Y" }) } };
+  // Raw legacy computed isLab=false because Boolean("0") === true
+  const rawLegacyChecksum = `${row.subjectid}|10|9||::|::|::90`;
+  assert.equal(doesSubjectNeedDeepFetch(row, data, Date.now(), rawLegacyChecksum), false);
+});
+
+

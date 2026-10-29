@@ -200,26 +200,34 @@ export async function getFaculties(client, session, { registrationid }) {
 // only pending reads: never retain results/errors or coalesce auth/login calls.
 const subjectAttendanceRequests = new WeakMap();
 
-function shareSubjectAttendanceRead(client, key, run) {
-  let pending = subjectAttendanceRequests.get(client);
-  if (!pending) {
-    pending = new Map();
-    subjectAttendanceRequests.set(client, pending);
+function shareSubjectAttendanceRead(client, key, run, signal) {
+  let scopes = subjectAttendanceRequests.get(client);
+  if (!scopes) {
+    scopes = new Map();
+    subjectAttendanceRequests.set(client, scopes);
   }
+  let pending = scopes.get(signal);
+  if (!pending) scopes.set(signal, pending = new Map());
   const existing = pending.get(key);
   if (existing) return existing;
 
   const request = Promise.resolve().then(run).finally(() => {
     pending.delete(key);
-    if (pending.size === 0) subjectAttendanceRequests.delete(client);
+    if (pending.size === 0) scopes.delete(signal);
+    if (scopes.size === 0) subjectAttendanceRequests.delete(client);
   });
   pending.set(key, request);
   return request;
 }
 
+export function getAttendanceComponentIds(value) {
+  return [...new Set(String(value ?? "").split(",").map(s => s.trim())
+    .filter(s => s && s !== "0" && s !== "null" && s !== "undefined"))].sort();
+}
+
 /** One subject-detail read. `previous` selects the previous-day endpoint.
- * Identical concurrent reads share the transport, not a persistent cache. */
-export async function fetchSubjectAttendance(client, session, which, { subjectid, registrationid, components, subjectcode, registrationcode }) {
+ * Identical reads with the same cancellation owner share the transport. */
+export async function fetchSubjectAttendance(client, session, which, { subjectid, registrationid, components, subjectcode, registrationcode }, { signal } = {}) {
   const endpoint = which === "previous"
     ? featurePostEndpoints.attendance.previous
     : featurePostEndpoints.attendance.current;
@@ -227,7 +235,7 @@ export async function fetchSubjectAttendance(client, session, which, { subjectid
     instituteid: session.instituteid,
     subjectid,
     registrationid,
-    cmpidkey: components.split(",").filter(Boolean).map((subjectcomponentid) => ({ subjectcomponentid })),
+    cmpidkey: getAttendanceComponentIds(components).map((subjectcomponentid) => ({ subjectcomponentid })),
     subjectcode,
     registrationcode,
   };
@@ -240,42 +248,66 @@ export async function fetchSubjectAttendance(client, session, which, { subjectid
     payload,
   ]);
   return shareSubjectAttendanceRead(client, key, async () => {
-    const body = await client.post(endpoint, payload);
+    const body = await client.post(endpoint, payload, signal ? { signal } : undefined);
     return body.response;
-  });
+  }, signal);
 }
 
 function isNoAttendance(e) {
-  const msg = e?.message || "";
-  const errList = Array.isArray(e?.errors) ? e.errors.join(" ") : "";
-  return /no attendance/i.test(msg) || /no attendance/i.test(errList);
+  if (isAttendanceUnavailable(e) || (e?.status >= 400 && e.status !== 404)) return false;
+  const messages = [e?.message, ...(Array.isArray(e?.errors) ? e.errors : [e?.errors])];
+  // JUET uses 404 + this business response for subjects without attendance.
+  // An HTTP 404 by itself still means the request failed.
+  const pattern = e?.status === 404
+    ? /^\s*no\s+attendance(?:\s+details?)?\s+found[.!]?\s*$/i
+    : /\bno\s+(?:attendance|data|records?)\b|\b(?:attendance|data|records?)\s+not\s+found\b/i;
+  return messages.some(message => typeof message === "string" && pattern.test(message));
+}
+
+/** Failures that should stop queued history reads instead of hammering JUET. */
+export function isAttendanceUnavailable(error) {
+  return error?.name === "AbortError" || error?.code === "ABORT_ERR" ||
+    ["SESSION_EXPIRED", "NETWORK_ERROR", "REQUEST_TIMEOUT"].includes(error?.code) ||
+    error?.status === 401 || error?.status === 429 || error?.status >= 500;
+}
+
+function findComponentProp(row, t, name) {
+  const keys = [
+    `${t}${name}`,
+    `${t}${name[0].toUpperCase()}${name.slice(1)}`,
+    `${t.toLowerCase()}${name}`,
+  ];
+  for (const k of keys) {
+    if (k in row && row[k] !== undefined) return row[k];
+  }
+  return undefined;
 }
 
 function isComponentKnownEmpty(row, t) {
-  const rawTotal = row[`${t}totalclass`] ?? row[`${t}Totalclass`] ?? row[`${t.toLowerCase()}totalclass`];
-  if (rawTotal === undefined || rawTotal === null || rawTotal === "") return false;
-  const total = Number(rawTotal);
-  if (!Number.isFinite(total) || total > 0) return false;
+  const rawTotal = findComponentProp(row, t, "totalclass");
+  if (rawTotal == null || String(rawTotal).trim() === "" || Number(rawTotal) !== 0) return false;
 
-  const rawPres = row[`${t}totalpresent`] ?? row[`${t}Totalpresent`] ?? row[`${t.toLowerCase()}totalpresent`];
+  const rawPres = findComponentProp(row, t, "totalpresent");
   if (rawPres !== undefined && rawPres !== null && rawPres !== "") {
     const pres = Number(rawPres);
     if (Number.isFinite(pres) && pres > 0) return false;
   }
 
-  const rawPct = row[`${t}percentage`] ?? row[`${t}Percentage`] ?? row[`${t.toLowerCase()}percentage`];
-  if (rawPct !== undefined && rawPct !== null && rawPct !== "") {
-    const numPct = Number(String(rawPct).replace("%", "").trim());
-    if (Number.isFinite(numPct) && numPct > 0) return false;
-  }
+  const rawPct = findComponentProp(row, t, "percentage");
+  if (Number(String(rawPct ?? "").replace("%", "").trim()) > 0) return false;
   return true;
 }
 
 /** L/T/P detail in parallel. The caller may retain successful components for
  * retries of one exact overview snapshot; completed results stay caller-owned. */
-export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current", { completed } = {}) {
+export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current", { completed, onComponent, signal } = {}) {
   const out = {};
-  let lastErr = null;
+  const errors = [];
+  const publish = (type, data) => {
+    out[type] = data;
+    completed?.set(type, data);
+    onComponent?.(type, data);
+  };
   const read = (csv) => ({
     subjectid: row.subjectid,
     registrationid,
@@ -287,31 +319,29 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
       if (!csv) return;
+      if (signal?.aborted) { errors.push(signal.reason); return; }
       if (completed?.has(t)) {
         out[t] = completed.get(t);
         return;
       }
-      if (which === "current" && isComponentKnownEmpty(row, t)) {
-        out[t] = { summary: [] };
-        completed?.set(t, out[t]);
+      if (!getAttendanceComponentIds(csv).length || (which === "current" && isComponentKnownEmpty(row, t))) {
+        publish(t, { summary: [] });
         return;
       }
       try {
-        out[t] = await fetchSubjectAttendance(client, session, which, read(csv));
+        out[t] = await fetchSubjectAttendance(client, session, which, read(csv), { signal });
       } catch (e) {
         if (isNoAttendance(e)) {
           out[t] = { summary: [] };
         } else {
-          lastErr = e;
+          errors.push(e);
           return;
         }
       }
-      completed?.set(t, out[t]);
+      publish(t, out[t]);
     })
   );
-  if (lastErr) {
-    throw lastErr;
-  }
+  if (errors.length) throw errors.find(isAttendanceUnavailable) ?? errors[0];
   return out;
 }
 
