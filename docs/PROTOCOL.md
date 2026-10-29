@@ -1,40 +1,27 @@
-# Protocol notes
+# Protocol Notes
 
-Base page `https://studentportal.juet.ac.in/studentportal/`, API at `https://studentportal.juet.ac.in/StudentPortalAPI`. Verified live 2026-09-28.
+JUET portal protocol quirks, endpoints, and encryption specifications. Base page: `https://studentportal.juet.ac.in/studentportal/`, API prefix: `https://studentportal.juet.ac.in/StudentPortalAPI`.
 
-## Captcha
+## Authentication Flow
 
-`GET /token/getcaptcha`, no auth headers (sending them triggers a CORS preflight the server rejects). Returns `{hidden, image}`. Echo both back with the typed text.
+1. **Captcha**: `GET /token/getcaptcha` without authorization headers (auth headers trigger rejected CORS preflights). Returns `{hidden, image}`.
+2. **Pretoken check**: `POST /token/pretoken-check` with `Authorization: Bearer` and a fresh `LocalName` header. Body is AES-encrypted `{username, usertype, captcha}`. Returns `{random, otppwd}` (`random` is single-use).
+3. **Generate token**: `POST /token/generatewebtoken` with the same headers. Body is AES-encrypted `{otppwd, username, passwordotpvalue, Modulename: "STUDENTMODULE", random}`. Returns `regdata` containing the JWT, student profile, and institute affiliations.
 
-## Pretoken
+## Authenticated Requests
 
-`POST /token/pretoken-check` with `Authorization: Bearer` (empty is fine) plus a fresh `LocalName` header, body is AES of `{username, usertype, captcha}`. Without `LocalName` the server answers `200` with an empty body. Bad captcha gives `404 Invalid captcha submitted..`. Good one returns `{random, otppwd}`. The `random` works once.
+- Headers: `Authorization: Bearer <token>` and a fresh client-generated `LocalName` header on every request (requests missing `LocalName` return empty 200 responses).
+- Request payloads: Most endpoints require AES-encrypted JSON. A subset expects plain JSON (e.g. attendance registration list, fee summary, personal/medical info).
+- Expiry: HTTP 401 or an HTTP 200 payload with `status.responseStatus: "Failure"` signaling session expiry.
 
-## Password
+## Marks History & PDF Reports
 
-`POST /token/generatewebtoken`, same headers, body is AES of `{otppwd, username, passwordotpvalue, Modulename: "STUDENTMODULE", random}`. Returns `regdata` with the token, profile fields, and institute list.
+- The JSON endpoint `getstudent-exammarks` often returns only the most recent exam event per subject (e.g. T2 replaces T1).
+- The official event-wise PDF report at `GET /studentsexamview/printstudent-exammarks/{instituteid}/{registrationid}/{registrationcode}` retains all historical exam events (OM/FM columns).
+- Fresh JSON scores override PDF rows for matching exams.
 
-## Later calls
+## Cryptography
 
-Same headers with the real token and a fresh `LocalName` each request. Most bodies are AES JSON, but not all. Plain-JSON endpoints (wrong mode returns 400): fee summary, attendance registration list, personal info,
-all service-request grids, medical info.
-
-`401` means log in again. The official refresh call never stores a new token, so it buys nothing.
-
-## Marks history
-
-The JSON `getstudent-exammarks` response can contain only the latest event per
-subject. This is not a complete semester snapshot. The official event-wise report
-at `GET /studentsexamview/printstudent-exammarks/{instituteid}/{registrationid}/{registrationcode}`
-retains earlier events, including T1 after T2 appears in JSON. Verified live on
-2026-10-27. This GET requires the same Authorization and LocalName headers as other
-authenticated reads and returns PDF bytes.
-
-Recovery reads the report's OM/FM columns, not OW/WT, and validates its registration
-code against the selected semester. Fresh JSON rows override that exam's report
-row. PDF decoding is supplied by web; report paths, table interpretation and merging
-remain in core. No report, token or student identity belongs in committed fixtures.
-
-## Crypto
-
-Key comes from the current date (`qa8y…ty1pn`, 16 chars), IV is `dcek9wb8frty1pnm`, AES-128-CBC with base64 output. Matches CryptoJS byte for byte.
+- Algorithm: AES-128-CBC with PKCS#7 padding and base64 output.
+- Key: Date-derived 16-character string (`generateValue()` in `crypto.js`).
+- IV: Fixed 16-byte string `dcek9wb8frty1pnm`.
