@@ -31,11 +31,32 @@ export function usePersistentState(key: string, initial: string | null): [string
     if (stored.key !== key) setStored({ key, value: readValue(key, initial) });
   }, [key, initial, stored.key]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = (e: Event) => {
+      const se = e as StorageEvent;
+      const ce = e as CustomEvent<{ key: string }>;
+      const changedKey = ce.detail?.key ?? (se.key ? se.key.replace(/^juet\.portal\./, "") : null);
+      if (changedKey === key || changedKey === null) {
+        setStored({ key, value: readValue(key, initial) });
+      }
+    };
+    window.addEventListener?.("storage", update);
+    window.addEventListener?.("juet:persistent-state", update);
+    return () => {
+      window.removeEventListener?.("storage", update);
+      window.removeEventListener?.("juet:persistent-state", update);
+    };
+  }, [key, initial]);
+
   const set = useCallback((next: string | null) => {
     setStored({ key, value: next });
     try {
       if (next === null) globalThis.localStorage?.removeItem(`juet.portal.${key}`);
       else globalThis.localStorage?.setItem(`juet.portal.${key}`, next);
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+        window.dispatchEvent(new CustomEvent("juet:persistent-state", { detail: { key, value: next } }));
+      }
     } catch {
       /* storage blocked */
     }

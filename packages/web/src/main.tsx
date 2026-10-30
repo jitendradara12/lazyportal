@@ -9,6 +9,7 @@ import { InstallBanner } from "./components/InstallBanner";
 import "./styles.css";
 import { initializeNativeInteractions, hideKeyboard } from "./lib/nativeInteractions";
 import { useKeyboardViewport } from "./hooks/useKeyboardViewport";
+import { applyThemePreference } from "./hooks/useThemePreference";
 
 function App() {
   const { session, isExpired, isRecovering, save, logout } = useSession();
@@ -39,18 +40,21 @@ const el = document.getElementById("root");
 if (!el) throw new Error("#root element missing");
 void initializeNativeInteractions();
 
-// Sync data-theme attribute with system color scheme preference
-if (typeof window !== "undefined" && window.matchMedia) {
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  const applyTheme = (dark: boolean) => {
-    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-  };
-  applyTheme(mq.matches);
-  if (mq.addEventListener) {
-    mq.addEventListener("change", (e) => applyTheme(e.matches));
-  } else if (mq.addListener) {
-    mq.addListener((e) => applyTheme(e.matches));
+// Sync data-theme attribute with stored preference or system color scheme
+if (typeof window !== "undefined") {
+  applyThemePreference();
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemChange = () => applyThemePreference();
+    if (mq.addEventListener) {
+      mq.addEventListener("change", onSystemChange);
+    } else if (mq.addListener) {
+      mq.addListener(onSystemChange);
+    }
   }
+  window.addEventListener("storage", (e) => {
+    if (e.key === "juet.portal.theme" || e.key === null) applyThemePreference();
+  });
 }
 
 createRoot(el).render(

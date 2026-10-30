@@ -3,6 +3,32 @@ import { useState, useEffect } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { isCurrentPortalDay } from "../lib/portalSchedule";
 
+/** Tonal M3 skeleton rows for uncached loading states. */
+export function ListSkeleton({
+  rows = 4,
+  label = "Loading…",
+  variant = "card",
+}: {
+  rows?: number;
+  label?: string;
+  variant?: "card" | "inline";
+}) {
+  return (
+    <div className={`m3-skeleton-list ${variant === "inline" ? "is-inline" : ""}`} role="status" aria-busy="true">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="m3-skeleton-row" aria-hidden="true">
+          <div className="m3-skeleton-main">
+            <span className="m3-skeleton-bar is-title" style={{ width: `${68 - (i % 3) * 11}%` }} />
+            <span className="m3-skeleton-bar is-sub" style={{ width: `${44 + (i % 2) * 14}%` }} />
+          </div>
+          <span className="m3-skeleton-pill" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Humanize a backend key for table headers: camelCase/snake_case -> words. */
 export function prettyKey(k: string): string {
   return k

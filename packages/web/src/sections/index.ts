@@ -40,5 +40,5 @@ export const SECTIONS: SectionEntry[] = [
   { id: "grades", label: "Grades", Component: GradesSection, enabled: false },
   { id: "cgpa", label: "CGPA", Component: CgpaSection, enabled: false },
   { id: "faculty", label: "Faculty", Component: FacultySection },
-  { id: "subjects", label: "Subjects", Component: SubjectsSection },
+  { id: "subjects", label: "Subjects", Component: SubjectsSection, enabled: false },
 ];

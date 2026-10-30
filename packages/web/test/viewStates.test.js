@@ -11,11 +11,30 @@ const values = new Map();
 globalThis.localStorage = {
   getItem: (key) => values.get(key) ?? null,
   setItem: (key, value) => values.set(key, String(value)),
+  removeItem: (key) => values.delete(key),
 };
-globalThis.window = { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
+const docAttributes = new Map();
+globalThis.document = {
+  addEventListener() {},
+  removeEventListener() {},
+  documentElement: {
+    setAttribute: (k, v) => docAttributes.set(k, v),
+    getAttribute: (k) => docAttributes.get(k) ?? null,
+  },
+  querySelector: () => null,
+};
+globalThis.window = {
+  navigator: globalThis.navigator,
+  document: globalThis.document,
+  setTimeout: () => 0,
+  clearTimeout() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent() {},
+};
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
-let server, MarksSection, ExamsSection, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS;
+let server, MarksSection, ExamsSection, FacultySection, groupCoursesAndFaculty, MorePage, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS;
 let invalidateCacheGeneration, pauseAttendanceSync, readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
 
 before(async () => {
@@ -26,6 +45,8 @@ before(async () => {
   });
   ({ MarksSection } = await server.ssrLoadModule("/src/sections/marks.tsx"));
   ({ ExamsSection } = await server.ssrLoadModule("/src/sections/exams.tsx"));
+  ({ FacultySection, groupCoursesAndFaculty } = await server.ssrLoadModule("/src/sections/faculty.tsx"));
+  ({ MorePage } = await server.ssrLoadModule("/src/pages/MorePage.tsx"));
   ({ AttendancePage } = await server.ssrLoadModule("/src/pages/AttendancePage.tsx"));
   ({ SubjectDetailSheet } = await server.ssrLoadModule("/src/components/SubjectDetailSheet.tsx"));
   ({ sessionCacheKey } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
@@ -893,5 +914,77 @@ test("releasing a sheet twice cannot break the next sheet's pause", async (t) =>
   finally { resume(); await batch; }
   assert.equal(calls.mock.callCount(), 1);
 });
+
+test("attendance rows show bunk/attend margin and move the subject code into SubjectDetailSheet", () => {
+  const row = { subjectid: "s1", subjectcode: "COMPUTER NETWORKS(CS109)", Psubjectcomponentid: "p1", Ppercentage: 50 };
+  cache("att.initial", { header: null, semesters: [semester], rows: [row] });
+  cache("att.subject", { P: { student_attdsummarylist: [{ present: "Y" }, { present: "N" }] } }, "sem1", "s1");
+  selectSemester("attendance");
+  const listHtml = render(AttendancePage);
+  assert.match(listHtml, /1\/2 classes/);
+  assert.match(listHtml, /Need 2 classes/);
+  assert.doesNotMatch(listHtml, /CS109/, "raw subject code is hidden from main list row when class counts exist");
+
+  const sheetHtml = renderToStaticMarkup(createElement(SubjectDetailSheet, {
+    session, row, ...semester, onClose() {}, onLogout() {},
+  }));
+  assert.match(sheetHtml, /Computer Networks/);
+  assert.match(sheetHtml, /CS109/, "subject code is displayed in the detail sheet header");
+});
+
+test("FacultySection unifies course metadata and faculty assignments into one grouped list", () => {
+  const grouped = groupCoursesAndFaculty(
+    [
+      { subjectcode: "CS109", employeename: "DR. AMIT KUMAR", subjectcomponentcode: "L", credits: 4 },
+      { subjectcode: "CS109", employeename: "DR. AMIT KUMAR", subjectcomponentcode: "T", credits: 4 },
+      { subjectcode: "CS109", employeename: "PROF. NEHA SHARMA", subjectcomponentcode: "P", credits: 4 },
+    ],
+    new Map([["CS109", { name: "Computer Networks", type: "Core" }]]),
+  );
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].courseName, "Computer Networks");
+  assert.equal(grouped[0].courseType, "Core");
+  assert.equal(grouped[0].credits, "4");
+  assert.deepEqual(grouped[0].instructors, [
+    { name: "Dr. Amit Kumar", components: ["L", "T"] },
+    { name: "Prof. Neha Sharma", components: ["P"] },
+  ]);
+
+  values.set("juet.portal.card.faculty", "1");
+  selectSemester("faculty");
+  cache("faculty.lov", [semester]);
+  cache("faculty.detail", {
+    totalcreditpoints: 20,
+    rows: [
+      { subjectcode: "CS109", employeename: "DR. AMIT KUMAR", subjectcomponentcode: "L", credits: 4 },
+    ],
+  }, "sem1");
+  cache("subjects.latest", {
+    semesters: [semester],
+    rows: [{ subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", subjecttypedesc: "CORE" }],
+  });
+  const html = render(FacultySection);
+  assert.match(html, /Faculty &amp; courses/);
+  assert.match(html, /Computer Networks/);
+  assert.match(html, /Dr\. Amit Kumar/);
+  assert.match(html, /Core/);
+  assert.match(html, /4 cr/);
+});
+
+test("MorePage renders Appearance theme selector alongside Default attendance target", () => {
+  const html = renderToStaticMarkup(createElement(MorePage, {
+    session,
+    onLogout() {},
+    onSelectInstitute() {},
+    discreet: false,
+    onDiscreetChange() {},
+  }));
+  assert.match(html, /Appearance/);
+  assert.match(html, /aria-label="System"/);
+  assert.match(html, /aria-label="Light"/);
+  assert.match(html, /aria-label="Dark"/);
+  assert.doesNotMatch(html, /Registered subjects/, "duplicate Subjects card is merged into Faculty & courses");
+});
+
 
 

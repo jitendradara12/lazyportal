@@ -62,7 +62,9 @@ export function SubjectDetailSheet({
   }, []);
   const visible = useContext(BackScope);
 
-  const { name } = subjectName(row.subjectcode);
+  const { name, badge } = subjectName(row.subjectcode);
+  const rawCode = row.individualsubjectcode ? String(row.individualsubjectcode).trim() : "";
+  const sheetCode = badge || (rawCode && rawCode.toLowerCase() !== name.toLowerCase() ? rawCode : "");
   const base = { registrationid, registrationcode };
   const detail = useSubjectDetail(session, row, base);
   const pending = detail.loading || detail.refreshing;
@@ -173,9 +175,12 @@ export function SubjectDetailSheet({
 
         {/* Sheet Header */}
         <div className="att-sheet-header">
-          <h2 className="att-sheet-title" id="att-sheet-title">
-            {name}
-          </h2>
+          <div className="att-sheet-title-group">
+            <h2 className="att-sheet-title" id="att-sheet-title">
+              {name}
+            </h2>
+            {sheetCode && <span className="att-code att-sheet-code">{sheetCode}</span>}
+          </div>
           <button
             type="button"
             className="auth-close-btn"
@@ -262,11 +267,25 @@ export function SubjectDetailSheet({
         {/* Detailed Class History Log */}
         <div className="att-sheet-history-section">
           {(detail.loading || detail.refreshing) && (
-            <p className="muted" role="status">
-              {sessionStatus === "recovering" ? "Reconnecting to JUET's portal…"
-                : slow ? SLOW_PORTAL_MESSAGE
-                : activeDetail ? "Updating breakdown…" : "Loading class breakdown…"}
-            </p>
+            <>
+              <p className="muted" role="status">
+                {sessionStatus === "recovering" ? "Reconnecting to JUET's portal…"
+                  : slow ? SLOW_PORTAL_MESSAGE
+                  : activeDetail ? "Updating breakdown…" : "Loading class breakdown…"}
+              </p>
+              {!activeDetail && (
+                <div className="m3-skeleton-list" aria-hidden="true">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="m3-skeleton-row is-compact">
+                      <div className="m3-skeleton-main">
+                        <span className="m3-skeleton-bar is-title" style={{ width: `${56 - (i % 2) * 12}%` }} />
+                      </div>
+                      <span className="m3-skeleton-pill" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           {detail.error && (
             <SectionError label="Subject detail" error={detail.error} retry={detail.retry} />

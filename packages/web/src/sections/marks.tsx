@@ -16,7 +16,7 @@ import {
   type MarkRow,
   type SubjectMarks,
 } from "../lib/marks.ts";
-import { SectionError, titleCase, formatSemester } from "../components/DataViews";
+import { SectionError, ListSkeleton, titleCase, formatSemester } from "../components/DataViews";
 import { TopBar, SemesterPicker } from "../components/AppBar";
 import { ChevronRight } from "../components/icons";
 import type { SectionProps, Semester } from "../types";
@@ -213,7 +213,7 @@ export function MarksSection({ session }: SectionProps) {
             <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading} format={formatSemester} />
           </div>
         )}
-        {loading && rawRows.length === 0 && <p className="muted page-note">Loading…</p>}
+        {loading && rawRows.length === 0 && <ListSkeleton rows={4} label="Loading…" />}
         {courses.length > 0 && (
           <ul className="score-list" aria-label="Marks by course">
             {courses.map((course, i) => (

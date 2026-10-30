@@ -7,7 +7,7 @@ import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
-import { SectionError, countdown, titleCase, formatSemester } from "../components/DataViews";
+import { SectionError, ListSkeleton, countdown, titleCase, formatSemester } from "../components/DataViews";
 import { TopBar, SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
 import { examTimes, groupExams, formatExamRoom, cleanExamSubject, type ExamRow } from "../lib/exams";
@@ -112,7 +112,7 @@ export function ExamsSection({ session }: SectionProps) {
               onChange={(id) => { setExamSemId(id); setExamEventId(null); }} />
           </div>
         )}
-        {loading && rows.length === 0 && <p className="muted page-note">Loading…</p>}
+        {loading && rows.length === 0 && <ListSkeleton rows={3} label="Loading…" />}
         {dated.length > 0 && <Timeline label="Exam schedule">
           {later.length > 0 && <TimelineGroup key={`${examSemId}:${activeEventId}:${next ? examTimes(next)!.start : ""}`} label="Later exams" count={later.length}>
             {later.map((row, i) => <ExamStop key={i} row={row} now={now} />)}

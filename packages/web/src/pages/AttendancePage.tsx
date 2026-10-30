@@ -4,7 +4,7 @@ import { client, getRefreshPolicy, getSessionStatus } from "../lib/portal";
 import { useRefreshPolicy } from "../hooks/useRefreshPolicy";
 import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { SectionError, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
+import { SectionError, ListSkeleton, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
 import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
@@ -28,6 +28,7 @@ import {
   useAttendanceInitial,
 } from "../sections/attendance";
 import { combinedAttendance, isSubjectDetailComplete } from "../lib/attendanceCalc";
+import { useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { idleAttendanceSync, runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanceRefreshCheckpoint } from "../lib/attendanceSync";
 
 export function AttendancePage({
@@ -66,6 +67,7 @@ export function AttendancePage({
   const syncingHistory = syncState.phase === "running" || syncState.phase === "paused";
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
+  const [defaultTarget] = useDefaultAttendanceTarget();
 
   useEffect(() => {
     pageIsLive.current = true;
@@ -179,10 +181,10 @@ export function AttendancePage({
       const id = rowSubId(row);
       const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
       const saved = Boolean(entry.data) && doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum);
-      states[id] = { data: entry.data, saved, attendance: combinedAttendance(row, entry.data, 0.7, saved) };
+      states[id] = { data: entry.data, saved, attendance: combinedAttendance(row, entry.data, defaultTarget / 100, saved) };
     }
     return states;
-  }, [rows, detailsMap, session, semId]);
+  }, [rows, detailsMap, session, semId, defaultTarget]);
 
   const activeSelectedSubject = useMemo(() => {
     if (!selectedSubject) return null;
@@ -389,8 +391,8 @@ export function AttendancePage({
 
         {/* Subject List Items */}
         <section className="att-list" aria-label="Subject list">
-          {loading && (
-            <p className="muted" style={{ padding: "24px 20px" }}>Loading attendance records…</p>
+          {loading && filteredRows.length === 0 && (
+            <ListSkeleton rows={5} label="Loading attendance records…" />
           )}
 
           {filteredRows.length > 0 &&
@@ -414,12 +416,22 @@ export function AttendancePage({
                   <div className="att-subject-info">
                     <span className="att-subject-name">{name}</span>
                     <span className="att-subject-supporting">
-                      {badge && <span className="att-code">{badge}</span>}
-                      {badge && " · "}
                       {attInfo.totalClasses > 0 ? (
-                        `${subject.saved ? "Saved " : ""}${attInfo.totalPresent}/${attInfo.totalClasses} classes`
+                        <>
+                          <span>{`${subject.saved ? "Saved " : ""}${attInfo.totalPresent}/${attInfo.totalClasses} classes`}</span>
+                          {attInfo.margin.text && (
+                            <span className="att-row-margin">
+                              <span className="att-proj-sep" aria-hidden="true">·</span>
+                              <span className={attInfo.margin.type === "attend" ? "att-margin-need" : "att-margin-bunk"}>
+                                {attInfo.margin.type === "bunk" && attInfo.margin.count > 0
+                                  ? `Can bunk ${attInfo.margin.count}`
+                                  : attInfo.margin.text}
+                              </span>
+                            </span>
+                          )}
+                        </>
                       ) : !hasDetail || hasPercentage ? (
-                        isSyncing ? "Loading classes…" : "Class details unavailable"
+                        isSyncing ? "Loading classes…" : (badge ? <span className="att-code">{badge}</span> : "Tap for history")
                       ) : (
                         "No attendance recorded"
                       )}
