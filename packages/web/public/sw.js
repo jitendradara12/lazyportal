@@ -1,5 +1,6 @@
 // Service worker for offline shell support and caching.
 const CACHE_NAME = "juet-portal-v1";
+const NAVIGATION_PATIENCE_MS = 3000;
 // Vite changes these URLs whenever their contents change. Unversioned public
 // files (icons, manifest, etc.) must still revalidate in the background.
 const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^/]+$/;
@@ -30,21 +31,34 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navigation requests: Network-first, fallback to cached shell
+  // Navigation requests: Network-first, fallback to cached shell. On a connection that is
+  // up but too slow (or stalled), the cached shell opens the app after NAVIGATION_PATIENCE_MS
+  // instead of leaving a blank page until the browser gives up; the fetch still refreshes the cache.
   if (event.request.mode === "navigate") {
     const network = fetch(event.request);
     // Cache writes must survive response delivery, but storage failures must
     // never turn a successful network response into a failed page load.
     event.waitUntil(network.then((response) => storeResponse(event.request, response)).catch(() => {}));
-    event.respondWith(
-      network
-        .catch(async () => {
-          const cached = await caches.match(event.request);
-          if (cached) return cached;
-          const fallback = await caches.match("/");
-          return fallback || await caches.match("/index.html") || Response.error();
-        })
-    );
+    const cachedShell = async () => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      const fallback = await caches.match("/");
+      return fallback || await caches.match("/index.html");
+    };
+    event.respondWith(new Promise((resolve) => {
+      let settled = false;
+      const finish = (response) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(response);
+      };
+      const timer = setTimeout(async () => {
+        const shell = await cachedShell().catch(() => undefined);
+        if (shell) finish(shell);
+      }, NAVIGATION_PATIENCE_MS);
+      network.then(finish, async () => finish(await cachedShell().catch(() => undefined) || Response.error()));
+    }));
     return;
   }
 

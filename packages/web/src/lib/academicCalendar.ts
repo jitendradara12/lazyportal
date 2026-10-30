@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "./calendar.ts";
+import { dateFormatter } from "./dateFormat.ts";
 
 export type AcademicCategory = "exam" | "holiday" | "break" | "deadline" | "academic";
 export interface AcademicEvent {
@@ -140,7 +141,9 @@ export function academicCalendarEvent(calendar: { academicYear: string } & Parti
   };
 }
 
-const displayDate = (date: string, includeYear: boolean) => new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: includeYear ? "numeric" : undefined, timeZone: "UTC" });
+const dateWithYear = dateFormatter("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const dateWithoutYear = dateFormatter("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+const displayDate = (date: string, includeYear: boolean) => (includeYear ? dateWithYear : dateWithoutYear)(new Date(`${date}T00:00:00Z`));
 export function academicDateLabel(event: AcademicEvent, includeYear = true): string {
   if (!event.startDate) return event.timing ?? "To be announced";
   const date = displayDate(event.startDate, includeYear);

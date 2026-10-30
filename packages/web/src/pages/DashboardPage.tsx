@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { Suspense, memo, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { TABS } from "../sections";
 import { AttendancePage } from "./AttendancePage";
-import { MorePage } from "./MorePage";
-import { ReconnectModal } from "../components/ReconnectModal";
+import { MorePage, ReconnectModal, prefetchIdle } from "../lazy";
+import { ListSkeleton } from "../components/DataViews";
 import { NavigationBar, type NavItem } from "../components/NavigationBar";
 import { ShellContext, type Shell } from "../components/AppBar";
 import { AttendanceIcon, MoreIcon } from "../components/icons";
@@ -12,6 +12,9 @@ import { selectionHaptic } from "../lib/nativeInteractions";
 import { usePersistentState } from "../hooks/usePersistentState";
 
 const HOME = "attendance";
+// Hidden tabs stay mounted; memo keeps them from re-rendering on every tab switch or badge update.
+const HomePage = memo(AttendancePage);
+const TabLoading = <ListSkeleton rows={4} label="Loading…" />;
 const tabFromHash = (ids: string[]) => {
   const h = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
   return ids.includes(h) ? h : HOME;
@@ -36,6 +39,7 @@ export function DashboardPage({
   const [shorts, setShorts] = useState(0);
   const [discreetPreference, setDiscreetPreference] = usePersistentState("discreet", "false");
   const discreet = discreetPreference === "true";
+  const onDiscreetChange = useCallback((next: boolean) => setDiscreetPreference(String(next)), [setDiscreetPreference]);
 
   // Silent recovery takes priority over the manual form.
   useEffect(() => {
@@ -67,6 +71,8 @@ export function DashboardPage({
     return () => window.removeEventListener("hashchange", onHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids.join()]);
+
+  useEffect(prefetchIdle, []);
 
   useEffect(() => {
     setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab)));
@@ -106,14 +112,16 @@ export function DashboardPage({
         <main className="dash">
           <div className="tab-panel" hidden={tab !== HOME}>
             <BackScope.Provider value={tab === HOME}>
-              <AttendancePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
+              <HomePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
             </BackScope.Provider>
           </div>
           {tabs.map(({ id, Component }) =>
             visited.has(id) ? (
               <div key={`${id}:${String(session.instituteid ?? "")}`} className="tab-panel" hidden={tab !== id}>
                 <BackScope.Provider value={tab === id}>
-                  <Component session={session} onLogout={onLogout} />
+                  <Suspense fallback={TabLoading}>
+                    <Component session={session} onLogout={onLogout} />
+                  </Suspense>
                 </BackScope.Provider>
               </div>
             ) : null,
@@ -121,13 +129,15 @@ export function DashboardPage({
           {visited.has("more") && (
             <div className="tab-panel" hidden={tab !== "more"}>
               <BackScope.Provider value={tab === "more"}>
-                <MorePage
-                  session={session}
-                  onLogout={onLogout}
-                  onSelectInstitute={onSelectInstitute}
-                  discreet={discreet}
-                  onDiscreetChange={(next) => setDiscreetPreference(String(next))}
-                />
+                <Suspense fallback={TabLoading}>
+                  <MorePage
+                    session={session}
+                    onLogout={onLogout}
+                    onSelectInstitute={onSelectInstitute}
+                    discreet={discreet}
+                    onDiscreetChange={onDiscreetChange}
+                  />
+                </Suspense>
               </BackScope.Provider>
             </div>
           )}
@@ -135,14 +145,16 @@ export function DashboardPage({
         <NavigationBar items={navItems} active={tab} onSelect={select} />
       </div>
       {showRenewModal && onSessionRenewed && (
-        <ReconnectModal
-          session={session}
-          onRenewed={(s) => {
-            setShowRenewModal(false);
-            onSessionRenewed(s);
-          }}
-          onClose={() => setShowRenewModal(false)}
-        />
+        <Suspense fallback={null}>
+          <ReconnectModal
+            session={session}
+            onRenewed={(s) => {
+              setShowRenewModal(false);
+              onSessionRenewed(s);
+            }}
+            onClose={() => setShowRenewModal(false)}
+          />
+        </Suspense>
       )}
     </ShellContext.Provider>
   );

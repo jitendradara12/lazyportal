@@ -29,6 +29,15 @@ System design, boundaries, and operational invariants.
 - Only a missing component ID, an explicit zero component count without positive evidence, or a recognized attendance absence response can establish empty history. JUET's HTTP 404 with `NO Attendance Found` is an empty result; generic HTTP 404s and outages remain failures. Unknown percentages cannot establish empty history.
 - Shared history reads own their cancellation signal. Closing a sheet keeps useful reads running for the cache; logout aborts them and invalidates late writes. Manual quota policy includes every route used by the batch, including detail reads through the proxy.
 
+## Web performance
+
+- **Startup bundle**: only the shell, Attendance and its data layer ship in the entry chunk. Login, More, Reconnect, the subject sheet and the Marks/Exams/Calendar tabs are code-split (`src/lazy.ts`, `src/sections/index.ts`). After first paint `prefetchIdle` fetches them on idle (skipped under Save-Data), so tab switches stay instant and the shell keeps working offline once the service worker has seen them. `lazyImport` reloads once if a deployment replaced a chunk under a long-open tab. `scripts/preload-login.mjs` preloads the login chunk in parallel when no session is stored.
+- **Mounted tabs are `memo`ized** (`DashboardPage`, `sections/index.ts`). Hidden tabs stay mounted, so anything unmemoized re-renders on every tab switch.
+- **Never call `toLocaleDateString(locale, options)` in render paths.** It builds a new `Intl.DateTimeFormat` per call (this alone made each tab switch cost ~200 ms on a throttled phone). Use `dateFormatter` from `src/lib/dateFormat.ts`.
+- **Totals-only attendance math** uses `parseClassLogs(raw, type, false)`; only the history sheet needs the per-class list.
+- **Service worker navigations** stay network-first, but a connection that is up and stalled gets the cached shell after 3 s while the fetch still refreshes the cache.
+- **Measure, don't guess**: with `vite preview` running (`npm --workspace @juet/web exec vite preview -- --port 4173`), `CHROME=<path> node packages/web/scripts/bench-load.mjs` reports cold-load timings and `bench-interact.mjs` the main-thread cost of a tab switch, both under 4x CPU / Fast-4G throttling against a mocked portal.
+
 ## Compatibility & Deployment
 
 - **Remote web bundle**: The Capacitor shell loads the live deployment URL (`server.url`), allowing web bugfixes and UI updates to deploy instantly without redistributing the APK.
@@ -40,4 +49,4 @@ System design, boundaries, and operational invariants.
 1. Check the official portal's `main.*.js` bundle for the endpoint path, request format (plain vs AES JSON), and response shape.
 2. Implement the read function in `packages/core/src/features.js` with mocked-client unit tests.
 3. If native execution is desired, add the endpoint to `featurePostEndpoints` and run `npm run cap:sync` to update `portal-api-policy.json`.
-4. Create the view component under `packages/web/src/sections/` and register it in `packages/web/src/sections/index.ts` (use `enabled: false` if upstream is broken or unstable).
+4. Create the view component under `packages/web/src/sections/` and register it in `packages/web/src/sections/index.ts` through `split(() => import(...))` so it stays out of the startup bundle (use `enabled: false` if upstream is broken or unstable).

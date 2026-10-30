@@ -414,3 +414,19 @@ test("placeholder lecture/tutorial IDs cannot hide a lab's percentage or cached 
     assert.equal(combinedAttendance(row, { P }).totalPresent, 4);
   }
 });
+
+test("totals-only parsing matches the full parse without building the class list", () => {
+  const logs = [
+    { datetime: "01/09/2026 (10:00:AM-11:00:AM)", present: "Y" },
+    { datetime: "02/09/2026 (10:00:AM-11:00:AM)", attendance: "N" },
+    { date: "03/09/2026", status: "Present" },
+  ];
+  for (const raw of [logs, { student_attdsummarylist: logs }, { totalclass: 5, totalpresent: 4 }]) {
+    const full = parseClassLogs(raw, "L");
+    const totals = parseClassLogs(raw, "L", false);
+    assert.deepEqual({ ...totals, classes: undefined }, { ...full, classes: undefined });
+    assert.deepEqual(totals.classes, []);
+  }
+  assert.equal(parseClassLogs(logs, "L").classes.length, 3);
+  assert.equal(parseClassLogs([], "L", false), null);
+});

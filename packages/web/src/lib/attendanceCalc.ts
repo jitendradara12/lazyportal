@@ -123,7 +123,11 @@ export function isSubjectDetailComplete(
   return true;
 }
 
-export function parseClassLogs(raw: unknown, type?: string): {
+/**
+ * `withClasses: false` returns the same counts with an empty `classes` list, skipping the per-class
+ * date normalisation that totals-only callers (the subject list) never read.
+ */
+export function parseClassLogs(raw: unknown, type?: string, withClasses = true): {
   total: number;
   attended: number;
   absent: number;
@@ -172,11 +176,13 @@ export function parseClassLogs(raw: unknown, type?: string): {
       status === "Y" || status === "YES" || status === "PRESENT" || status === "P" || status === "1";
     if (isAttended) attended++;
 
-    classes.push({
-      datetime: cleanDateTime(String(item.datetime ?? item.date ?? "")),
-      isAttended,
-      type,
-    });
+    if (withClasses) {
+      classes.push({
+        datetime: cleanDateTime(String(item.datetime ?? item.date ?? "")),
+        isAttended,
+        type,
+      });
+    }
   }
 
   const absent = total - attended;
@@ -245,9 +251,9 @@ export function combinedAttendance(
     let totalPresent = 0;
     const components: CombinedAttResult["components"] = {};
 
-    const lStats = detail.L ? parseClassLogs(detail.L, "L") : null;
-    const tStats = detail.T ? parseClassLogs(detail.T, "T") : null;
-    const pStats = detail.P ? parseClassLogs(detail.P, "P") : null;
+    const lStats = detail.L ? parseClassLogs(detail.L, "L", false) : null;
+    const tStats = detail.T ? parseClassLogs(detail.T, "T", false) : null;
+    const pStats = detail.P ? parseClassLogs(detail.P, "P", false) : null;
 
     if (lStats && (lStats.total > 0 || r.Lsubjectcomponentid)) {
       components.L = { total: lStats.total, present: lStats.attended, pct: lStats.pct };

@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { features } from "@juet/core";
 import { client, getRefreshPolicy, getSessionStatus } from "../lib/portal";
 import { useRefreshPolicy } from "../hooks/useRefreshPolicy";
 import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
 import { SectionError, ListSkeleton, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
-import { SubjectDetailSheet } from "../components/SubjectDetailSheet";
+import { SubjectDetailSheet } from "../lazy";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
 import {
@@ -473,16 +473,18 @@ export function AttendancePage({
 
       {/* Slide-over sheet for detailed history */}
       {activeSelectedSubject && (
-        <SubjectDetailSheet
-          row={activeSelectedSubject}
-          registrationid={sem?.registrationid}
-          registrationcode={sem?.registrationcode}
-          session={session}
-          cachedDetail={subjectStates[subjectRowId(activeSelectedSubject)]?.data ?? undefined}
-          onDetailLoaded={handleDetailLoaded}
-          onClose={() => setSelectedSubject(null)}
-          onLogout={onLogout}
-        />
+        <Suspense fallback={null}>
+          <SubjectDetailSheet
+            row={activeSelectedSubject}
+            registrationid={sem?.registrationid}
+            registrationcode={sem?.registrationcode}
+            session={session}
+            cachedDetail={subjectStates[subjectRowId(activeSelectedSubject)]?.data ?? undefined}
+            onDetailLoaded={handleDetailLoaded}
+            onClose={() => setSelectedSubject(null)}
+            onLogout={onLogout}
+          />
+        </Suspense>
       )}
 
     </div>

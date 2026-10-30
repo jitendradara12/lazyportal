@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { nextDate, prevDate, type AcademicDay } from "../lib/academicCalendar";
+import { dateFormatter } from "../lib/dateFormat";
 
+const monthLong = dateFormatter("en-IN", { month: "long", timeZone: "UTC" });
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const shift = (month: string, by: number) => {
   const date = new Date(`${month}-01T00:00:00Z`);
@@ -24,7 +26,7 @@ export function MonthGrid({ days, today, first, last, selected, onSelect }: {
   const start = new Date(`${month}-01T00:00:00Z`);
   const lead = start.getUTCDay();
   const count = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
-  const monthName = start.toLocaleDateString("en-IN", { month: "long", timeZone: "UTC" });
+  const monthName = monthLong(start);
 
   return <section className="month-grid" aria-label="Month view">
     <div className="mg-head">

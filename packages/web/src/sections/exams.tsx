@@ -15,6 +15,7 @@ import { ExamCalendarButton } from "../components/ExamCalendarButton";
 import { CalendarAddIcon } from "../components/icons";
 import { examCalendarEvent } from "../lib/examCalendar";
 import { canExportExamCalendar, exportExamCalendar } from "../lib/examCalendarActions";
+import { dateFormatter } from "../lib/dateFormat";
 
 interface ExamEvent {
   exameventid?: string;
@@ -145,6 +146,10 @@ function ExamStop({ row, now, next = false }: { row: ExamRow; now: number; next?
   </TimelineStop>;
 }
 
+const examDay = dateFormatter("en-IN", { day: "numeric", timeZone: IST });
+const examMonth = dateFormatter("en-IN", { month: "short", timeZone: IST });
+const examWeekday = dateFormatter("en-IN", { weekday: "short", timeZone: IST });
+
 function examTimeRange(r: ExamRow): string {
   if (r.datetimeupto && /to/i.test(r.datetimeupto)) return r.datetimeupto;
   if (r.datetimefrom && r.datetimeupto) return `${r.datetimefrom} to ${r.datetimeupto}`;
@@ -161,9 +166,9 @@ function ExamCard({ row, now, featured = false }: { row: ExamRow; now: number; f
       <div className="exam-date" aria-hidden={d ? "true" : undefined}>
         {d ? (
           <>
-            <span className="exam-day">{d.toLocaleDateString("en-IN", { day: "numeric", timeZone: IST })}</span>
-            <span className="exam-month">{d.toLocaleDateString("en-IN", { month: "short", timeZone: IST })}</span>
-            <span className="exam-weekday">{d.toLocaleDateString("en-IN", { weekday: "short", timeZone: IST })}</span>
+            <span className="exam-day">{examDay(d)}</span>
+            <span className="exam-month">{examMonth(d)}</span>
+            <span className="exam-weekday">{examWeekday(d)}</span>
           </>
         ) : (
           <span className="exam-month">TBA</span>

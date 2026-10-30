@@ -8,7 +8,12 @@ import { SectionError } from "../components/DataViews";
 import { useNow } from "../hooks/useNow";
 import { academicBounds, academicCalendarEvent, academicCategories, academicDateLabel, academicDays, academicEventKey, academicSchedule, academicYears, currentAcademicCalendar, groupAcademicEvents, matchesAcademicSearch, portalDate, type AcademicCalendar, type AcademicEvent, type AcademicYear } from "../lib/academicCalendar";
 import { canExportCalendar, exportCalendar } from "../lib/calendarActions";
+import { dateFormatter } from "../lib/dateFormat";
 
+const monthYear = dateFormatter("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+const fullDay = dateFormatter("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+const monthShort = dateFormatter("en-IN", { month: "short", timeZone: "UTC" });
+const weekdayIst = dateFormatter("en-IN", { weekday: "short", timeZone: "Asia/Kolkata" });
 const calendars = Object.values(import.meta.glob<AcademicCalendar>("../data/academic-calendars/*.json", { eager: true, import: "default" })).sort((a, b) => a.startsOn.localeCompare(b.startsOn));
 const years = academicYears(calendars);
 const filters = [
@@ -75,7 +80,7 @@ export function AcademicCalendarPage() {
 
   function schedule(entries: AcademicEvent[], descending = false) {
     return academicSchedule(entries, !query, descending).map(({ month, entries: stops }) => <li className="academic-month-group" key={month}>
-      <h3 className="academic-month-heading">{new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })}</h3>
+      <h3 className="academic-month-heading">{monthYear(new Date(`${month}-01T00:00:00Z`))}</h3>
       <ol className="academic-month-events">{stops.map(({ event, holidays }) => stop(event, holidays))}</ol>
     </li>);
   }
@@ -102,7 +107,7 @@ export function AcademicCalendarPage() {
         {filters.map(({ id, label }) => <button key={id} type="button" className={`chip-btn ${filter === id ? "active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}>{id !== "all" && <span className={`chip-dot tone-${id}`} aria-hidden="true" />}{label}</button>)}
       </div>
       <div className="academic-schedule-heading">{activeDay
-        ? <><h2 className="page-subhead">{new Date(`${activeDay}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}</h2><button type="button" className="academic-clear-day" onClick={() => setDay(null)}>Show all</button></>
+        ? <><h2 className="page-subhead">{fullDay(new Date(`${activeDay}T00:00:00Z`))}</h2><button type="button" className="academic-clear-day" onClick={() => setDay(null)}>Show all</button></>
         : <><h2 className="page-subhead">{query ? "Search results" : "Coming up"}</h2><span role="status">{query ? `${events.length} ${events.length === 1 ? "result" : "results"}` : `${upcoming.length} events`}</span></>}</div>
       {exportError && <SectionError label="Calendar" error={exportError} retry={exportUpcoming} />}
       {upcoming.length > 0 ? <Timeline label="Academic schedule" className="academic-timeline" key={`${yearId}:${filter}:${activeDay}:${query}`}>
@@ -136,8 +141,8 @@ export function AcademicCalendarPage() {
 function AcademicEventCard({ year, event, holidays = [], featured = false, state, now }: { year: AcademicYear; event: AcademicEvent; holidays?: AcademicEvent[]; featured?: boolean; state?: string; now?: number }) {
   const startDateObj = event.startDate ? new Date(`${event.startDate}T00:00:00+05:30`) : null;
   const day = event.startDate?.slice(8);
-  const month = event.startDate ? new Date(`${event.startDate}T00:00:00Z`).toLocaleDateString("en-IN", { month: "short", timeZone: "UTC" }) : "TBA";
-  const weekday = startDateObj ? startDateObj.toLocaleDateString("en-IN", { weekday: "short", timeZone: "Asia/Kolkata" }) : null;
+  const month = event.startDate ? monthShort(new Date(`${event.startDate}T00:00:00Z`)) : "TBA";
+  const weekday = startDateObj ? weekdayIst(startDateObj) : null;
   const exportEvent = academicCalendarEvent(year, event);
   const uncertain = Boolean(event.dateRule || event.status);
 

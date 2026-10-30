@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Capacitor } from "@capacitor/core";
 import { usePageRefresh } from "../hooks/usePageRefresh";
 import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
@@ -89,9 +90,11 @@ export function MorePage({
         <OfficialPortalEntry session={session} />
 
         <div className="m3-stacked-sections" role="list">
-          {SECTIONS.filter((s) => s.enabled !== false).map(({ id, Component }) => (
-            <Component key={`${id}:${String(session.instituteid ?? "")}`} session={session} onLogout={onLogout} />
-          ))}
+          <Suspense fallback={null}>
+            {SECTIONS.filter((s) => s.enabled !== false).map(({ id, Component }) => (
+              <Component key={`${id}:${String(session.instituteid ?? "")}`} session={session} onLogout={onLogout} />
+            ))}
+          </Suspense>
         </div>
 
         <div className="more-preferences-group">

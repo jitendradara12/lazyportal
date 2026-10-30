@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { offlinePage } from "./scripts/offline-page.mjs";
+import { preloadLogin } from "./scripts/preload-login.mjs";
 import https from "node:https";
 import { portalTlsOptions } from "../../shared/portal-tls.js";
 
@@ -9,7 +10,7 @@ import { portalTlsOptions } from "../../shared/portal-tls.js";
 // preflight OPTIONS returns 403 and ACAO allowlists only the portal origin.
 // Same-origin via proxy => no preflight, no ACAO check.
 export default defineConfig({
-  plugins: [react(), offlinePage()],
+  plugins: [react(), offlinePage(), preloadLogin()],
   server: {
     port: 5173,
     proxy: {

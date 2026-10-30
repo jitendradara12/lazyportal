@@ -10,6 +10,8 @@ function worker({ network = async () => new Response("fresh"), failWrites = fals
   const listeners = new Map();
   const entries = new Map();
   const calls = [];
+  // Manually fired timers: the tests decide when the navigation patience period has elapsed.
+  const timers = [];
   const key = (request) => new URL(typeof request === "string" ? request : request.url, origin).href;
   const caches = {
     async match(request) { return entries.get(key(request))?.clone(); },
@@ -24,10 +26,13 @@ function worker({ network = async () => new Response("fresh"), failWrites = fals
   vm.runInNewContext(source, {
     self: { addEventListener: (name, fn) => listeners.set(name, fn) },
     location: { origin }, URL, Response, caches,
+    setTimeout: (fn, ms) => { const timer = { fn, ms, cleared: false }; timers.push(timer); return timer; },
+    clearTimeout: (timer) => { if (timer) timer.cleared = true; },
     fetch: async (request) => { calls.push(request.url); return network(request); },
   });
   return {
-    calls, entries,
+    calls, entries, timers,
+    elapse: async () => { for (const timer of timers) if (!timer.cleared) { timer.cleared = true; await timer.fn(); } },
     seed(path, text) { entries.set(key(path), new Response(text)); },
     read(path) { return entries.get(key(path))?.clone().text(); },
     dispatch(path, { mode = "cors", method = "GET" } = {}) {
@@ -145,4 +150,38 @@ test("offline cache misses return a network error rather than an invalid undefin
     assert.equal((await event.response).type, "error");
     await event.settled();
   }
+});
+
+test("a stalled navigation opens the cached shell after the patience period and still refreshes the cache", async () => {
+  let finish;
+  const sw = worker({ network: () => new Promise((resolve) => { finish = resolve; }) });
+  sw.seed("/", "old shell");
+  const event = sw.dispatch("/", { mode: "navigate" });
+  await sw.elapse();
+  assert.equal(await (await event.response).text(), "old shell");
+  finish(new Response("new shell"));
+  await event.settled();
+  assert.equal(await sw.read("/"), "new shell");
+});
+
+test("a stalled navigation with no cached shell keeps waiting for the network", async () => {
+  let finish;
+  const sw = worker({ network: () => new Promise((resolve) => { finish = resolve; }) });
+  const event = sw.dispatch("/", { mode: "navigate" });
+  await sw.elapse();
+  let answered = false;
+  event.response.then(() => { answered = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(answered, false);
+  finish(new Response("first shell"));
+  assert.equal(await (await event.response).text(), "first shell");
+});
+
+test("a navigation answered by the network cancels its patience timer", async () => {
+  const sw = worker();
+  sw.seed("/", "old shell");
+  const event = sw.dispatch("/", { mode: "navigate" });
+  assert.equal(await (await event.response).text(), "fresh");
+  await event.settled();
+  assert.ok(sw.timers.every((timer) => timer.cleared));
 });

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { isCurrentPortalDay } from "../lib/portalSchedule";
+import { dateFormatter } from "../lib/dateFormat";
 
 /** Tonal M3 skeleton rows for uncached loading states. */
 export function ListSkeleton({
@@ -60,12 +61,14 @@ export function formatSemester(code: string | undefined | null): string {
   return `${type} ${m[1]}`;
 }
 
+const syncDate = dateFormatter([], { month: "short", day: "numeric" });
+
 /** Humanize timestamp: "Synced today" when synced today, or "Synced Oct 5" for past days */
 export function formatLastSync(ts: number | null): string {
   if (!ts) return "";
   if (isCurrentPortalDay(ts)) return "Synced today";
   const d = new Date(ts);
-  return `Synced ${d.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+  return `Synced ${syncDate(d)}`;
 }
 
 export {
