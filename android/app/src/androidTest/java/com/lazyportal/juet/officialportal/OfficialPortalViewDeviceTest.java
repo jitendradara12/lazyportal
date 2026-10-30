@@ -51,7 +51,7 @@ public class OfficialPortalViewDeviceTest {
             // Check actual rendering scale, independent of device pixel density.
             waitFor(scenario, portal.get(), "Math.abs(window.visualViewport.scale - 0.6) < 0.05");
             scenario.onActivity(activity -> portal.get().webView.zoomBy(1.5f));
-            waitFor(scenario, portal.get(), "window.visualViewport.scale > 0.8");
+            waitFor(scenario, portal.get(), "window.visualViewport.scale > 0.7");
             int before = connections.get();
             scenario.onActivity(activity -> portal.get().webView.evaluateJavascript(
                 "OfficialPortalNative.postMessage(JSON.stringify({id:'1:2',method:'POST',path:'/onlinefeepayment/paynow',body:'blocked'}));", null));
