@@ -67,11 +67,8 @@ test("without an install event, the Android guide has no dead install button", a
 
 test("installed Android apps can download the latest APK from More without leaving the app", async ({ page, context }) => {
   await page.addInitScript(() => { window.androidBridge = {}; });
+  // Redirect destinations bypass routing, so mock the APK at the public URL.
   await context.route(RELEASES_URL, (route) => route.fulfill({
-    status: 302,
-    headers: { location: "https://downloads.example.test/app-release.apk" },
-  }));
-  await context.route("https://downloads.example.test/app-release.apk", (route) => route.fulfill({
     contentType: "application/vnd.android.package-archive",
     headers: { "content-disposition": 'attachment; filename="app-release.apk"' },
     body: "mock APK",
@@ -84,9 +81,7 @@ test("installed Android apps can download the latest APK from More without leavi
   await expect(update).toHaveAttribute("target", "_blank");
   await expect(update).toHaveAttribute("rel", "noopener noreferrer");
   await expect(update).toHaveAccessibleDescription("Open the downloaded APK to update the app.");
-  const downloading = new Promise((resolve) => {
-    context.once("page", (downloadPage) => downloadPage.once("download", resolve));
-  });
+  const downloading = context.waitForEvent("download");
   await update.click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe("app-release.apk");
