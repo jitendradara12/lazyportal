@@ -60,6 +60,33 @@ CI builds signed release APKs on git tags (`v*`). Tagged releases require these 
 - `KEY_ALIAS`: Key alias (`lazyportal`)
 - `KEY_PASSWORD`: Key password
 
+### Publishing updates
+
+Push a new version tag, for example:
+
+```sh
+git tag v1.0.4
+git push origin v1.0.4
+```
+
+Use a new tag for each release. CI runs the web and Android checks, builds `app-release.apk` with the existing signing key, and publishes it with download links in the release notes. The tag sets Android's version name; CI advances its version code automatically. Keep the same package ID and signing keystore so Android can update the installed app without uninstalling it.
+
+The permanent Android download link is:
+
+```text
+https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk
+```
+
+You can also share [lazyportal-tan.vercel.app/download](https://lazyportal-tan.vercel.app/download). Vercel temporarily redirects it to the same GitHub URL, without proxying the APK or requiring a version edit. Keep the APK asset named `app-release.apk` on every stable release. GitHub's latest release excludes drafts and prereleases; prerelease notes use that tag's APK URL instead.
+
+In the Android app, **More** checks GitHub's public latest-release API once per page load. `NativeInteractions.getAppVersion` reads the installed package's version name, independently of the hosted website. When a newer stable release with `app-release.apk` exists, the row shows **Update 1.0.3 → 1.0.4** and downloads that exact release. Equal or newer installed versions show **App up to date**. Release tags should use numeric versions such as `v1.0.4`.
+
+The check has an eight-second timeout. Offline, rate-limited, or malformed responses keep the manual **Download latest APK** fallback. No GitHub token, polling, or update service is needed. Older APKs without the version method also keep that fallback; users need one native update before installed-version detection works.
+
+Downloads open in the system browser. Open the downloaded file and approve Android's update prompt. Android may first ask you to allow installations from that browser.
+
+The app loads the hosted website, so deploying this link makes it available to existing installed apps without an APK update. Most UI changes still arrive through normal web deployments. Publish an APK when native code, permissions, or the Android wrapper changes. Deploy the web changes to activate `/download`; no redirect edits are needed for later releases.
+
 Generate a release keystore with:
 
 ```sh

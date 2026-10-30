@@ -14,7 +14,10 @@ The official portal forgets you on every visit and forces you to type your passw
 
 ## Download
 
-get the latest release: [**GitHub Releases**](../../releases).
+- **Android**: [Download latest APK](https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk)
+- **iOS/Desktop**: [Open LazyPortal](https://lazyportal-tan.vercel.app)
+
+Share [lazyportal-tan.vercel.app/download](https://lazyportal-tan.vercel.app/download) for a short Android download link. It follows the latest stable GitHub release automatically.
 
 ## Development
 

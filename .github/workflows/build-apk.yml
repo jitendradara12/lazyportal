@@ -205,16 +205,28 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           apk=release/app-release.apk
+          download_url="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/app-release.apk"
+          if [[ "$TAG" == *-* ]]; then
+            download_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/app-release.apk"
+          fi
+          printf '## Download\n\n- **Android**: [Download APK](%s)\n- **iOS/Desktop**: [Open LazyPortal](https://lazyportal-tan.vercel.app)\n' \
+            "$download_url" > release/download-notes.md
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""' > release/existing-notes.md
+            if ! grep -Fq "$download_url" release/existing-notes.md; then
+              printf '\n\n' >> release/existing-notes.md
+              cat release/download-notes.md >> release/existing-notes.md
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file release/existing-notes.md
+            fi
             if [[ "$TAG" == *-* ]]; then
               gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
             else
               gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false
             fi
           else
-            release_flags=(--title "$TAG" --generate-notes --verify-tag)
+            release_flags=(--title "$TAG" --generate-notes --notes-file release/download-notes.md --verify-tag)
             if [[ "$TAG" == *-* ]]; then
               release_flags+=(--prerelease)
             fi

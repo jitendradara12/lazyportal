@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
-import { APK_RELEASES_URL } from "../lib/installPrompt.js";
+import { APK_DOWNLOAD_URL } from "../lib/installPrompt.js";
 
 function ShareIcon() {
   return (
@@ -120,7 +120,7 @@ function InstallCard({ mode, isInstalling, error, install, dismiss }: InstallSta
               {showSteps ? "Hide steps" : "How to install"}
             </button>
           )}
-          <a href={APK_RELEASES_URL} target="_blank" rel="noopener noreferrer" className="install-banner-apk">
+          <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="install-banner-apk">
             Or download APK{isIOS && <span className="install-banner-android-only"> (Android only)</span>}
           </a>
         </div>

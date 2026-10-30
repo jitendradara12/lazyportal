@@ -4,6 +4,13 @@
   "outputDirectory": "packages/web/dist",
   "framework": "vite",
   "regions": ["bom1"],
+  "redirects": [
+    {
+      "source": "/download",
+      "destination": "https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/",

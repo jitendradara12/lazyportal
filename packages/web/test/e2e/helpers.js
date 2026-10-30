@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 export const DISMISSAL_KEY = "juet.portal.install.dismissedAt.v1";
 export const DISMISSAL_MS = 14 * 24 * 60 * 60 * 1000;
-export const RELEASES_URL = "https://github.com/jitendradara12/lazyportal/releases";
+export const RELEASES_URL = "https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk";
 export const SESSION = { token: "test-token", username: "test-student", name: "Test Student", instituteid: "test-institute" };
 
 export function banner(page) {
@@ -12,6 +12,7 @@ export function banner(page) {
 
 export async function mockPortal(page) {
   // No credentials, live portal requests, or install binaries in browser tests.
+  await page.route("https://api.github.com/repos/jitendradara12/lazyportal/releases/latest", (route) => route.fulfill({ status: 503, body: "Offline" }));
   await page.route("**/api/**", (route) => route.fulfill({
     json: {
       status: { responseStatus: "Success" },

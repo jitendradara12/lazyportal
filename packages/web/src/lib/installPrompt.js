@@ -1,7 +1,7 @@
 // Browser-only install policy. No portal API calls or React dependencies.
 export const INSTALL_DISMISSAL_KEY = "juet.portal.install.dismissedAt.v1";
 export const INSTALL_DISMISSAL_MS = 14 * 24 * 60 * 60 * 1000;
-export const APK_RELEASES_URL = "https://github.com/jitendradara12/lazyportal/releases";
+export const APK_DOWNLOAD_URL = "https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk";
 
 /** @typedef {"android" | "ios-safari" | "ios-other"} InstallPlatform */
 /** @typedef {{ mode: InstallPlatform | "native" | null, isInstalling: boolean, error: string | null }} InstallSnapshot */

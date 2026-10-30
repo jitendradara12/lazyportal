@@ -8,9 +8,17 @@ const nativeInteractions = registerPlugin<{
   defaultBack(): Promise<void>;
   haptic(): Promise<void>;
   hideKeyboard(): Promise<void>;
+  getAppVersion(): Promise<{ version: string }>;
 }>("NativeInteractions");
 
 const available = () => Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("NativeInteractions");
+
+export async function getInstalledAppVersion(): Promise<string | null> {
+  if (!available()) return null;
+  // Older APKs have this plugin but not this method.
+  return nativeInteractions.getAppVersion().then(({ version }) => version).catch(() => null);
+}
+
 let listening = false;
 let initialization: Promise<void> | undefined;
 export const appBack = createBackHandlers((enabled: boolean) => {

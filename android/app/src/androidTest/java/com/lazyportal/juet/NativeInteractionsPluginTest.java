@@ -17,8 +17,10 @@ import org.junit.runner.RunWith;
 public class NativeInteractionsPluginTest {
     private static class Call extends PluginCall {
         boolean resolved;
+        JSObject result;
         Call(JSObject data) { super(null, "NativeInteractions", "1", "test", data); }
         @Override public void resolve() { resolved = true; }
+        @Override public void resolve(JSObject data) { resolved = true; result = data; }
     }
 
     private static class TestPlugin extends NativeInteractionsPlugin {
@@ -30,6 +32,24 @@ public class NativeInteractionsPluginTest {
         @Override protected void notifyListeners(String event, JSObject data) {
             assertEquals("back", event);
             backs++;
+        }
+    }
+
+    @Test
+    public void reportsTheInstalledPackageVersion() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                activity.getBridge().getWebView().stopLoading();
+                Call call = new Call(new JSObject());
+                new TestPlugin(activity).getAppVersion(call);
+                assertTrue(call.resolved);
+                try {
+                    assertEquals(activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionName,
+                        call.result.getString("version"));
+                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                    throw new AssertionError(e);
+                }
+            });
         }
     }
 

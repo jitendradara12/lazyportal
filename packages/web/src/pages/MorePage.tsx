@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { usePageRefresh } from "../hooks/usePageRefresh";
 import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { SECTIONS } from "../sections";
@@ -6,6 +7,7 @@ import { titleCase } from "../components/DataViews";
 import { GitHubIcon } from "../components/icons";
 import { OfficialPortalEntry } from "../components/OfficialPortalEntry";
 import { selectionHaptic } from "../lib/nativeInteractions";
+import { AppUpdateAction } from "../components/AppUpdateAction";
 import type { Session } from "../types";
 
 interface InstituteOption {
@@ -121,6 +123,7 @@ export function MorePage({
         </section>
 
         <div className="more-actions">
+          {Capacitor.getPlatform() === "android" && <AppUpdateAction />}
           <a href="https://github.com/jitendradara12/lazyportal/" target="_blank" rel="noopener noreferrer" className="more-action">
             <span className="more-action-icon" aria-hidden="true">
               <GitHubIcon />

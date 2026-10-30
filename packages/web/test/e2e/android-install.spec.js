@@ -64,3 +64,87 @@ test("without an install event, the Android guide has no dead install button", a
   await banner(page).getByRole("button", { name: "How to install" }).click();
   await expect(banner(page).locator(".install-banner-guide")).toContainText("Add to Home Screen");
 });
+
+test("installed Android apps can download the latest APK from More without leaving the app", async ({ page, context }) => {
+  await page.addInitScript(() => { window.androidBridge = {}; });
+  await context.route(RELEASES_URL, (route) => route.fulfill({
+    status: 302,
+    headers: { location: "https://downloads.example.test/app-release.apk" },
+  }));
+  await context.route("https://downloads.example.test/app-release.apk", (route) => route.fulfill({
+    contentType: "application/vnd.android.package-archive",
+    headers: { "content-disposition": 'attachment; filename="app-release.apk"' },
+    body: "mock APK",
+  }));
+  await openApp(page, { dashboard: true });
+  await expect(banner(page)).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
+  const update = page.getByRole("link", { name: "Download latest APK", exact: true });
+  await expect(update).toHaveAttribute("href", RELEASES_URL);
+  await expect(update).toHaveAttribute("target", "_blank");
+  await expect(update).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(update).toHaveAccessibleDescription("Open the downloaded APK to update the app.");
+  const downloading = new Promise((resolve) => {
+    context.once("page", (downloadPage) => downloadPage.once("download", resolve));
+  });
+  await update.click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe("app-release.apk");
+  expect(await download.failure()).toBeNull();
+  await expect(page.getByRole("heading", { name: "More", exact: true })).toBeVisible();
+});
+
+test("browser users do not see an Android app update action", async ({ page }) => {
+  await openApp(page, { dashboard: true });
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Download latest APK", exact: true })).toHaveCount(0);
+});
+
+async function mockAppVersion(page, version) {
+  await page.addInitScript((version) => {
+    window.androidBridge = {};
+    window.Capacitor = {
+      PluginHeaders: [{ name: "NativeInteractions", methods: [{ name: "getAppVersion", rtype: "promise" }] }],
+      async nativePromise(_plugin, method) {
+        if (method === "getAppVersion") {
+          window.__appVersionChecks = (window.__appVersionChecks ?? 0) + 1;
+          return { version };
+        }
+      },
+    };
+  }, version);
+}
+
+for (const [installed, label] of [["1.0.3", "Update 1.0.3 → 1.0.4"], ["1.0.4", "App up to date"], ["1.0.5", "App up to date"]]) {
+  test(`installed ${installed} shows ${label} and checks only once across tab visits`, async ({ page }) => {
+    await mockAppVersion(page, installed);
+    await openApp(page, { dashboard: true });
+    let checks = 0;
+    await page.route("https://api.github.com/repos/jitendradara12/lazyportal/releases/latest", (route) => {
+      checks++;
+      return route.fulfill({ json: { tag_name: "v1.0.4", assets: [{ name: "app-release.apk", state: "uploaded" }] } });
+    });
+    const nav = page.getByRole("navigation", { name: "Main" });
+    await nav.getByRole("button", { name: "More", exact: true }).click();
+    if (installed === "1.0.3") {
+      await expect(page.getByRole("link", { name: label, exact: true })).toHaveAttribute("href", "https://github.com/jitendradara12/lazyportal/releases/download/v1.0.4/app-release.apk");
+    } else {
+      await expect(page.getByRole("status").filter({ hasText: label })).toContainText(`Version ${installed}`);
+      await expect(page.getByRole("link", { name: "Download latest APK", exact: true })).toHaveCount(0);
+    }
+    await nav.getByRole("button", { name: "Attendance", exact: true }).click();
+    await nav.getByRole("button", { name: "More", exact: true }).click();
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+    expect(checks).toBe(1);
+    expect(await page.evaluate(() => window.__appVersionChecks)).toBe(1);
+  });
+}
+
+test("a failed release check keeps the installed version and manual download", async ({ page }) => {
+  await mockAppVersion(page, "1.0.3");
+  await openApp(page, { dashboard: true });
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
+  const download = page.getByRole("link", { name: "Download latest APK", exact: true });
+  await expect(download).toHaveAttribute("href", RELEASES_URL);
+  await expect(download).toHaveAccessibleDescription("Version 1.0.3. Couldn't check for updates. Download manually.");
+});

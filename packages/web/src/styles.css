@@ -2694,6 +2694,8 @@ button.score-header:focus-visible { outline: 2px solid var(--primary); outline-o
   flex-shrink: 0;
 }
 .more-action-label { flex: 1; text-align: left; }
+.more-action-description { display: block; margin-top: 4px; color: var(--onSurfaceVariant); font-size: 13px; font-weight: 400; letter-spacing: normal; }
+.more-action[role="status"] { cursor: default; }
 .more-action-trailing { color: var(--outline); font-size: 14px; font-weight: 500; }
 .more-action.is-danger { color: var(--error); }
 .more-action.is-danger .more-action-icon { background: color-mix(in srgb, var(--errorContainer) 55%, var(--surfaceContainerLow)); color: var(--onErrorContainer); }

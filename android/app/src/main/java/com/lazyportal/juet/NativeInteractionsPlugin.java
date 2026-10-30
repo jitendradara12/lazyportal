@@ -1,5 +1,6 @@
 package com.lazyportal.juet;
 
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.view.HapticFeedbackConstants;
 import android.webkit.WebView;
@@ -42,6 +43,17 @@ public class NativeInteractionsPlugin extends Plugin {
             }
         };
         getBridge().addWebViewListener(pageListener);
+    }
+
+    @PluginMethod
+    public void getAppVersion(PluginCall call) {
+        try {
+            String version = getActivity().getPackageManager()
+                .getPackageInfo(getActivity().getPackageName(), 0).versionName;
+            call.resolve(new JSObject().put("version", version));
+        } catch (PackageManager.NameNotFoundException e) {
+            call.reject("Could not read the installed app version", e);
+        }
     }
 
     @PluginMethod
