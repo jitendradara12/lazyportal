@@ -104,7 +104,6 @@ test("Android Back closes an academic calendar menu, then returns home", async (
   await page.clock.install({ time: new Date("2026-10-25T12:00:00+05:30") });
   await dashboard(page);
   await page.getByRole("navigation").getByRole("button", { name: "Calendar", exact: true }).click();
-  await page.getByLabel("Academic semester").selectOption("2026-27-even");
   await page.getByRole("button", { name: "Add Holi break to calendar", exact: true }).click();
   await expect(page.getByRole("group", { name: "Add to calendar" })).toBeVisible();
   await back(page);

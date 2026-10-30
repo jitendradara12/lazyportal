@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { academicBounds, academicCalendarEvent, academicDateLabel, academicSchedule, currentAcademicCalendar, groupAcademicEvents, matchesAcademicAudience, matchesAcademicSearch, nextDate, portalDate } from "../src/lib/academicCalendar.ts";
+import { academicBounds, academicCalendarEvent, academicDateLabel, academicSchedule, currentAcademicCalendar, academicDays, academicYears, groupAcademicEvents, matchesAcademicSearch, nextDate, portalDate } from "../src/lib/academicCalendar.ts";
 import { calendarFile, googleCalendarUrl } from "../src/lib/calendar.ts";
 
 const dataDir = new URL("../src/data/academic-calendars/", import.meta.url);
@@ -37,6 +37,20 @@ test("term selection follows term starts rather than the January boundary or tra
   assert.equal(currentAcademicCalendar(calendars, Date.parse("2027-01-03T18:30:00Z")).id, even.id);
   assert.equal(currentAcademicCalendar(calendars, 0).id, odd.id);
   assert.equal(portalDate(Date.parse("2026-12-31T20:00:00Z")), "2027-01-01");
+});
+
+test("both semesters of an academic year form one timeline with distinguishable events", () => {
+  const [year, ...others] = academicYears(calendars);
+  assert.equal(others.length, 0);
+  assert.equal(year.academicYear, "2026-27");
+  assert.deepEqual(year.semesters.map((semester) => semester.term), ["odd", "even"]);
+  assert.equal(year.events.length, odd.events.length + even.events.length);
+  assert.equal(new Set(year.events.map((event) => `${event.semester.id}:${event.id}`)).size, year.events.length);
+  const holi = year.events.find((event) => event.semester.id === even.id && event.id === "t2");
+  assert.equal(academicCalendarEvent(year, holi).id, `academic:${even.id}:t2`);
+  assert.match(academicCalendarEvent(year, holi).description, /even semester/);
+  const upcoming = groupAcademicEvents(year.events, Date.parse("2026-10-25T12:00:00+05:30")).upcoming;
+  assert.ok(upcoming.some((event) => event.semester.id === odd.id) && upcoming.some((event) => event.semester.id === even.id));
 });
 
 test("all-day ranges include the last published day in IST and export date-only exclusive ends", () => {
@@ -101,22 +115,19 @@ test("holiday aliases find the published title without changing export titles", 
   assert.equal(academicCalendarEvent(odd, holiday).title, "Deepawali");
 });
 
-test("audience filtering uses stated applicability and keeps unspecified dates", () => {
-  const event = odd.events.find((event) => event.id === "first-year-registration");
-  assert.equal(matchesAcademicAudience(event, "first-year"), true);
-  assert.equal(matchesAcademicAudience(event, "continuing"), false);
-  const phd = even.events.find((event) => event.id === "phd-registration");
-  assert.equal(matchesAcademicAudience(phd, "phd"), true);
-  assert.equal(matchesAcademicAudience(phd, "continuing"), false);
-  const final = even.events.find((event) => event.id === "final-viva");
-  assert.equal(matchesAcademicAudience(final, "first-year"), false);
-  assert.equal(matchesAcademicAudience(final, "continuing"), true);
-  for (const audience of ["students", "first-year", "continuing", "phd"]) {
-    assert.equal(matchesAcademicAudience({ ...event, audience: undefined }, audience), true);
-    assert.equal(matchesAcademicAudience({ ...event, audience: "A newly stated audience" }, audience), true);
-    assert.equal(matchesAcademicAudience({ ...event, audience: "Faculty & staff" }, audience), false);
-  }
-  assert.equal(matchesAcademicAudience({ ...event, audience: "Faculty & staff" }, "all"), true);
+test("month grid days: holidays share the break tone, the strongest tone wins, rules mark only their start", () => {
+  const ev = (id, category, startDate, endDate, dateRule) => ({ id, title: id, category, startDate, endDate, dateRule });
+  const days = academicDays([
+    ev("break", "break", "2026-11-06", "2026-11-14"), ev("holiday", "holiday", "2026-11-08"),
+    ev("test", "exam", "2026-11-10", "2026-11-11"), ev("from", "academic", "2026-11-20", undefined, "from"),
+    { id: "tba", title: "tba", category: "academic", dateRule: "tba" },
+  ]);
+  assert.equal(days.get("2026-11-08").tone, "break");
+  assert.equal(days.get("2026-11-08").events.length, 2);
+  assert.equal(days.get("2026-11-10").tone, "exam");
+  assert.equal(days.get("2026-11-12").tone, "break");
+  assert.equal(days.has("2026-11-21"), false);
+  assert.equal(days.size, 10);
 });
 
 test("month groups retain every event and put contained holidays under their break", () => {

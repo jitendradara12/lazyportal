@@ -2,27 +2,30 @@ import { useRef, useState } from "react";
 import { TopBar } from "../components/AppBar";
 import { CalendarButton } from "../components/CalendarButton";
 import { CalendarAddIcon, CloseIcon, GitHubIcon, SearchIcon } from "../components/icons";
+import { MonthGrid } from "../components/MonthGrid";
 import { Timeline, TimelineStop, TimelineGroup } from "../components/Timeline";
 import { SectionError } from "../components/DataViews";
 import { useNow } from "../hooks/useNow";
-import { academicBounds, academicCalendarEvent, academicCategories, academicDateLabel, academicSchedule, currentAcademicCalendar, groupAcademicEvents, matchesAcademicAudience, matchesAcademicSearch, type AcademicCalendar, type AcademicEvent } from "../lib/academicCalendar";
+import { academicBounds, academicCalendarEvent, academicCategories, academicDateLabel, academicDays, academicEventKey, academicSchedule, academicYears, currentAcademicCalendar, groupAcademicEvents, matchesAcademicSearch, portalDate, type AcademicCalendar, type AcademicEvent, type AcademicYear } from "../lib/academicCalendar";
 import { canExportCalendar, exportCalendar } from "../lib/calendarActions";
 
 const calendars = Object.values(import.meta.glob<AcademicCalendar>("../data/academic-calendars/*.json", { eager: true, import: "default" })).sort((a, b) => a.startsOn.localeCompare(b.startsOn));
+const years = academicYears(calendars);
 const filters = [
-  { id: "all", label: "All events" },
+  { id: "all", label: "All" },
   { id: "exam", label: "Exams" },
-  { id: "break", label: "Holidays & breaks" },
+  { id: "break", label: "Holidays" },
   { id: "deadline", label: "Deadlines" },
   { id: "academic", label: "Academic" },
 ];
 
 export function AcademicCalendarPage() {
   const now = useNow();
-  const [calendarId, setCalendarId] = useState(() => currentAcademicCalendar(calendars, now).id);
-  const calendar = calendars.find((entry) => entry.id === calendarId)!;
+  const [yearId, setYearId] = useState(() => currentAcademicCalendar(calendars, now).academicYear);
+  const year = years.find((entry) => entry.academicYear === yearId)!;
+  const currentSemester = currentAcademicCalendar(calendars, now).startsOn;
   const [filter, setFilter] = useState("all");
-  const [audience, setAudience] = useState("students");
+  const [day, setDay] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchButton = useRef<HTMLButtonElement>(null);
@@ -30,12 +33,17 @@ export function AcademicCalendarPage() {
   const query = search.trim();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const audienceEvents = calendar.events.filter((event) => matchesAcademicAudience(event, audience));
-  const events = audienceEvents.filter((event) =>
+  const matching = year.events.filter((event) => event.audience !== "Faculty & staff" &&
     (filter === "all" || event.category === filter || (filter === "break" && event.category === "holiday")) && matchesAcademicSearch(event, query));
+  const days = academicDays(matching);
+  const activeDay = day && days.has(day) ? day : null;
+  const events = activeDay ? days.get(activeDay)!.events : matching;
+  const months = year.events.flatMap((event) => event.startDate ? [event.startDate, event.endDate ?? event.startDate] : []).map((date) => date.slice(0, 7)).sort();
   const { past, upcoming, guidance } = groupAcademicEvents(events, now);
-  const next = upcoming.find((event) => academicBounds(event)!.start > now);
-  const exportable = upcoming.map((event) => academicCalendarEvent(calendar, event)).filter((event) => event !== null);
+  const shownGuidance = guidance.filter((event) => query || event.semester!.startsOn >= currentSemester);
+  const next = activeDay ? undefined : upcoming.find((event) => academicBounds(event)!.start > now);
+  const exportPool = activeDay ? groupAcademicEvents(matching, now).upcoming : upcoming;
+  const exportable = exportPool.map((event) => academicCalendarEvent(year, event)).filter((event) => event !== null);
 
   function closeSearch() {
     setSearchOpen(false);
@@ -52,7 +60,7 @@ export function AcademicCalendarPage() {
     if (exporting) return;
     setExporting(true);
     setExportError(null);
-    try { await exportCalendar(exportable, `juet-${calendar.id}.ics`); }
+    try { await exportCalendar(exportable, `juet-${year.academicYear}.ics`); }
     catch { setExportError("Couldn’t save calendar. Try again."); }
     finally { setExporting(false); }
   }
@@ -60,8 +68,8 @@ export function AcademicCalendarPage() {
   function stop(event: AcademicEvent, holidays: AcademicEvent[] = []) {
     const bounds = academicBounds(event)!;
     const state = bounds.end !== null && bounds.end <= now ? "past" : bounds.start <= now ? "current" : event === next ? "next" : "later";
-    return <TimelineStop key={event.id} state={state}>
-      <AcademicEventCard calendar={calendar} event={event} holidays={holidays} featured={state === "next" || state === "current"} state={state} now={now} />
+    return <TimelineStop key={academicEventKey(event)} state={state}>
+      <AcademicEventCard year={year} event={event} holidays={holidays} featured={state === "next" || state === "current"} state={state} now={now} />
     </TimelineStop>;
   }
 
@@ -73,7 +81,12 @@ export function AcademicCalendarPage() {
   }
 
   return <div className="page academic-calendar-page">
-    <TopBar title="Academic calendar" subtitle={`JUET · ${calendar.academicYear}`} noRefresh
+    <TopBar title="Academic calendar" subtitle={years.length > 1 ? <span className="academic-sem">
+        <select aria-label="Academic year" value={yearId} onChange={(event) => { setYearId(event.target.value); setDay(null); setExportError(null); }}>
+          {years.map((entry) => <option key={entry.academicYear} value={entry.academicYear}>{entry.academicYear}</option>)}
+        </select>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      </span> : `JUET · ${year.academicYear}`} noRefresh
       actions={<>
         {!searchOpen && <button ref={searchButton} type="button" className="exam-calendar-button academic-search-toggle" aria-label="Search calendar" title="Search calendar" aria-expanded={false} aria-controls="academic-search" onClick={() => setSearchOpen(true)}><SearchIcon /></button>}
         {canExportCalendar() && exportable.length > 0 && <button type="button" className="exam-calendar-button exam-export" aria-label="Export upcoming academic events" title="Export upcoming academic events" disabled={exporting} onClick={exportUpcoming}><CalendarAddIcon /></button>}
@@ -84,52 +97,30 @@ export function AcademicCalendarPage() {
         <input ref={searchInput} id="academic-search" type="search" aria-label="Search calendar events" placeholder="Search events, dates…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} autoFocus />
         <button type="button" className="academic-search-close" aria-label="Close calendar search" title="Close calendar search" onClick={closeSearch}><CloseIcon /></button>
       </div>}
-      <div className="academic-controls">
-        <label className="academic-control-field">
-          <span>Semester</span>
-          <div className="picker-wrap">
-            <select className="sem-picker" aria-label="Academic semester" value={calendarId} onChange={(event) => { setCalendarId(event.target.value); setExportError(null); }}>
-              {calendars.map((entry) => <option key={entry.id} value={entry.id}>{entry.term === "odd" ? "Odd" : "Even"} {entry.academicYear}</option>)}
-            </select>
-            <svg className="picker-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-          </div>
-        </label>
-        <label className="academic-control-field is-audience">
-          <span>Show dates for</span>
-          <div className="picker-wrap">
-            <select className="sem-picker" aria-label="Calendar audience" value={audience} onChange={(event) => setAudience(event.target.value)}>
-              <option value="students">All students</option>
-              <option value="first-year">First year</option>
-              <option value="continuing">Years 2+</option>
-              <option value="phd">Ph.D.</option>
-              <option value="all">Everyone</option>
-            </select>
-            <svg className="picker-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-          </div>
-        </label>
-      </div>
+      {months.length > 0 && <MonthGrid key={yearId} days={days} today={portalDate(now)} first={months[0]} last={months.at(-1)!} selected={activeDay} onSelect={setDay} />}
       <div className="chip-row academic-filters" role="group" aria-label="Event categories">
-        {filters.map(({ id, label }) => <button key={id} type="button" className={`chip-btn ${filter === id ? "active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
+        {filters.map(({ id, label }) => <button key={id} type="button" className={`chip-btn ${filter === id ? "active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}>{id !== "all" && <span className={`chip-dot tone-${id}`} aria-hidden="true" />}{label}</button>)}
       </div>
-      <div className="academic-schedule-heading"><h2 className="page-subhead">{query ? "Search results" : upcoming.some((event) => !event.dateRule && academicBounds(event)!.start <= now) ? "Happening now & coming up" : "Coming up"}</h2><span role="status">{query ? `${events.length} ${events.length === 1 ? "result" : "results"}` : `${upcoming.length} events`}</span></div>
+      <div className="academic-schedule-heading">{activeDay
+        ? <><h2 className="page-subhead">{new Date(`${activeDay}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}</h2><button type="button" className="academic-clear-day" onClick={() => setDay(null)}>Show all</button></>
+        : <><h2 className="page-subhead">{query ? "Search results" : "Coming up"}</h2><span role="status">{query ? `${events.length} ${events.length === 1 ? "result" : "results"}` : `${upcoming.length} events`}</span></>}</div>
       {exportError && <SectionError label="Calendar" error={exportError} retry={exportUpcoming} />}
-      {upcoming.length > 0 ? <Timeline label="Academic schedule" className="academic-timeline" key={`${calendarId}:${filter}:${audience}:${query}`}>
+      {upcoming.length > 0 ? <Timeline label="Academic schedule" className="academic-timeline" key={`${yearId}:${filter}:${activeDay}:${query}`}>
         {schedule(upcoming)}
-        {past.length > 0 && <TimelineGroup label="Past events" count={past.length} defaultOpen={Boolean(query)}>{schedule(past, true)}</TimelineGroup>}
+        {past.length > 0 && <TimelineGroup label="Past events" count={past.length} defaultOpen={Boolean(query || activeDay)}>{schedule(past, true)}</TimelineGroup>}
       </Timeline> : <>
-        {(!query || events.length === 0) && <div className="academic-empty">
+        {!activeDay && (!query || events.length === 0) && <div className="academic-empty">
           <p className="muted page-note">{query ? "No events match your search. Try another term or change the filters." : events.length === 0 ? "No events match this filter." : "No upcoming events for this selection."}</p>
           <div className="academic-empty-actions">
             {query && <button type="button" onClick={clearSearch}>Clear search</button>}
             {filter !== "all" && <button type="button" onClick={() => { setFilter("all"); searchInput.current?.focus(); }}>{query ? "Search all categories" : "Show all categories"}</button>}
-            {audience !== "students" && <button type="button" onClick={() => setAudience("students")}>Show all students</button>}
           </div>
         </div>}
-        {past.length > 0 && <Timeline label="Academic schedule" className="academic-timeline" key={`${calendarId}:${filter}:${audience}:${query}`}><TimelineGroup label="Past events" count={past.length} defaultOpen={Boolean(query)}>{schedule(past, true)}</TimelineGroup></Timeline>}
+        {past.length > 0 && <Timeline label="Academic schedule" className="academic-timeline" key={`${yearId}:${filter}:${activeDay}:${query}`}><TimelineGroup label="Past events" count={past.length} defaultOpen={Boolean(query || activeDay)}>{schedule(past, true)}</TimelineGroup></Timeline>}
       </>}
-      {guidance.length > 0 && <section className="academic-guidance" aria-labelledby="academic-guidance">
+      {shownGuidance.length > 0 && <section className="academic-guidance" aria-labelledby="academic-guidance">
         <h2 className="page-subhead" id="academic-guidance">Date guidance</h2>
-        {guidance.map((event) => <AcademicEventCard key={event.id} calendar={calendar} event={event} now={now} />)}
+        {shownGuidance.map((event) => <AcademicEventCard key={academicEventKey(event)} year={year} event={event} now={now} />)}
       </section>}
       <footer className="academic-contribute">
         <span>Something wrong in data?</span>
@@ -142,12 +133,12 @@ export function AcademicCalendarPage() {
   </div>;
 }
 
-function AcademicEventCard({ calendar, event, holidays = [], featured = false, state, now }: { calendar: AcademicCalendar; event: AcademicEvent; holidays?: AcademicEvent[]; featured?: boolean; state?: string; now?: number }) {
+function AcademicEventCard({ year, event, holidays = [], featured = false, state, now }: { year: AcademicYear; event: AcademicEvent; holidays?: AcademicEvent[]; featured?: boolean; state?: string; now?: number }) {
   const startDateObj = event.startDate ? new Date(`${event.startDate}T00:00:00+05:30`) : null;
   const day = event.startDate?.slice(8);
   const month = event.startDate ? new Date(`${event.startDate}T00:00:00Z`).toLocaleDateString("en-IN", { month: "short", timeZone: "UTC" }) : "TBA";
   const weekday = startDateObj ? startDateObj.toLocaleDateString("en-IN", { weekday: "short", timeZone: "Asia/Kolkata" }) : null;
-  const exportEvent = academicCalendarEvent(calendar, event);
+  const exportEvent = academicCalendarEvent(year, event);
   const uncertain = Boolean(event.dateRule || event.status);
 
   let duration: string | null = null;
@@ -176,8 +167,8 @@ function AcademicEventCard({ calendar, event, holidays = [], featured = false, s
       <div className="exam-body">
         <div className="academic-event-meta">
           <span className={`academic-category category-${event.category}`}>{academicCategories[event.category]}</span>
-          {event.status === "tentative" && <span className="academic-proposed">Proposed dates</span>}
-          {featured && <span className="academic-event-state">{state === "current" && !event.dateRule ? "Happening now" : "Next listed event"}</span>}
+          {event.status === "tentative" && <span className="academic-proposed">Proposed</span>}
+          {featured && <span className="academic-event-state">{state === "current" && !event.dateRule ? "Happening now" : "Next"}</span>}
         </div>
         {state ? <h4 className="exam-subject">{event.title}</h4> : <h3 className="exam-subject">{event.title}</h3>}
         <p className="academic-event-dates">
@@ -186,15 +177,16 @@ function AcademicEventCard({ calendar, event, holidays = [], featured = false, s
           {countdownLabel && <span className="academic-meta-pill"> · {countdownLabel}</span>}
         </p>
         {event.audience && <span className="academic-audience">For {event.audience}</span>}
+        {(!event.startDate || event.dateRule === "from") && year.semesters.length > 1 && <span className="academic-audience">{event.semester!.term === "odd" ? "Odd" : "Even"} semester</span>}
         {event.notes && <p className="academic-event-note">{event.notes}</p>}
       </div>
-      {exportEvent && <CalendarButton event={exportEvent} filename={`juet-${calendar.id}.ics`} />}
+      {exportEvent && <CalendarButton event={exportEvent} filename={`juet-${year.academicYear}.ics`} />}
     </div>
     {holidays.length > 0 && <div className="academic-break-holidays">
       <p>Holidays during this break</p>
-      <ul>{holidays.map((holiday) => <li key={holiday.id}>
+      <ul>{holidays.map((holiday) => <li key={academicEventKey(holiday)}>
         <div><h5>{holiday.title}</h5><p>{academicDateLabel(holiday, false)}</p>{holiday.audience && <span className="academic-audience">For {holiday.audience}</span>}</div>
-        <CalendarButton event={academicCalendarEvent(calendar, holiday)} filename={`juet-${calendar.id}.ics`} />
+        <CalendarButton event={academicCalendarEvent(year, holiday)} filename={`juet-${year.academicYear}.ics`} />
       </li>)}</ul>
     </div>}
   </article>;

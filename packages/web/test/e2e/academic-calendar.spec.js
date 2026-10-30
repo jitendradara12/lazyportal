@@ -26,12 +26,13 @@ test("Calendar navigation opens the fifth tab, filters and exports fixed dates",
   await navigation.getByRole("button", { name: "Calendar", exact: true }).click();
   await expect(navigation.getByRole("button", { name: "Calendar", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "Academic calendar", exact: true })).toBeVisible();
-  await expect(page.getByLabel("Academic semester")).toHaveValue("2026-27-odd");
+  await expect(page.getByLabel("Academic year")).toHaveCount(0);
+  await expect(page.getByText("JUET · 2026-27")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Technical fest (JYC)", exact: true })).toBeVisible();
-  await expect(page.getByText("Proposed dates", { exact: true })).toBeVisible();
+  await expect(page.getByText("Proposed", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Calendar unavailable while dates are proposed" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Test 1", exact: true })).not.toBeVisible();
-  await page.getByRole("button", { name: "Holidays & breaks", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Test 1", exact: true }).filter({ visible: true })).toHaveCount(1);
+  await page.getByRole("button", { name: "Holidays", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Technical fest (JYC)", exact: true })).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "Deepawali break", exact: true })).toBeVisible();
   const add = page.getByRole("button", { name: "Add Deepawali break to calendar", exact: true });
@@ -43,7 +44,7 @@ test("Calendar navigation opens the fifth tab, filters and exports fixed dates",
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export upcoming academic events" }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("juet-2026-27-odd.ics");
+  expect(download.suggestedFilename()).toBe("juet-2026-27.ics");
   const content = await calendarContent(download);
   expect(content).toContain("DTSTART;VALUE=DATE:20261106\r\nDTEND;VALUE=DATE:20261115");
   expect(content).not.toContain("SUMMARY:Test");
@@ -51,25 +52,24 @@ test("Calendar navigation opens the fifth tab, filters and exports fixed dates",
   await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
 });
 
-test("semester changes preserve date guidance, student audiences and contribution link", async ({ page }) => {
+test("the academic year runs past January without switching, keeps date guidance, hides faculty-only dates and links contributions", async ({ page }) => {
   await setup(page, "calendar");
-  await page.getByLabel("Academic semester").selectOption("2026-27-even");
+  await expect(page.getByRole("heading", { name: "January 2027", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Holi break", exact: true })).toBeVisible();
   await expect(page.getByText("Before 15 May 2027", { exact: true })).toHaveCount(2);
   const deadline = page.getByRole("article").filter({ has: page.getByRole("heading", { name: "Final viva / defence / dissertation / project", exact: true }) });
   await expect(deadline.locator(".exam-date")).toHaveCount(0);
-  await expect(page.getByText("Within 15 days of registration", { exact: true })).toBeVisible();
+  await expect(page.getByText("Within 15 days of registration", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Even semester", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "First year registration", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Faculty summer vacation", exact: true })).not.toBeVisible();
-  await page.getByLabel("Calendar audience").selectOption("all");
-  await expect(page.getByRole("heading", { name: "Faculty summer vacation", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Make a pull request." })).toHaveAttribute("href", "https://github.com/jitendradara12/lazyportal/blob/master/packages/web/src/data/academic-calendars/README.md");
   await page.getByRole("group", { name: "Event categories" }).getByRole("button", { name: "Exams", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Holi break", exact: true })).not.toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export upcoming academic events" }).click();
   const content = await calendarContent(await downloadPromise);
-  expect(content.match(/BEGIN:VEVENT/g)).toHaveLength(7);
+  expect(content.match(/BEGIN:VEVENT/g)).toHaveLength(11);
   expect(content).not.toContain("SUMMARY:Holi");
   await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
   await expect(page.getByRole("heading", { name: "More", exact: true })).toBeVisible();
@@ -102,16 +102,14 @@ test("calendar search finds past events and guidance, respects filters and reset
   await expect(search).toBeFocused();
   await expect(search).toHaveValue("");
   await search.fill("Test 1");
-  await expect(page.getByRole("heading", { name: "Test 1", exact: true })).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("1 result");
+  await expect(page.getByRole("heading", { name: "Test 1", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("status")).toHaveText("2 results");
   await search.fill("within 15 days");
-  await expect(page.getByRole("heading", { name: "DPMC formation and meeting", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DPMC formation and meeting", exact: true })).toHaveCount(2);
   await search.fill("8 Nov 2026");
   await expect(page.getByRole("heading", { name: "Deepawali", exact: true })).toBeVisible();
   await search.fill("Faculty winter vacation");
   await expect(page.getByRole("status")).toHaveText("0 results");
-  await page.getByLabel("Calendar audience").selectOption("all");
-  await expect(page.getByRole("heading", { name: "Faculty winter vacation", exact: true })).toBeVisible();
   await search.fill("");
   await expect(page.getByRole("heading", { name: "Search results", exact: true })).not.toBeVisible();
   await search.fill("missing event");
@@ -125,7 +123,7 @@ test("calendar search finds past events and guidance, respects filters and reset
   await expect(search).not.toBeVisible();
 });
 
-test("audiences keep general dates, and holidays stay accessible inside month groups", async ({ page }) => {
+test("holidays stay accessible inside month groups", async ({ page }) => {
   await setup(page, "calendar");
   await expect(page.getByRole("navigation", { name: "Semester highlights" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "November 2026", exact: true })).toBeVisible();
@@ -134,17 +132,23 @@ test("audiences keep general dates, and holidays stay accessible inside month gr
   await vacation.getByRole("button", { name: "Add Deepawali to calendar", exact: true }).click();
   expect(new URL(await page.getByRole("link", { name: "Google Calendar", exact: true }).getAttribute("href")).searchParams.get("dates")).toBe("20261108/20261109");
   await page.keyboard.press("Escape");
-  await page.getByLabel("Calendar audience").selectOption("continuing");
-  await expect(page.getByRole("heading", { name: "Ph.D. end semester presentations", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Project / Seminar 2 viva", exact: true })).toBeVisible();
-  await page.getByLabel("Calendar audience").selectOption("phd");
-  await expect(page.getByRole("heading", { name: "Ph.D. end semester presentations", exact: true })).toBeVisible();
-  await page.getByLabel("Academic semester").selectOption("2026-27-even");
-  await page.getByLabel("Calendar audience").selectOption("first-year");
-  await expect(page.getByRole("heading", { name: "Final viva / defence / dissertation / project", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "First year registration", exact: true })).toBeVisible();
-  await page.getByLabel("Calendar audience").selectOption("continuing");
-  await expect(page.getByRole("heading", { name: "First year registration", exact: true })).toHaveCount(0);
+});
+
+test("month grid selects a day to show its events and respects the category filter", async ({ page }) => {
+  await setup(page, "calendar");
+  const grid = page.getByRole("region", { name: "Month view" });
+  await expect(grid.getByText("October")).toBeVisible();
+  await grid.getByRole("button", { name: "Next month" }).click();
+  await grid.getByRole("button", { name: /^8 November:/ }).click();
+  await expect(page.getByRole("heading", { name: /8 Nov/ })).toBeVisible();
+  await expect(page.getByText("Next", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Deepawali break", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project / Seminar 2 viva", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Show all", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Technical fest (JYC)", exact: true })).toBeVisible();
+  await page.getByRole("group", { name: "Event categories" }).getByRole("button", { name: "Exams", exact: true }).click();
+  await expect(grid.getByRole("button", { name: /^8 November:/ })).toHaveCount(0);
+  await expect(grid.getByRole("button", { name: /^30 November:/ })).toHaveCount(1);
 });
 
 test("academic calendar fits mobile and desktop", async ({ page }, testInfo) => {
@@ -199,7 +203,7 @@ for (const supportsAllDay of [true, false]) {
       const [call] = await page.evaluate(() => window.__calendarCalls);
       expect(call.method).toBe("exportCalendar");
       expect(call.data.content).toContain("DTSTART;VALUE=DATE:20261106");
-      expect(call.data.filename).toBe("juet-2026-27-odd.ics");
+      expect(call.data.filename).toBe("juet-2026-27.ics");
     }
   });
 }

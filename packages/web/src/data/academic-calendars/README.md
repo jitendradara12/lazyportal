@@ -26,6 +26,8 @@ Use one file per semester, named `2026-27-even.json`:
 ```
 
 - `term`: `odd` or `even`. `startsOn`: semester registration/start date.
+- Files with the same `academicYear` show together as one continuous timeline,
+  so event `id`s only need to be unique within a file.
 - Categories: `exam`, `holiday`, `break`, `deadline`, `academic`.
 - Dates: `YYYY-MM-DD`. `endDate` includes that day; omit it for one day.
 - `dateRule`: `before` or `from` uses `startDate`; `relative` uses `timing`,
@@ -37,8 +39,8 @@ Use one file per semester, named `2026-27-even.json`:
   `audience: "Faculty & staff"` hides staff-only events from the student view.
 - Optional: `aliases` is a list of common search names, such as `["Diwali"]`
   for Deepawali. It does not change the published title or calendar exports.
-- Year and Ph.D. filters use stated audiences. Missing or unrecognized audiences
-  stay visible; do not infer applicability from an event's title.
+- Students see every event except `Faculty & staff` ones. `audience` shows as a
+  "For ..." note on the event; do not infer applicability from an event's title.
 - Include each event once. Keep existing IDs when correcting dates.
 - Keep older semesters. New JSON files appear automatically. Leave PDFs out.
 
