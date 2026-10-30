@@ -28,6 +28,7 @@ import {
   useAttendanceInitial,
 } from "../sections/attendance";
 import { combinedAttendance, isSubjectDetailComplete } from "../lib/attendanceCalc";
+import { TargetFab } from "../components/TargetFab";
 import { useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { idleAttendanceSync, runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanceRefreshCheckpoint } from "../lib/attendanceSync";
 
@@ -373,8 +374,9 @@ export function AttendancePage({
       />
 
       <div className="page-body">
-        {((shortsCount > 0 && rows.length > 0) || semesters.length > 1) && (
+        {(rows.length > 0 || semesters.length > 1) && (
           <div className="page-toolbar">
+            {rows.length > 0 && <TargetFab />}
             {shortsCount > 0 && rows.length > 0 && (
               <div className="segmented-pill-toggle att-filter" role="tablist" aria-label="Filter subjects">
                 <button type="button" role="tab" aria-selected={filter === "all"} className={`segmented-pill ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>

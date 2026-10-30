@@ -2215,12 +2215,11 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   transition: transform 0.4s var(--motion-spring), opacity 0.15s linear;
 }
 .nav-indicator svg { position: relative; transition: transform 0.3s var(--motion-spring); }
-.nav-label { font-size: 12px; font-weight: 500; line-height: 16px; letter-spacing: 0.01em; }
+.nav-label { font-size: 12px; font-weight: 600; line-height: 16px; letter-spacing: 0.01em; }
 .nav-item[aria-current="page"] { color: var(--onSurface); }
 .nav-item[aria-current="page"] .nav-indicator { color: var(--onSecondaryContainer); }
 .nav-item[aria-current="page"] .nav-indicator::before { transform: none; opacity: 1; }
 .nav-item[aria-current="page"] .nav-indicator svg { stroke-width: 2.4; }
-.nav-item[aria-current="page"] .nav-label { font-weight: 700; }
 .nav-item:active .nav-indicator svg { transform: scale(0.88); }
 .nav-item:focus-visible { outline: none; }
 .nav-item:focus-visible .nav-indicator { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -2926,3 +2925,20 @@ button.score-header:focus-visible { outline: 2px solid var(--primary); outline-o
   .academic-event .exam-calendar { margin-right: -6px; }
   .academic-event-main { gap: 8px; }
 }
+
+.target-fab { position: relative; flex: none; width: 112px; height: 40px; --spring: var(--motion-spring, cubic-bezier(0.34, 1.56, 0.64, 1)); }
+.target-fab-btn, .target-fab-options { position: absolute; left: 0; top: 0; height: 40px; background: var(--surfaceContainer); color: var(--onSurfaceVariant); border-radius: 24px; }
+.target-fab-btn { border: 0; width: 112px; font: inherit; font-size: var(--fs-s); font-weight: 500; cursor: pointer; transition: transform 0.35s var(--spring), border-radius 0.35s var(--spring); }
+.target-fab-btn:active { transform: scale(0.94); border-radius: 14px; }
+.target-fab-options { z-index: 5; display: grid; grid-template-columns: repeat(3, 56px); padding: 4px; height: 48px; top: -4px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); background: var(--surfaceContainerHigh); transform-origin: left center; animation: target-fab-in 0.5s var(--spring); }
+.target-fab-thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; width: 56px; border-radius: 20px; background: var(--primary); transform: translateX(calc(var(--i) * 56px)); transition: transform 0.45s var(--spring); }
+.target-fab-opt { position: relative; border: 0; background: transparent; color: inherit; font: inherit; font-size: var(--fs-s); font-weight: 500; border-radius: 20px; cursor: pointer; transition: color 0.2s, transform 0.3s var(--spring); }
+.target-fab-opt:active { transform: scale(0.88); }
+.target-fab-opt.active { color: var(--onPrimary); font-weight: 600; }
+.target-fab-btn:focus-visible, .target-fab-opt:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.target-fab-options.is-closing { animation: target-fab-out 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.target-fab-btn.is-entering { animation: target-fab-pop 0.45s var(--spring); }
+@keyframes target-fab-out { to { transform: scaleX(0.45); opacity: 0; } }
+@keyframes target-fab-pop { from { transform: scale(0.8); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes target-fab-in { from { transform: scaleX(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .target-fab-options, .target-fab-btn { animation: none !important; } .target-fab-thumb, .target-fab-btn, .target-fab-opt { transition: none; } }
