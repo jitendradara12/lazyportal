@@ -1401,7 +1401,7 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
 }
 
 .att-sheet-card.closing { animation: sheetSlideDown 0.22s var(--motion-standard) forwards; }
-.att-sheet-card.dragging, .att-sheet-card.closing { transition: none; }
+.att-sheet-card.dragging { transition: none; }
 
 .att-sheet-handle { min-height: 44px; margin: -8px 0 -12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; touch-action: none; user-select: none; cursor: grab; }
 .att-sheet-handle:active { cursor: grabbing; }
@@ -2740,6 +2740,12 @@ button.score-header:focus-visible { outline: 2px solid var(--primary); outline-o
   padding: 10px 16px 10px 20px;
   border-radius: var(--r-xs);
   background: var(--surfaceContainerLow);
+}
+@media (max-width: 360px) {
+  .more-preference {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
 }
 .more-preferences-group > .more-preference:first-child { border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-xs); }
 .more-preferences-group > .more-preference:last-child { border-radius: var(--r-xs) var(--r-xs) var(--r-lg) var(--r-lg); }

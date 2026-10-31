@@ -112,6 +112,7 @@ export function SubjectDetailSheet({
 
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary || event.button !== 0 || isClosing ||
+        (event.target as HTMLElement)?.closest?.("button") ||
         window.matchMedia("(min-width: 640px)").matches) return;
     drag.current = { pointerId: event.pointerId, startY: event.clientY, startedAt: event.timeStamp };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -130,7 +131,7 @@ export function SubjectDetailSheet({
     drag.current = null;
     setIsDragging(false);
     if (distance >= 96 || (distance >= 24 && speed > 0.65)) {
-      setDragOffset(distance);
+      setDragOffset(Math.max(distance, 600));
       handleClose();
     } else {
       setDragOffset(0);
@@ -142,6 +143,14 @@ export function SubjectDetailSheet({
     drag.current = null;
     setIsDragging(false);
     setDragOffset(0);
+  };
+
+  const dragHandlers = {
+    onPointerDown: startDrag,
+    onPointerMove: moveDrag,
+    onPointerUp: endDrag,
+    onPointerCancel: cancelDrag,
+    onLostPointerCapture: cancelDrag,
   };
 
   useEffect(() => {
@@ -163,18 +172,10 @@ export function SubjectDetailSheet({
         aria-labelledby="att-sheet-title"
       >
         {/* Mobile Drag Indicator Handle */}
-        <div
-          className="att-sheet-handle"
-          aria-hidden="true"
-          onPointerDown={startDrag}
-          onPointerMove={moveDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={cancelDrag}
-          onLostPointerCapture={cancelDrag}
-        ><span /></div>
+        <div className="att-sheet-handle" aria-hidden="true" {...dragHandlers}><span /></div>
 
         {/* Sheet Header */}
-        <div className="att-sheet-header">
+        <div className="att-sheet-header" {...dragHandlers}>
           <div className="att-sheet-title-group">
             <h2 className="att-sheet-title" id="att-sheet-title">
               {name}

@@ -160,7 +160,7 @@ export const client = createClient({
             return false;
           }
           // Explicit credential rejection: clear saved credentials
-          if (/invalid (user|password|credential)|wrong password|user id or password/i.test(msg)) {
+          if (/invalid (user|password|credential)|wrong password|password.*incorrect|user id or password/i.test(msg)) {
             savedCredentials.clear();
             return false;
           }

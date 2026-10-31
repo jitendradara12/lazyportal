@@ -21,8 +21,29 @@ export async function getInstalledAppVersion(): Promise<string | null> {
 
 let listening = false;
 let initialization: Promise<void> | undefined;
+let webPopstateBound = false;
+let webPushed = false;
+
 export const appBack = createBackHandlers((enabled: boolean) => {
-  if (listening) void nativeInteractions.setBackEnabled({ enabled }).catch(() => {});
+  if (listening) {
+    void nativeInteractions.setBackEnabled({ enabled }).catch(() => {});
+    return;
+  }
+  if (typeof window === "undefined" || available()) return;
+  if (!webPopstateBound) {
+    webPopstateBound = true;
+    window.addEventListener("popstate", () => {
+      webPushed = false;
+      appBack.dispatch();
+    });
+  }
+  if (enabled && !webPushed) {
+    webPushed = true;
+    window.history.pushState({ juetOverlay: true }, "");
+  } else if (!enabled && webPushed) {
+    webPushed = false;
+    if (window.history.state?.juetOverlay) window.history.back();
+  }
 });
 
 export function initializeNativeInteractions() {
