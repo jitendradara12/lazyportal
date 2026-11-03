@@ -167,3 +167,27 @@ test("latest save wins even if an earlier encryption finishes later", async () =
   assert.equal(await oldSave, false);
   assert.equal(await f.store.load(account), "new-secret");
 });
+
+test("a failed older load cannot erase a newly saved password", async () => {
+  for (const failure of ["missing-key", "decrypt-error"]) {
+    const f = fixture();
+    await f.store.save("old-secret", account);
+    const oldKey = await f.keys.load();
+    let release, started;
+    const waiting = new Promise((resolve) => { started = resolve; });
+    f.keys.load = () => new Promise((resolve) => { release = resolve; started(); });
+    if (failure === "decrypt-error") {
+      const record = JSON.parse(f.values.get(PASSWORD_KEY));
+      record.data = btoa("invalid-ciphertext");
+      f.values.set(PASSWORD_KEY, JSON.stringify(record));
+    }
+    const pending = f.store.load(account);
+    await waiting;
+    const writer = failure === "decrypt-error" ? createStore(f.options) : f.store;
+    assert.equal(await writer.save("new-secret", account), true);
+    release(failure === "missing-key" ? null : oldKey);
+    assert.equal(await pending, "");
+    f.keys.load = async () => oldKey;
+    assert.equal(await f.store.load(account), "new-secret");
+  }
+});
