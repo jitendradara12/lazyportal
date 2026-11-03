@@ -63,6 +63,27 @@ test.describe("attendance target control", () => {
     await expect.poll(() => page.getByRole("heading", { name: "Attendance", exact: true }).evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0);
   });
 
+  test("a touch scroll dismisses the menu without jumping back to its opening position", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "Native touch input requires Chromium's input API");
+    await page.locator(".att-list").evaluate((el) => { el.style.minHeight = "2000px"; });
+    await page.getByRole("button", { name: "Attendance target 70%. Change", exact: true }).click();
+    const options = page.getByRole("radiogroup", { name: "Attendance target", exact: true });
+    await options.evaluate(async (el) => {
+      await Promise.all(el.getAnimations().map((animation) => animation.finished));
+    });
+    const client = await page.context().newCDPSession(page);
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 200, y: 500 }] });
+    for (let y = 460; y >= 180; y -= 40) {
+      await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 200, y }] });
+      await page.waitForTimeout(20);
+    }
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(options).toHaveCount(0);
+    // Let the dismissal, history traversal and touch momentum finish.
+    await page.waitForTimeout(700);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+  });
+
   test("closes after selection with reduced motion and can be reused", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const [from, to] of [[70, 90], [90, 80]]) {

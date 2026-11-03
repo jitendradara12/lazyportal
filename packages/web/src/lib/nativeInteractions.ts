@@ -32,6 +32,8 @@ export const appBack = createBackHandlers((enabled: boolean) => {
   if (typeof window === "undefined" || available()) return;
   if (!webPopstateBound) {
     webPopstateBound = true;
+    // Tabs restore their own scroll; closing overlay history must not rewind it.
+    window.history.scrollRestoration = "manual";
     window.addEventListener("popstate", () => {
       webPushed = false;
       appBack.dispatch();
