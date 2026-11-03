@@ -282,14 +282,18 @@ export function createClient({
 
   async function retryWithCurrentToken(sent, opts) {
     if (!hasToken(currentAuthorization())) throw new SessionExpiredError();
+    const generation = refreshGeneration;
     const retry = await fetchSent(sent);
+    if (generation !== refreshGeneration) throw new SessionExpiredError();
     const result = await handle(retry.response, retry.sent, {
       ...opts,
       skipRefresh: true,
       tokenRetry: true,
     });
-    failedAuthorization = null;
-    setStatus("authenticated");
+    if (generation === refreshGeneration) {
+      failedAuthorization = null;
+      setStatus("authenticated");
+    }
     return result;
   }
 
