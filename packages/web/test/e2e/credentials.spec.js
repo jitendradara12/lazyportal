@@ -189,3 +189,32 @@ test("silent recovery decrypts saved credentials after token refresh fails", asy
   expect(submitted).toEqual([password]);
   expect(await readSaved(page)).toBe(password);
 });
+
+test("switching institutes after token rotation preserves the renewed token", async ({ page }) => {
+  await mockPortal(page);
+  await page.route("**/api/token/refreshTokenRequest", (route) => route.fulfill({
+    json: { response: { msg: "Success", token: "rotated-test-token" } },
+  }));
+  await page.addInitScript((account) => {
+    localStorage.setItem("juet.portal.session.v1", JSON.stringify({
+      ...account, token: "old-test-token", name: "Test Student", membertype: "S",
+      instituteid: "first", institutename: "First campus",
+      institutelist: [{ value: "first", label: "First campus" }, { value: "second", label: "Second campus" }],
+    }));
+  }, account);
+  await page.goto("/#more");
+  const institute = page.getByRole("combobox", { name: "Select institute" });
+  await expect(institute).toHaveValue("first");
+  await page.evaluate(async () => {
+    const resource = performance.getEntriesByType("resource").find((r) => new URL(r.name).pathname === "/src/lib/portal.ts");
+    const { client } = await import(resource.name);
+    await client.recoverSession();
+  });
+  await expect(institute).toHaveValue("first");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("juet.portal.session.v1")).token)).toBe("rotated-test-token");
+  await institute.selectOption("second");
+  await expect.poll(() => page.evaluate(() => {
+    const session = JSON.parse(localStorage.getItem("juet.portal.session.v1"));
+    return { token: session.token, instituteid: session.instituteid };
+  })).toEqual({ token: "rotated-test-token", instituteid: "second" });
+});
