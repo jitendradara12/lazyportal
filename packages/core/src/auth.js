@@ -2,7 +2,9 @@
 // Hides the two-step dance (pretoken-check -> generatewebtoken).
 // UI learns one method: login(). Tests cross the same seam.
 
-export { solveCaptcha } from "./captcha.js";
+import { solveCaptcha } from "./captcha.js";
+import { CaptchaError } from "./errors.js";
+export { solveCaptcha };
 
 const PRETOKEN = "/token/pretoken-check";
 const GENTOKEN = "/token/generatewebtoken";
@@ -106,4 +108,35 @@ export async function login(
 }
 
 export const loginWithPassword = login;
+
+/** Retry rejected automatic guesses; credential and network errors stop immediately. */
+export async function loginWithCaptchaRetry(
+  client,
+  params,
+  { signal, maxAttempts = 1, solve = solveCaptcha, onCaptcha } = {},
+) {
+  let { captcha, captchaText } = params;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    signal?.throwIfAborted();
+    if (attempt > 1) {
+      captcha = await fetchCaptcha(client, { signal });
+      try {
+        captchaText = await solve(captcha, { signal });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        captchaText = "";
+      }
+      signal?.throwIfAborted();
+      onCaptcha?.({ captcha, text: captchaText, attempt });
+    }
+    signal?.throwIfAborted();
+    if (!captchaText) continue;
+    try {
+      return await login(client, { ...params, captcha, captchaText }, { signal });
+    } catch (error) {
+      if (error.code !== "CAPTCHA_INVALID" || attempt === maxAttempts) throw error;
+    }
+  }
+  throw new CaptchaError("Couldn't read the captcha. Enter the characters from the image.");
+}
 

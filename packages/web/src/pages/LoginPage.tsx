@@ -3,6 +3,7 @@ import { auth, session } from "@juet/core";
 import { client, savedCredentials } from "../lib/portal";
 import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
 import type { Captcha, Session } from "../types";
+import { CaptchaFields } from "../components/CaptchaFields";
 
 export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [captcha, setCaptcha] = useState<Captcha | null>(null);
@@ -28,7 +29,8 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
-  const [autoSolveFailed, setAutoSolveFailed] = useState(false);
+  const [isSolving, setIsSolving] = useState(false);
+  const [loginAttempt, setLoginAttempt] = useState(1);
   const [isAutoSolved, setIsAutoSolved] = useState(false);
   const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
 
@@ -42,7 +44,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     return () => { active = false; };
   }, [username, usertype]);
 
-  const loading = useRef(false);
+  const submitController = useRef<AbortController | null>(null);
   const userRef = useRef<HTMLInputElement>(null);
   const passRef = useRef<HTMLInputElement>(null);
   const captchaInputRef = useRef<HTMLInputElement>(null);
@@ -51,31 +53,35 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   useEffect(() => {
     return () => {
       abortController.current?.abort();
+      submitController.current?.abort();
     };
   }, []);
 
-  const load = async () => {
-    if (loading.current) return;
+  const load = async (manual = false) => {
     abortController.current?.abort();
     const ac = new AbortController();
     abortController.current = ac;
-    loading.current = true;
+    setIsSolving(!manual);
     setIsCaptchaLoading(true);
     setCaptcha(null);
     setCaptchaText("");
-    setAutoSolveFailed(false);
     setIsAutoSolved(false);
     try {
-      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, { signal: ac.signal });
+      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, {
+        signal: ac.signal, manual,
+        onCaptcha: (image) => {
+          if (ac.signal.aborted) return;
+          setCaptcha(image);
+          setIsCaptchaLoading(false);
+        },
+      });
       if (ac.signal.aborted) return;
       setCaptcha(c);
       if (text) {
         setCaptchaText(text);
-        setAutoSolveFailed(!autoSolved);
         setIsAutoSolved(autoSolved);
       } else {
         setCaptchaText("");
-        setAutoSolveFailed(true);
         setIsAutoSolved(false);
         setTimeout(() => {
           if (!ac.signal.aborted) {
@@ -84,8 +90,10 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         }, 60);
       }
     } finally {
-      loading.current = false;
-      if (!ac.signal.aborted) setIsCaptchaLoading(false);
+      if (!ac.signal.aborted) {
+        setIsCaptchaLoading(false);
+        setIsSolving(false);
+      }
     }
   };
 
@@ -99,6 +107,12 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const stopSolving = () => {
+    abortController.current?.abort();
+    setIsSolving(false);
+    setIsCaptchaLoading(false);
+  };
 
   const handleClearSaved = () => {
     setUsername("");
@@ -122,34 +136,54 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           onSubmit={async (e) => {
             e.preventDefault();
             if (!captcha || busy || isCaptchaLoading) return;
+            stopSolving();
             setBusy(true);
+            setLoginAttempt(1);
             setError(null);
+            const ac = new AbortController();
+            submitController.current = ac;
             try {
               const account = { username: username.trim(), usertype };
               const loginPassword = password || await savedCredentials.load(account);
+              if (ac.signal.aborted) return;
               if (!loginPassword) {
                 setHasSavedProfile(false);
                 throw new Error("Please enter your password again.");
               }
-              const s = (await auth.login(client, {
+              const s = (await auth.loginWithCaptchaRetry(client, {
                 username: username.trim(),
                 password: loginPassword,
                 captchaText: captchaText.trim(),
                 captcha,
                 usertype,
+              }, {
+                signal: ac.signal,
+                maxAttempts: isAutoSolved ? MAX_AUTOSOLVE_ATTEMPTS : 1,
+                onCaptcha: ({ captcha: image, text, attempt }) => {
+                  if (ac.signal.aborted) return;
+                  setCaptcha(image);
+                  setCaptchaText(text);
+                  setIsAutoSolved(Boolean(text));
+                  setLoginAttempt(attempt);
+                },
               })) as unknown as Session;
+              if (ac.signal.aborted) return;
               try {
                 localStorage.setItem("juet.portal.last_user", username.trim());
                 localStorage.setItem("juet.portal.last_usertype", usertype);
               } catch {}
               if (rememberPw) await savedCredentials.save(loginPassword, account);
               else savedCredentials.clear();
-              onDone(s);
+              if (!ac.signal.aborted) onDone(s);
             } catch (err: unknown) {
+              if (ac.signal.aborted) return;
               setError(err instanceof Error ? err.message : String(err));
-              load().catch(() => {});
+              if ((err as { code?: string })?.code === "CAPTCHA_INVALID") {
+                setError("Couldn't verify the captcha. Enter the characters from the new image.");
+                load(true).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+              }
             } finally {
-              setBusy(false);
+              if (!ac.signal.aborted) setBusy(false);
             }
           }}
         >
@@ -321,71 +355,27 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
             <span className="auth-checkbox-text">Remember me (only saved locally)</span>
           </label>
 
-          {/* Captcha Connected Group */}
-          <div className="auth-captcha-group">
-            {/* Captcha Image + Refresh Button */}
-            <div className="auth-captcha-media-card">
-              <label htmlFor="auth-captcha-input" className="auth-field-label">
-                Captcha
-              </label>
-              <div className="auth-captcha-media-row">
-                {captcha ? (
-                  <img src={captcha.imageDataUrl} alt="Captcha image" className="auth-captcha-img" />
-                ) : (
-                  <div className="auth-captcha-placeholder">
-                    {isCaptchaLoading ? <span className="auth-captcha-spinner" /> : <span>Captcha unavailable</span>}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className={`auth-captcha-refresh ${isCaptchaLoading || busy ? "is-loading" : ""}`}
-                  onClick={() => {
-                    setError(null);
-                    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
-                  }}
-                  disabled={busy || isCaptchaLoading}
-                  aria-label="Refresh captcha"
-                  title="Refresh captcha"
-                >
-                  <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-                    <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Captcha Input with Minimal Inline Status */}
-            <div className="auth-field-card auth-captcha-input-card">
-              <div className="auth-input-action-wrapper">
-                <input
-                  id="auth-captcha-input"
-                  ref={captchaInputRef}
-                  required
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  enterKeyHint="done"
-                  value={captchaText}
-                  onChange={(e) => {
-                    setCaptchaText(e.target.value);
-                    setIsAutoSolved(false);
-                  }}
-                  placeholder={autoSolveFailed ? "solve it, too tough for me" : "Enter captcha text"}
-                  className={`auth-input ${isAutoSolved ? "has-status" : ""}`}
-                />
-                {isAutoSolved && (
-                  <span className="auth-input-inline-status" aria-label="Auto-solved guess">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <line x1="19" y1="12" x2="5" y2="12"/>
-                      <polyline points="11 18 5 12 11 6"/>
-                    </svg>
-                    <span>tried my best</span>
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+          <CaptchaFields
+            id="auth-captcha-input"
+            captcha={captcha}
+            text={captchaText}
+            loading={isCaptchaLoading}
+            solving={isSolving}
+            autoSolved={isAutoSolved}
+            busy={busy}
+            attempt={loginAttempt}
+            inputRef={captchaInputRef}
+            onChange={(value) => {
+              stopSolving();
+              setCaptchaText(value);
+              setIsAutoSolved(false);
+            }}
+            onManual={() => { stopSolving(); captchaInputRef.current?.focus(); }}
+            onRefresh={() => {
+              setError(null);
+              load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+            }}
+          />
 
           {/* Submit CTA */}
           <button type="submit" disabled={!ready} className="auth-submit-btn">

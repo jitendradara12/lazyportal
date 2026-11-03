@@ -777,12 +777,18 @@ button, input, select, textarea { font-family: inherit; }
 
 .auth-captcha-input-card .auth-input {
   height: 40px;
+  letter-spacing: 0.1em;
 }
+
+.auth-captcha-input-card .auth-input::placeholder { letter-spacing: normal; color: var(--onSurfaceVariant); opacity: 1; }
+.auth-captcha-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding-inline: 4px; font-size: 14px; color: var(--onSurfaceVariant); }
+.auth-captcha-manual { flex-shrink: 0; min-height: 44px; padding: 4px; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--primary); font: inherit; font-weight: 600; cursor: pointer; }
+.auth-captcha-manual:hover { background: var(--surfaceContainerHigh); }
+.auth-captcha-manual:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .auth-input::placeholder { color: var(--outline); font-weight: 400; opacity: 0.8; }
 .auth-input:focus, .auth-input:focus-visible { outline: none; box-shadow: none; }
 .auth-input.has-action { padding-right: 44px; }
-.auth-input.has-status { padding-right: 108px; }
 
 /* Neutralize Chrome/Android WebView autofill yellow/blue background flash */
 .auth-input:-webkit-autofill,
@@ -820,23 +826,6 @@ button, input, select, textarea { font-family: inherit; }
 
 .auth-input-inline-btn:hover { background: var(--surfaceContainerHighest); color: var(--onSurface); }
 .auth-input-inline-btn:active { border-radius: 10px; }
-
-.auth-input-inline-status {
-  position: absolute;
-  right: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--success);
-  opacity: 0.9;
-  pointer-events: none;
-  user-select: none;
-  transition: opacity 0.15s ease;
-}
-
-.auth-input:focus + .auth-input-inline-status { opacity: 0.4; }
 
 .auth-checkbox-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 4px; cursor: pointer; user-select: none; }
 .auth-checkbox-input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }

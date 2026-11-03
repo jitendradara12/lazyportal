@@ -31,6 +31,8 @@ System design, boundaries, and operational invariants.
 
 ## Web performance
 
+- **Captcha recognition** runs locally in core against a fixed raster glyph atlas, so installed device fonts do not change the matcher. It scores all five glyphs together, including overlap. Login and Reconnect show the first fetched image while reading continues; typing or choosing manual entry cancels further reads. A submitted automatic guess can retry rejected captchas up to eight attempts. Manual answers submit once, and credential/network errors preserve the visible image and answer. The labeled regression corpus and offline browser benchmark are documented in `packages/core/test/fixtures/captcha/README.md`.
+
 - **Startup bundle**: only the shell, Attendance and its data layer ship in the entry chunk. Login, More, Reconnect, the subject sheet and the Marks/Exams/Calendar tabs are code-split (`src/lazy.ts`, `src/sections/index.ts`). After first paint `prefetchIdle` fetches them on idle (skipped under Save-Data), so tab switches stay instant and the shell keeps working offline once the service worker has seen them. `lazyImport` reloads once if a deployment replaced a chunk under a long-open tab. `scripts/preload-login.mjs` preloads the login chunk in parallel when no session is stored.
 - **Mounted tabs are `memo`ized** (`DashboardPage`, `sections/index.ts`). Hidden tabs stay mounted, so anything unmemoized re-renders on every tab switch.
 - **Never call `toLocaleDateString(locale, options)` in render paths.** It builds a new `Intl.DateTimeFormat` per call (this alone made each tab switch cost ~200 ms on a throttled phone). Use `dateFormatter` from `src/lib/dateFormat.ts`.
