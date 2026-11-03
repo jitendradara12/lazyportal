@@ -270,6 +270,7 @@ export function createClient({
 
   async function expireSession(opts) {
     if (opts.silent) return;
+    failedAuthorization = currentAuthorization();
     setStatus("expired");
     if (unauthorizedNotified) return;
     unauthorizedNotified = true;

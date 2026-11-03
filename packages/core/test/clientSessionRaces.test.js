@@ -69,3 +69,21 @@ for (const mode of ["refresh", "token-reuse"]) {
     assert.equal(token, "replacement");
   });
 }
+
+test("a rejected refreshed token does not restart recovery for later reads", async () => {
+  let token = "old", refreshes = 0, unauthorized = 0;
+  const statuses = [];
+  const client = createClient({
+    baseUrl: "https://fixture.invalid",
+    getToken: () => token,
+    onRefresh: async () => { refreshes++; token = "renewed"; return true; },
+    onSessionStatusChange: (status) => statuses.push(status),
+    onUnauthorized: () => { unauthorized++; },
+    fetchImpl: async () => new Response("", { status: 401 }),
+  });
+  await assert.rejects(client.postRaw("/first", {}), SessionExpiredError);
+  await assert.rejects(client.postRaw("/later", {}), SessionExpiredError);
+  assert.equal(refreshes, 1);
+  assert.equal(unauthorized, 1);
+  assert.deepEqual(statuses, ["recovering", "authenticated", "expired"]);
+});
