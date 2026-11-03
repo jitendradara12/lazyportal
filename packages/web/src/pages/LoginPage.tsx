@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { auth, session } from "@juet/core";
 import { client, savedCredentials } from "../lib/portal";
-import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
-import type { Captcha, Session } from "../types";
+import { MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
+import type { Session } from "../types";
 import { CaptchaFields } from "../components/CaptchaFields";
+import { useCaptcha } from "../hooks/useCaptcha";
 
 export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
-  const [captcha, setCaptcha] = useState<Captcha | null>(null);
   const [username, setUsername] = useState(() => {
     try {
       return localStorage.getItem("juet.portal.last_user") ?? "";
@@ -18,7 +18,6 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [password, setPassword] = useState("");
   const [rememberPw, setRememberPw] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [captchaText, setCaptchaText] = useState("");
   const [usertype, setUsertype] = useState<"S" | "P">(() => {
     try {
       return (localStorage.getItem("juet.portal.last_usertype") as "S" | "P") ?? "S";
@@ -29,10 +28,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
-  const [isSolving, setIsSolving] = useState(false);
   const [loginAttempt, setLoginAttempt] = useState(1);
-  const [isAutoSolved, setIsAutoSolved] = useState(false);
-  const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -48,54 +44,18 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
   const userRef = useRef<HTMLInputElement>(null);
   const passRef = useRef<HTMLInputElement>(null);
   const captchaInputRef = useRef<HTMLInputElement>(null);
-  const abortController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     return () => {
-      abortController.current?.abort();
       submitController.current?.abort();
     };
   }, []);
 
-  const load = async (manual = false) => {
-    abortController.current?.abort();
-    const ac = new AbortController();
-    abortController.current = ac;
-    setIsSolving(!manual);
-    setIsCaptchaLoading(true);
-    setCaptcha(null);
-    setCaptchaText("");
-    setIsAutoSolved(false);
-    try {
-      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, {
-        signal: ac.signal, manual,
-        onCaptcha: (image) => {
-          if (ac.signal.aborted) return;
-          setCaptcha(image);
-          setIsCaptchaLoading(false);
-        },
-      });
-      if (ac.signal.aborted) return;
-      setCaptcha(c);
-      if (text) {
-        setCaptchaText(text);
-        setIsAutoSolved(autoSolved);
-      } else {
-        setCaptchaText("");
-        setIsAutoSolved(false);
-        setTimeout(() => {
-          if (!ac.signal.aborted) {
-            captchaInputRef.current?.focus();
-          }
-        }, 60);
-      }
-    } finally {
-      if (!ac.signal.aborted) {
-        setIsCaptchaLoading(false);
-        setIsSolving(false);
-      }
-    }
-  };
+  const {
+    captcha, setCaptcha, captchaText, setCaptchaText,
+    isSolving, isAutoSolved, setIsAutoSolved, isCaptchaLoading,
+    loadCaptcha: load, stopSolving,
+  } = useCaptcha(captchaInputRef);
 
   useEffect(() => {
     if (session.consumeSessionExpired()) setExpired(true);
@@ -107,12 +67,6 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const stopSolving = () => {
-    abortController.current?.abort();
-    setIsSolving(false);
-    setIsCaptchaLoading(false);
-  };
 
   const handleClearSaved = () => {
     setUsername("");

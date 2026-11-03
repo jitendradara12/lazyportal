@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { client, savedCredentials } from "../lib/portal";
 import { preserveSelectedInstitute } from "../lib/sessionSelection";
-import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
-import type { Session, Captcha } from "../types";
+import { MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
+import type { Session } from "../types";
 import { useAppBack } from "../hooks/useAppBack";
 import { hideKeyboard } from "../lib/nativeInteractions";
 import { CaptchaFields } from "./CaptchaFields";
+import { useCaptcha } from "../hooks/useCaptcha";
 
 export function ReconnectModal({
   session,
@@ -17,8 +18,6 @@ export function ReconnectModal({
   onRenewed: (s: Session) => void;
   onClose: () => void;
 }) {
-  const [captcha, setCaptcha] = useState<Captcha | null>(null);
-  const [captchaText, setCaptchaText] = useState("");
   const [savedUsertype] = useState(() => {
     try {
       return localStorage.getItem("juet.portal.last_usertype") || (session.membertype === "P" ? "P" : "S");
@@ -32,77 +31,32 @@ export function ReconnectModal({
   const [busy, setBusy] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSolving, setIsSolving] = useState(false);
   const [loginAttempt, setLoginAttempt] = useState(1);
-  const [isAutoSolved, setIsAutoSolved] = useState(false);
-  const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
   const captchaInputRef = useRef<HTMLInputElement>(null);
-  const abortController = useRef<AbortController | null>(null);
   const submitAbortController = useRef<AbortController | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      abortController.current?.abort();
       submitAbortController.current?.abort();
       if (closeTimer.current !== null) clearTimeout(closeTimer.current);
-      if (focusTimer.current !== null) clearTimeout(focusTimer.current);
     };
   }, []);
 
-  const loadCaptcha = async (manual = false) => {
-    abortController.current?.abort();
-    const ac = new AbortController();
-    abortController.current = ac;
-    setIsSolving(!manual);
-    setIsCaptchaLoading(true);
-    setCaptcha(null);
-    setCaptchaText("");
-    setIsAutoSolved(false);
-    try {
-      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, {
-        signal: ac.signal, manual,
-        onCaptcha: (image) => {
-          if (ac.signal.aborted) return;
-          setCaptcha(image);
-          setIsCaptchaLoading(false);
-        },
-      });
-      if (ac.signal.aborted) return;
-      setCaptcha(c);
-      if (text) {
-        setCaptchaText(text);
-        setIsAutoSolved(autoSolved);
-      } else {
-        setCaptchaText("");
-        setIsAutoSolved(false);
-      }
-      focusTimer.current = setTimeout(() => {
-        if (!ac.signal.aborted && closeTimer.current === null && !(document.activeElement instanceof HTMLInputElement)) {
-          captchaInputRef.current?.focus();
-        }
-      }, 60);
-    } catch (error) {
-      if (!ac.signal.aborted) setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (!ac.signal.aborted) {
-        setIsCaptchaLoading(false);
-        setIsSolving(false);
-      }
-    }
-  };
+  const {
+    captcha, setCaptcha, captchaText, setCaptchaText,
+    isSolving, isAutoSolved, setIsAutoSolved, isCaptchaLoading,
+    loadCaptcha: load, stopSolving,
+  } = useCaptcha(captchaInputRef, true);
+
+  const loadCaptcha = (manual = false) => load(manual).catch((error) => {
+    setError(error instanceof Error ? error.message : String(error));
+  });
 
   useEffect(() => {
     loadCaptcha();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const stopSolving = () => {
-    abortController.current?.abort();
-    setIsSolving(false);
-    setIsCaptchaLoading(false);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,8 +117,7 @@ export function ReconnectModal({
 
   const handleClose = () => {
     if (closeTimer.current !== null || busy) return;
-    if (focusTimer.current !== null) clearTimeout(focusTimer.current);
-    abortController.current?.abort();
+    stopSolving();
     hideKeyboard();
     setIsClosing(true);
     closeTimer.current = setTimeout(onClose, 200);

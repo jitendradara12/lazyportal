@@ -69,7 +69,7 @@ test("editing a guess submits once and a rejection leaves a fresh image for manu
   expect(state.fetches()).toBe(2);
 });
 
-test("taking over while the next image loads keeps the visible challenge and typed answer", async ({ page }) => {
+for (const reconnect of [false, true]) test(`manual takeover keeps the visible challenge and typed answer in ${reconnect ? "Reconnect" : "Login"}`, async ({ page }) => {
   await mockPortal(page);
   let calls = 0, release;
   const pending = new Promise(resolve => { release = resolve; });
@@ -82,7 +82,19 @@ test("taking over while the next image loads keeps the visible challenge and typ
       await route.fulfill({ json: response(blank.toString("base64")) });
     }
   });
+  if (reconnect) {
+    await page.addInitScript(session => localStorage.setItem("juet.portal.session.v1", JSON.stringify(session)), SESSION);
+  }
   await page.goto("/");
+  if (reconnect) {
+    await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
+    await page.evaluate(async () => {
+      const resource = performance.getEntriesByType("resource").find(r => new URL(r.name).pathname === "/src/lib/portal.ts");
+      const { setSessionStatus } = await import(resource.name);
+      setSessionStatus("expired");
+    });
+    await page.getByRole("button", { name: "Reconnect", exact: true }).click();
+  }
   await expect.poll(() => calls).toBe(2);
   const image = await page.getByAltText("Captcha image").getAttribute("src");
   await page.getByRole("button", { name: "Type it myself" }).click();
