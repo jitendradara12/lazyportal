@@ -284,7 +284,9 @@ export function createClient({
     if (!hasToken(currentAuthorization())) throw new SessionExpiredError();
     const generation = refreshGeneration;
     const retry = await fetchSent(sent);
-    if (generation !== refreshGeneration) throw new SessionExpiredError();
+    if (generation !== refreshGeneration || retry.sent.usedAuthorization !== currentAuthorization()) {
+      throw new SessionExpiredError();
+    }
     const result = await handle(retry.response, retry.sent, {
       ...opts,
       skipRefresh: true,
@@ -313,9 +315,9 @@ export function createClient({
       if (!opts.skipRefresh) {
         const retry = await refreshedRetry(sent);
         if (retry.kind === "response") {
-          // A logout/session switch may have happened while the retry was in
-          // flight. Do not let its stale 401 overwrite the newer state.
-          if (retry.generation !== refreshGeneration) {
+          // A logout, session switch or token renewal may happen during the
+          // retry. Do not let its stale 401 overwrite the newer state.
+          if (retry.generation !== refreshGeneration || retry.sent.usedAuthorization !== currentAuthorization()) {
             if (
               hasToken(currentAuthorization()) &&
               currentAuthorization() !== retry.sent.usedAuthorization
