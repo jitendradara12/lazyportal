@@ -4,10 +4,10 @@ import { lazy } from "react";
 import { lazyImport } from "./lib/lazyImport";
 import { prefetchTabs } from "./sections";
 
-const loadLogin = lazyImport(() => import("./pages/LoginPage"));
-const loadMore = lazyImport(() => import("./pages/MorePage"));
-const loadReconnect = lazyImport(() => import("./components/ReconnectModal"));
-const loadSubjectSheet = lazyImport(() => import("./components/SubjectDetailSheet"));
+const loadLogin = lazyImport(() => import("./pages/LoginPage"), "login");
+const loadMore = lazyImport(() => import("./pages/MorePage"), "more");
+const loadReconnect = lazyImport(() => import("./components/ReconnectModal"), "reconnect");
+const loadSubjectSheet = lazyImport(() => import("./components/SubjectDetailSheet"), "subject-sheet");
 
 export const LoginPage = lazy(() => loadLogin().then((m) => ({ default: m.LoginPage })));
 export const MorePage = lazy(() => loadMore().then((m) => ({ default: m.MorePage })));

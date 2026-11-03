@@ -78,6 +78,19 @@ test("Attendance navigation still consumes the app's tab history after a reload"
   await expect(page).toHaveURL("http://127.0.0.1:5173/#more");
 });
 
+test("a missing prefetched chunk reloads once while healthy chunks still load", async ({ page }) => {
+  let reads = 0, navigations = 0;
+  await page.route("**/src/pages/MorePage.tsx*", route => { reads++; return route.abort(); });
+  page.on("framenavigated", frame => { if (frame === page.mainFrame()) navigations++; });
+  await dashboard(page);
+  await expect.poll(() => reads).toBe(2);
+  // Give the next boot's idle prefetch its full four-second scheduling window.
+  await page.waitForTimeout(4500);
+  expect(navigations).toBe(2);
+  expect(reads).toBe(2);
+  await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
+});
+
 test("Android Back closes attendance, returns home, then releases system Back", async ({ page }) => {
   await dashboard(page);
   await expect.poll(() => page.evaluate(() => window.__native.enabled)).toBe(false);
