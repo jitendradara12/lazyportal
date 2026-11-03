@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import android.view.View;
+import android.webkit.WebView;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -50,7 +51,17 @@ public class OfficialPortalViewDeviceTest {
             waitFor(scenario, portal.get(), "window.replies?.[0]?.status === 200");
             // Check actual rendering scale, independent of device pixel density.
             waitFor(scenario, portal.get(), "Math.abs(window.visualViewport.scale - 0.6) < 0.05");
-            scenario.onActivity(activity -> portal.get().webView.zoomBy(1.5f));
+            // JS can finish before WebView commits its first compositor frame.
+            CountDownLatch zoomed = new CountDownLatch(1);
+            scenario.onActivity(activity -> portal.get().webView.postVisualStateCallback(1, new WebView.VisualStateCallback() {
+                @Override public void onComplete(long requestId) {
+                    portal.get().webView.postOnAnimation(() -> {
+                        portal.get().webView.zoomBy(1.5f);
+                        zoomed.countDown();
+                    });
+                }
+            }));
+            assertTrue("WebView did not render before zoom", zoomed.await(5, TimeUnit.SECONDS));
             waitFor(scenario, portal.get(), "window.visualViewport.scale > 0.7");
             int before = connections.get();
             scenario.onActivity(activity -> portal.get().webView.evaluateJavascript(
