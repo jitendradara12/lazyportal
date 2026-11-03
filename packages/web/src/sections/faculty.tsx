@@ -134,7 +134,8 @@ export function FacultySection({ session }: SectionProps) {
       });
     };
 
-    const cachedSubjects = getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("subjects.latest", session)).data?.rows ?? [];
+    const subjects = getCached<{ semesters?: Semester[]; rows?: FacultyRow[] }>(sessionCacheKey("subjects.latest", session)).data;
+    const cachedSubjects = subjects?.rows ?? [];
     const cachedAttInitial = getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("att.initial", session)).data?.rows ?? [];
     const cachedAttDetail = semId ? (getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("att.detail", session, semId)).data?.rows ?? []) : [];
     const cachedMarksLatest = getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("marks.latest", session)).data?.rows ?? [];
@@ -144,7 +145,8 @@ export function FacultySection({ session }: SectionProps) {
       addCatalogRow(r);
     }
 
-    return groupCoursesAndFaculty(rows, catalog, isDefault && rows.length > 0 ? cachedSubjects : undefined);
+    const subjectsMatchSemester = semId != null && String(subjects?.semesters?.[0]?.registrationid) === semId;
+    return groupCoursesAndFaculty(rows, catalog, isDefault && subjectsMatchSemester && rows.length > 0 ? cachedSubjects : undefined);
   }, [rows, session, semId, isDefault]);
 
   const semLabel = formatSemester(sem?.registrationcode ?? sem?.registrationdesc);

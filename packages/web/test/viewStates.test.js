@@ -989,6 +989,22 @@ test("FacultySection unifies course metadata and faculty assignments into one gr
   assert.match(html, /4 cr/);
 });
 
+test("faculty courses do not inherit registered subjects from another semester", () => {
+  values.set("juet.portal.card.faculty", "1");
+  selectSemester("faculty");
+  cache("faculty.lov", [semester]);
+  cache("faculty.detail", { rows: [{ subjectcode: "CS109", subjectdesc: "CURRENT COURSE" }] }, "sem1");
+  for (const registrationid of ["sem1", "previous-semester"]) {
+    cache("subjects.latest", {
+      semesters: [{ registrationid }],
+      rows: [{ subjectcode: "CS001", subjectdesc: "REGISTERED COURSE" }],
+    });
+    const html = render(FacultySection);
+    assert.match(html, /Current Course/);
+    assert.equal(html.includes("Registered Course"), registrationid === "sem1");
+  }
+});
+
 test("MorePage renders Appearance theme selector alongside Default attendance target", () => {
   const html = renderToStaticMarkup(createElement(MorePage, {
     session,
