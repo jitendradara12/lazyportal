@@ -70,7 +70,7 @@ test("browsers do not expose a hosted fallback", async ({ page }) => {
   expect(calls).toEqual([]);
 });
 
-test("an expired native session silently recovers before the portal is reopened", async ({ page }) => {
+test("an expired native session silently recovers and reopens from the same tap", async ({ page }) => {
   const calls = await setup(page);
   await page.route("**/api/token/refreshTokenRequest", (route) => route.fulfill({
     json: { response: { msg: "Success", token: "renewed-test-token" } },
@@ -80,10 +80,10 @@ test("an expired native session silently recovers before the portal is reopened"
   await page.evaluate(() => window.__official.close({ expired: true }));
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("juet.portal.session.v1")).token)).toBe("renewed-test-token");
   await expect(page.getByRole("button", { name: "Reconnect", exact: true })).toHaveCount(0);
-  await expect(entry(page)).toBeEnabled();
-  await entry(page).click();
   await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(2);
   expect(await page.evaluate(() => window.__official.opens[1].bootstrap)).toContain("renewed-test-token");
+  await page.evaluate(() => window.__official.close({ expired: false }));
+  await expect(entry(page)).toBeEnabled();
   expect(calls.map((url) => new URL(url).pathname)).toEqual(["/api/token/refreshTokenRequest"]);
 });
 
@@ -138,4 +138,100 @@ test("logout clears the native session and main credentials", async ({ page }) =
   await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__official.clears)).toBeGreaterThan(0);
   expect(await page.evaluate(() => localStorage.getItem("juet.portal.session.v1"))).toBeNull();
+});
+
+async function portalModule(page) {
+  return page.evaluate(() => performance.getEntriesByType("resource")
+    .find((r) => new URL(r.name).pathname === "/src/lib/portal.ts").name);
+}
+
+test("an expired JWT recovers before any native view opens", async ({ page }) => {
+  const calls = await setup(page);
+  await page.evaluate(() => {
+    const session = JSON.parse(localStorage.getItem("juet.portal.session.v1"));
+    session.token = `header.${btoa(JSON.stringify({ exp: 1 }))}.signature`;
+    localStorage.setItem("juet.portal.session.v1", JSON.stringify(session));
+  });
+  let release;
+  const refresh = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/token/refreshTokenRequest", async (route) => {
+    await refresh;
+    await route.fulfill({ json: { response: { msg: "Success", token: "fresh-before-open" } } });
+  });
+  try {
+    await entry(page).click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(await page.evaluate(() => window.__official.opens)).toEqual([]);
+  } finally { release(); }
+  await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(1);
+  expect(await page.evaluate(() => window.__official.opens[0].bootstrap)).toContain("fresh-before-open");
+});
+
+test("a tap during shared recovery waits and opens with the recovered token", async ({ page }) => {
+  await setup(page);
+  const moduleUrl = await portalModule(page);
+  let release;
+  const refresh = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/token/refreshTokenRequest", async (route) => {
+    await refresh;
+    await route.fulfill({ json: { response: { msg: "Success", token: "shared-token" } } });
+  });
+  await page.evaluate(async (url) => {
+    const { client } = await import(url);
+    window.__recovery = client.recoverSession();
+  }, moduleUrl);
+  try {
+    await expect.poll(() => page.evaluate(async (url) => (await import(url)).getSessionStatus(), moduleUrl)).toBe("recovering");
+    await entry(page).click();
+    await expect(entry(page)).toBeDisabled();
+    expect(await page.evaluate(() => window.__official.opens)).toEqual([]);
+  } finally { release(); }
+  await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(1);
+  expect(await page.evaluate(() => window.__official.opens[0].bootstrap)).toContain("shared-token");
+});
+
+test("logout during native expiry recovery cancels the pending reopen", async ({ page }) => {
+  const calls = await setup(page);
+  const moduleUrl = await portalModule(page);
+  let release;
+  const refresh = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/token/refreshTokenRequest", async (route) => {
+    await refresh;
+    await route.fulfill({ json: { response: { msg: "Success", token: "discard-after-logout" } } });
+  });
+  try {
+    await entry(page).click();
+    await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(1);
+    await page.evaluate(() => window.__official.close({ expired: true }));
+    await expect.poll(() => calls.length).toBe(1);
+    await page.getByRole("button", { name: "Logout", exact: true }).click();
+  } finally { release(); }
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(async (url) => (await import(url)).getSessionStatus(), moduleUrl)).toBe("expired");
+  expect(await page.evaluate(() => localStorage.getItem("juet.portal.session.v1"))).toBeNull();
+  expect(await page.evaluate(() => window.__official.opens.length)).toBe(1);
+});
+
+test("a repeatedly rejected native session stops after one automatic reopen", async ({ page }) => {
+  const calls = await setup(page);
+  await page.route("**/api/token/refreshTokenRequest", (route) => route.fulfill({
+    json: { response: { msg: "Success", token: "renewed-test-token" } },
+  }));
+  await entry(page).click();
+  await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(1);
+  await page.evaluate(() => window.__official.close({ expired: true }));
+  await expect.poll(() => page.evaluate(() => window.__official.opens.length)).toBe(2);
+  await page.evaluate(() => window.__official.close({ expired: true }));
+  await expect(page.getByRole("alert")).toContainText("portal rejected the renewed session");
+  await expect(entry(page)).toBeEnabled();
+  expect(await page.evaluate(() => window.__official.opens.length)).toBe(2);
+  expect(calls.map((url) => new URL(url).pathname)).toEqual(["/api/token/refreshTokenRequest"]);
+});
+
+test("a cleared session cannot fall back to stale React credentials", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => localStorage.removeItem("juet.portal.session.v1"));
+  await entry(page).click();
+  await expect(page.getByRole("alert")).toContainText("Reconnect to your account");
+  expect(await page.evaluate(() => window.__official.opens)).toEqual([]);
 });
