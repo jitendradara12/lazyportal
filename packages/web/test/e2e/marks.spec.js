@@ -2,7 +2,16 @@ import { test, expect } from "@playwright/test";
 import { mockPortal, SESSION } from "./helpers.js";
 import { fileURLToPath } from "node:url";
 
-test("a fresh login recovers T1 from the report when the API only returns T2", async ({ page }) => {
+for (const readerMode of ["normal browser", "no stream async iterator", "no workers", "no offscreen canvas"]) test(`a fresh login recovers T1 from the report when the API only returns T2: ${readerMode}`, async ({ page }) => {
+  await page.addInitScript((mode) => {
+    if (mode === "no stream async iterator") delete ReadableStream.prototype[Symbol.asyncIterator];
+    if (mode === "no workers") {
+      window.Worker = class {
+        constructor() { throw new DOMException("Workers unavailable", "SecurityError"); }
+      };
+    }
+    if (mode === "no offscreen canvas") delete window.OffscreenCanvas;
+  }, readerMode);
   await mockPortal(page);
   const semesters = [{ registrationid: "current", registrationcode: "2026ODDSEM" }];
   await page.route("**/api/studentcommonsontroller/getsemestercode-exammarks", (route) => route.fulfill({
