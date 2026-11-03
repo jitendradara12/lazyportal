@@ -120,7 +120,7 @@ export function createClient({
 
   async function fetchSent(sent) {
     const init = await sent.build();
-    const request = { ...sent, usedAuthorization: authorizationFrom(init) };
+    const request = { ...sent, signal: init.signal, usedAuthorization: authorizationFrom(init) };
     const response = await safeFetch(`${baseUrl}${sent.endpoint}`, init, sent.responseType);
     return { response, sent: request };
   }
@@ -246,7 +246,20 @@ export function createClient({
     }
 
     const cycle = refreshing ?? beginRefresh();
-    const outcome = await cycle.promise;
+    let abort;
+    let outcome;
+    try {
+      outcome = await Promise.race([
+        cycle.promise,
+        new Promise((_, reject) => {
+          abort = () => reject(sent.signal.reason);
+          if (sent.signal?.aborted) abort();
+          else sent.signal?.addEventListener("abort", abort, { once: true });
+        }),
+      ]);
+    } finally {
+      sent.signal?.removeEventListener("abort", abort);
+    }
     if (outcome.generation !== refreshGeneration || outcome.kind === "cancelled") {
       return { kind: "cancelled", generation: cycle.generation };
     }

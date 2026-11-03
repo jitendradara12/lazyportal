@@ -87,3 +87,36 @@ test("a rejected refreshed token does not restart recovery for later reads", asy
   assert.equal(unauthorized, 1);
   assert.deepEqual(statuses, ["recovering", "authenticated", "expired"]);
 });
+
+test("aborting a read waiting for recovery settles it while a sibling keeps recovering", async () => {
+  let release, started, token = "old", refreshes = 0, settled = false;
+  const recovering = new Promise((resolve) => { started = resolve; });
+  const client = createClient({
+    baseUrl: "https://fixture.invalid",
+    getToken: () => token,
+    onRefresh: async () => {
+      refreshes++;
+      started();
+      await new Promise((resolve) => { release = resolve; });
+      token = "renewed";
+      return true;
+    },
+    fetchImpl: async (_url, init) => init.headers.Authorization === "Bearer old"
+      ? new Response("", { status: 401 }) : new Response('{"response":{"ok":true}}'),
+  });
+  const controller = new AbortController();
+  const first = client.postRaw("/first", {}, { signal: controller.signal });
+  const rejected = assert.rejects(first, { name: "AbortError" }).then(() => { settled = true; });
+  await recovering;
+  const sibling = client.postRaw("/sibling", {});
+  controller.abort();
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, true, "cancelled read must settle before recovery finishes");
+  } finally {
+    release();
+    await rejected;
+    assert.equal((await sibling).response.ok, true);
+    assert.equal(refreshes, 1);
+  }
+});
