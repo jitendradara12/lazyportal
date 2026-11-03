@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { decodeExp, isExpired, createStore, memoryAdapter, markSessionExpired, consumeSessionExpired } from "../src/session.js";
+import { decodeExp, isExpired, createStore, memoryAdapter, browserLocalAdapter, markSessionExpired, consumeSessionExpired } from "../src/session.js";
 
 function jwt(exp) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -40,6 +40,41 @@ describe("session", () => {
     s1.userid = "mutated-after-load";
     const s2 = store.load();
     assert.equal(s2.userid, "u1");
+  });
+
+  it("full browser storage keeps login and renewed tokens usable in the current tab", (t) => {
+    const values = new Map([["unrelated", "keep"]]);
+    const storage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    };
+    const previous = globalThis.localStorage;
+    globalThis.localStorage = storage;
+    t.after(() => { globalThis.localStorage = previous; });
+    const store = createStore(browserLocalAdapter());
+    const write = t.mock.method(storage, "setItem", () => { throw new Error("QuotaExceededError"); });
+    store.save({ token: "login" });
+    assert.equal(store.load()?.token, "login");
+
+    write.mock.restore();
+    store.save({ token: "persisted" });
+    const failedWrite = t.mock.method(storage, "setItem", () => { throw new Error("QuotaExceededError"); });
+    store.save({ token: "renewed" });
+    assert.equal(store.load()?.token, "renewed");
+    assert.equal(JSON.parse(values.get("juet.portal.session.v1")).token, "persisted");
+
+    const failedRemove = t.mock.method(storage, "removeItem", () => { throw new Error("SecurityError"); });
+    store.clear();
+    assert.equal(store.load(), null);
+    assert.equal(values.get("unrelated"), "keep");
+
+    failedWrite.mock.restore();
+    failedRemove.mock.restore();
+    store.save({ token: "persisted-again" });
+    assert.equal(JSON.parse(values.get("juet.portal.session.v1")).token, "persisted-again");
+    values.set("juet.portal.session.v1", JSON.stringify({ token: "another-tab" }));
+    assert.equal(store.load()?.token, "another-tab");
   });
 
   it("expiry flag is one-shot", () => {
