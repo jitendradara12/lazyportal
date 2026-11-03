@@ -1,5 +1,4 @@
-// Shared captcha fetch + autosolve helper. Single place for the "try N times
-// before manual fallback" policy (portal shows no rate limit).
+// Shared captcha fetch + autosolve policy for login and reconnect.
 import { auth } from "@juet/core";
 import { client, MAX_AUTOSOLVE_ATTEMPTS } from "./portal";
 import type { Captcha } from "../types";
@@ -14,12 +13,13 @@ function isFatalSolverError(): boolean {
 
 export async function fetchAutosolvedCaptcha(
   maxAttempts = MAX_AUTOSOLVE_ATTEMPTS,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; manual?: boolean; onCaptcha?: (captcha: Captcha) => void },
 ): Promise<{ captcha: Captcha | null; text: string; autoSolved: boolean }> {
-  if (isFatalSolverError()) {
+  if (opts?.manual || isFatalSolverError()) {
     try {
       const c = await auth.fetchCaptcha(client, { signal: opts?.signal });
       if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
+      opts?.onCaptcha?.(c);
       return { captcha: c, text: "", autoSolved: false };
     } catch (error) {
       if (opts?.signal?.aborted) return { captcha: null, text: "", autoSolved: false };
@@ -42,6 +42,12 @@ export async function fetchAutosolvedCaptcha(
     }
     if (opts?.signal?.aborted) break;
     last = c;
+    opts?.onCaptcha?.(c);
+    // Let the image and manual input paint before running the pixel matcher.
+    if (typeof requestAnimationFrame === "function") {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    if (opts?.signal?.aborted) break;
     try {
       const solved = await auth.solveCaptcha(c, { signal: opts?.signal });
       if (opts?.signal?.aborted) break;

@@ -1,120 +1,4 @@
-/**
- * Canvas matcher that reads the 5-character unrotated Arial captcha text
- * from the portal PNG using an offscreen canvas.
- *
- * @param {Object} captcha - { hidden, image, imageDataUrl }
- * @param {Object} [options] - Injectable canvas/image factories for testing
- * @returns {Promise<string>} The 5-character solved text
- */
-
-// Global template cache for standard environment (OffscreenCanvas/browser DOM).
-let cachedDefaultTemplates = null;
-
-function generateTemplates(getCanvas) {
-  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
-  const charCanvas = getCanvas(310, 60);
-  const cCtx = charCanvas.getContext("2d", { willReadFrequently: true });
-  cCtx.font = "bold 40px Arial, 'Liberation Sans', sans-serif";
-  cCtx.textBaseline = "alphabetic";
-
-  const templates = {};
-  for (const ch of chars) {
-    templates[ch] = {};
-    for (const baseY of [42, 43, 44, 45]) {
-      cCtx.clearRect(0, 0, 310, 60);
-      cCtx.fillStyle = "black";
-      cCtx.fillText(ch, 50, baseY);
-      const m = cCtx.measureText(ch);
-      const tWidth = Math.ceil(m.width) + 20;
-      const tData = cCtx.getImageData(40, 0, tWidth, 60).data;
-
-      // Find actual minX, maxX of dark pixels
-      let minX = tWidth, maxX = -1;
-      for (let dy = 10; dy < 55; dy++) {
-        for (let dx = 0; dx < tWidth; dx++) {
-          const idx = (dy * tWidth + dx) * 4;
-          if (tData[idx + 3] > 128) {
-            if (dx < minX) minX = dx;
-            if (dx > maxX) maxX = dx;
-          }
-        }
-      }
-
-      const actualW = maxX >= minX ? maxX - minX + 1 : Math.round(m.width);
-      const pts = [];
-      for (let dy = 10; dy < 55; dy++) {
-        for (let dx = minX; dx <= maxX; dx++) {
-          const idx = (dy * tWidth + dx) * 4;
-          if (tData[idx + 3] > 128) {
-            pts.push([dx - minX, dy]);
-          }
-        }
-      }
-      templates[ch][baseY] = { w: actualW, pts, widthCeil: actualW };
-    }
-  }
-  return templates;
-}
-
-function disambiguate(charA, charB, curX, isDark, lineY, w) {
-  const pair = new Set([charA, charB]);
-
-  // Wide character 'm' vs narrow subset 'r' or 'n':
-  // 'm' has a 3rd vertical leg at x = curX + 20 .. curX + 28, y = 26 .. 42.
-  if (charA === "r" || charA === "n" || pair.has("m")) {
-    let rightLegDark = 0;
-    const xStart = Math.round(curX + 20);
-    const xEnd = Math.round(curX + 28);
-    for (let x = xStart; x <= xEnd; x++) {
-      for (let y = 26; y <= 42; y++) {
-        if (Math.abs(y - lineY[x]) > 1 && isDark(x, y)) rightLegDark++;
-      }
-    }
-    if (rightLegDark >= 7) return "m";
-  }
-
-  // Wide character 'w' vs narrow subset 'v' or 'u':
-  // 'w' has a 4th diagonal stroke at x = curX + 20 .. curX + 28, y = 24 .. 42.
-  if (charA === "v" || charA === "u" || pair.has("w")) {
-    let rightStrokeDark = 0;
-    const xStart = Math.round(curX + 20);
-    const xEnd = Math.round(curX + 28);
-    for (let x = xStart; x <= xEnd; x++) {
-      for (let y = 24; y <= 42; y++) {
-        if (Math.abs(y - lineY[x]) > 1 && isDark(x, y)) rightStrokeDark++;
-      }
-    }
-    if (rightStrokeDark >= 7) return "w";
-  }
-
-  // 'c' vs 'e': 'e' has a solid horizontal crossbar at y=27..32
-  if (pair.has("c") && pair.has("e")) {
-    let eBarDark = 0;
-    const xStart = Math.round(curX + w * 0.45);
-    const xEnd = Math.round(curX + w * 0.85);
-    for (let x = xStart; x <= xEnd; x++) {
-      for (let y = 26; y <= 32; y++) {
-        if (Math.abs(y - lineY[x]) > 1 && isDark(x, y)) eBarDark++;
-      }
-    }
-    return eBarDark >= 4 ? "e" : "c";
-  }
-
-  // 'n' vs 'h': 'h' has a tall ascender at y=14..21
-  if (pair.has("n") && pair.has("h")) {
-    let ascenderDark = 0;
-    const xStart = Math.round(curX);
-    const xEnd = Math.round(curX + 6);
-    for (let x = xStart; x <= xEnd; x++) {
-      for (let y = 14; y <= 21; y++) {
-        if (Math.abs(y - lineY[x]) > 1 && isDark(x, y)) ascenderDark++;
-      }
-    }
-    return ascenderDark >= 4 ? "h" : "n";
-  }
-
-  return charA;
-}
+import { captchaGlyphs } from "./captchaGlyphs.js";
 
 function abortError() {
   const error = new Error("The operation was aborted");
@@ -158,6 +42,7 @@ function waitWithAbort(promise, signal, onAbort) {
   });
 }
 
+/** Read the portal's five glyphs locally; an empty result requests manual entry. */
 export async function solveCaptcha(captcha, options = {}) {
   const { createCanvas, createImage, signal } = options;
   if (!captcha) return "";
@@ -209,6 +94,9 @@ export async function solveCaptcha(captcha, options = {}) {
   }
   throwIfAborted(signal);
 
+  // This matcher is calibrated for the portal's native image dimensions.
+  if (img.width !== 310 || img.height !== 60) return "";
+
   const imgCanvas = getCanvas(310, 60);
   const iCtx = imgCanvas.getContext("2d", { willReadFrequently: true });
   iCtx.drawImage(img, 0, 0);
@@ -219,6 +107,7 @@ export async function solveCaptcha(captcha, options = {}) {
     const ry = Math.round(y);
     if (rx < 0 || rx >= 310 || ry < 0 || ry >= 60) return false;
     const idx = (ry * 310 + rx) * 4;
+    if (imgData[idx + 3] < 128) return false;
     const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
     const approxBg = 55 + (rx / 310) * 200;
     return (r + g + b) / 3 < Math.min(approxBg - 25, 140);
@@ -282,125 +171,110 @@ export async function solveCaptcha(captcha, options = {}) {
     }
   }
 
-  // Use cached templates if default environment, or build for custom canvas
-  let templates;
-  if (!createCanvas) {
-    if (!cachedDefaultTemplates) {
-      cachedDefaultTemplates = generateTemplates(getCanvas);
+  return matchCharacters(isDark, lineY, startX, options);
+}
+
+function popcount(value) {
+  value -= (value >>> 1) & 0x55555555;
+  value = (value & 0x33333333) + ((value >>> 2) & 0x33333333);
+  return (((value + (value >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+}
+
+const glyphs = captchaGlyphs.flatMap(([char, columns]) =>
+  [0, 1, 2, 3].map((shift) => ({
+    char,
+    width: columns.length / 2,
+    columns: Uint32Array.from(columns, (value, i) => i % 2 === 0
+      ? value << shift
+      : (value << shift) | (shift ? columns[i - 1] >>> (32 - shift) : 0)),
+  })),
+);
+
+function matchCharacters(isDark, lineY, startX, { signal, debug }) {
+  const dark = new Uint32Array(620);
+  const valid = new Uint32Array(620);
+  let totalDark = 0;
+  for (let x = 0; x < 310; x++) {
+    for (let y = 10; y < 55; y++) {
+      if (Math.abs(y - lineY[x]) <= 1) continue;
+      const index = x * 2 + (y >>> 5);
+      valid[index] |= 1 << (y & 31);
+      if (isDark(x, y)) {
+        dark[index] |= 1 << (y & 31);
+        totalDark++;
+      }
     }
-    templates = cachedDefaultTemplates;
-  } else {
-    templates = generateTemplates(getCanvas);
+  }
+  if (totalDark < 100 || totalDark > 5000) return "";
+
+  const energy = (a, b, x) =>
+    2 * (popcount(a & dark[x * 2]) + popcount(b & dark[x * 2 + 1])) - popcount(a) - popcount(b);
+  const cache = new Map();
+  function candidates(x) {
+    if (cache.has(x)) return cache.get(x);
+    const candidates = glyphs.map((glyph) => {
+      const columns = new Uint32Array((glyph.width + 4) * 2);
+      const prefix = new Int16Array(glyph.width + 5);
+      for (let dx = 0; dx < glyph.width; dx++) {
+        const a = glyph.columns[dx * 2] & valid[(x + dx) * 2];
+        const b = glyph.columns[dx * 2 + 1] & valid[(x + dx) * 2 + 1];
+        columns[dx * 2] = a;
+        columns[dx * 2 + 1] = b;
+        prefix[dx + 1] = prefix[dx] + energy(a, b, x + dx);
+      }
+      prefix.fill(prefix[glyph.width], glyph.width + 1);
+      return { ...glyph, columns, prefix };
+    });
+    cache.set(x, candidates);
+    return candidates;
   }
 
-  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
-  let solved = "";
-  let curX = startX;
-
-  for (let pos = 0; pos < 5; pos++) {
-    let bestChar = "";
-    let bestScore = -999;
-    let bestW = 22;
-    let bestShiftX = 0;
-    let secondBestChar = "";
-    let secondBestScore = -999;
-
-    for (const ch of chars) {
-      let maxCharScore = -999;
-      let maxCharW = 22;
-      let maxCharShiftX = 0;
-
-      for (const baseY of [42, 43, 44, 45]) {
-        const { w, pts, widthCeil } = templates[ch][baseY];
-        for (let shiftX = -2; shiftX <= 2; shiftX++) {
-          let bothDark = 0, validCand = 0;
-          for (let i = 0; i < pts.length; i++) {
-            const px = curX + shiftX + pts[i][0];
-            const dy = pts[i][1];
-            if (Math.abs(dy - lineY[px]) <= 1) continue;
-            validCand++;
-            if (isDark(px, dy)) bothDark++;
-          }
-          if (validCand === 0) continue;
-
-          let imgDarkInBox = 0;
-          for (let dy = 10; dy < 55; dy++) {
-            for (let dx = 0; dx < widthCeil; dx++) {
-              const px = curX + shiftX + dx;
-              if (Math.abs(dy - lineY[px]) <= 1) continue;
-              if (isDark(px, dy)) imgDarkInBox++;
-            }
-          }
-          const dice = (2 * bothDark) / (validCand + imgDarkInBox);
-          if (dice > maxCharScore) {
-            maxCharScore = dice;
-            maxCharW = w;
-            maxCharShiftX = shiftX;
-          }
+  let states = Array.from({ length: 7 }, (_, i) => ({
+    x: startX - 3 + i, score: 0, tail: new Uint32Array(), parent: null, char: "",
+  }));
+  let best = null;
+  // Score five glyphs as one image. Retain overlap pixels so a following
+  // letter cannot be mistaken for a third leg of the current letter.
+  for (let position = 0; position < 5; position++) {
+    throwIfAborted(signal);
+    const buckets = new Map();
+    for (const state of states) {
+      for (const glyph of candidates(state.x)) {
+        const overlap = new Int16Array(state.tail.length / 2 + 1);
+        for (let dx = 0; dx < state.tail.length / 2; dx++) {
+          const a = glyph.columns[dx * 2];
+          const b = glyph.columns[dx * 2 + 1];
+          overlap[dx + 1] = overlap[dx] + energy(a | state.tail[dx * 2], b | state.tail[dx * 2 + 1], state.x + dx) - energy(a, b, state.x + dx);
+        }
+        if (position === 4) {
+          const score = state.score + glyph.prefix[glyph.width] + overlap[overlap.length - 1];
+          if (!best || score > best.score) best = { score, char: glyph.char, parent: state };
+          continue;
+        }
+        for (let advance = Math.max(7, glyph.width - 8); advance <= glyph.width + 4; advance++) {
+          const x = state.x + advance;
+          if (x > 210) continue;
+          const score = state.score + glyph.prefix[advance] + overlap[Math.min(advance, overlap.length - 1)];
+          const bucket = buckets.get(x) ?? [];
+          // ponytail: three paths per x; widen the beam if a larger corpus exposes pruning errors.
+          if (bucket.length === 3 && score <= bucket[2].score) continue;
+          const tailWidth = Math.max(glyph.width, state.tail.length / 2) - advance;
+          const tail = new Uint32Array(Math.max(0, tailWidth) * 2);
+          for (let i = 0; i < tail.length; i++) tail[i] = glyph.columns[advance * 2 + i] | state.tail[advance * 2 + i];
+          const next = { x, score, tail, parent: state, char: glyph.char };
+          const index = bucket.findIndex((s) => score > s.score);
+          bucket.splice(index === -1 ? bucket.length : index, 0, next);
+          if (bucket.length > 3) bucket.pop();
+          buckets.set(x, bucket);
         }
       }
-
-      if (maxCharScore > bestScore) {
-        secondBestScore = bestScore;
-        secondBestChar = bestChar;
-        bestScore = maxCharScore;
-        bestChar = ch;
-        bestW = maxCharW;
-        bestShiftX = maxCharShiftX;
-      } else if (maxCharScore > secondBestScore) {
-        secondBestScore = maxCharScore;
-        secondBestChar = ch;
-      }
     }
-
-    if (options && options.debug) {
-      options.debug.push({ pos, curX, bestChar, bestScore, secondBestChar, secondBestScore });
-    }
-
-    // No confident match (blank / resized / heavy noise): signal failure
-    if (!bestChar || bestScore < 0.15) return "";
-
-    // Resolve tight ties between frequently confused glyph pairs,
-    // and prevent narrow sub-characters ('n', 'r', 'u', 'v') from falsely winning over wide characters ('m', 'w')
-    let finalChar = bestChar;
-    const needsCheck =
-      (secondBestChar && (bestScore - secondBestScore < 0.08)) ||
-      bestChar === "n" ||
-      bestChar === "r" ||
-      bestChar === "u" ||
-      bestChar === "v";
-
-    if (needsCheck) {
-      finalChar = disambiguate(bestChar, secondBestChar || "", curX + bestShiftX, isDark, lineY, bestW);
-      if (finalChar === "m") bestW = templates["m"][44].w;
-      if (finalChar === "w") bestW = templates["w"][44].w;
-    }
-
-    solved += finalChar;
-
-    // Advance to next character with inter-character gap detection to prevent cumulative drift
-    const expectedX = curX + bestShiftX + bestW;
-    let foundStart = -1;
-    let inGap = false;
-    for (let x = expectedX - 3; x <= expectedX + 5; x++) {
-      let colCount = 0;
-      for (let y = 15; y < 50; y++) {
-        if (isDark(x, y) && Math.abs(y - lineY[x]) > 1) colCount++;
-      }
-      if (colCount <= 2) {
-        inGap = true;
-      } else if (inGap && colCount >= 4) {
-        foundStart = x;
-        break;
-      }
-    }
-
-    if (foundStart !== -1 && Math.abs(foundStart - expectedX) <= 4) {
-      curX = foundStart;
-    } else {
-      curX = expectedX;
-    }
+    states = [...buckets.values()].flat();
   }
-
-  return solved;
+  const confidence = best ? best.score / totalDark : 0;
+  const characters = [];
+  for (let state = best; state?.char; state = state.parent) characters.push(state.char);
+  const text = characters.reverse().join("");
+  debug?.push({ text, confidence, totalDark });
+  return confidence >= 0.45 && text.length === 5 ? text : "";
 }

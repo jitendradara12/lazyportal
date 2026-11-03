@@ -51,6 +51,46 @@ const back = async (page) => {
   await page.evaluate(() => window.__native.back({}));
 };
 
+for (const native of [false, true]) test(`Attendance navigation from a direct tab link stays inside the ${native ? "Android" : "browser"} app`, async ({ page }) => {
+  await mockPortal(page);
+  if (native) await mockNative(page);
+  await page.route("**/before-app", route => route.fulfill({ contentType: "text/html", body: "Previous page" }));
+  await page.goto("/before-app");
+  await page.addInitScript(session => localStorage.setItem("juet.portal.session.v1", JSON.stringify(session)), SESSION);
+  await page.goto("/#more");
+  const navigation = page.getByRole("navigation", { name: "Main" });
+  await expect(navigation.getByRole("button", { name: "More", exact: true })).toHaveAttribute("aria-current", "page");
+  await navigation.getByRole("button", { name: /^Attendance/ }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:5173/");
+  await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
+});
+
+test("Attendance navigation still consumes the app's tab history after a reload", async ({ page }) => {
+  await dashboard(page);
+  const navigation = page.getByRole("navigation", { name: "Main" });
+  await navigation.getByRole("button", { name: "Marks", exact: true }).click();
+  await navigation.getByRole("button", { name: "More", exact: true }).click();
+  await page.reload();
+  await navigation.getByRole("button", { name: /^Attendance/ }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:5173/");
+  expect(await page.evaluate(() => history.state)).toBeNull();
+  await page.goForward();
+  await expect(page).toHaveURL("http://127.0.0.1:5173/#more");
+});
+
+test("a missing prefetched chunk reloads once while healthy chunks still load", async ({ page }) => {
+  let reads = 0, navigations = 0;
+  await page.route("**/src/pages/MorePage.tsx*", route => { reads++; return route.abort(); });
+  page.on("framenavigated", frame => { if (frame === page.mainFrame()) navigations++; });
+  await dashboard(page);
+  await expect.poll(() => reads).toBe(2);
+  // Give the next boot's idle prefetch its full four-second scheduling window.
+  await page.waitForTimeout(4500);
+  expect(navigations).toBe(2);
+  expect(reads).toBe(2);
+  await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
+});
+
 test("Android Back closes attendance, returns home, then releases system Back", async ({ page }) => {
   await dashboard(page);
   await expect.poll(() => page.evaluate(() => window.__native.enabled)).toBe(false);

@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { auth } from "@juet/core";
 import { client, savedCredentials } from "../lib/portal";
 import { preserveSelectedInstitute } from "../lib/sessionSelection";
-import { fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
-import type { Session, Captcha } from "../types";
+import { MAX_AUTOSOLVE_ATTEMPTS } from "../lib/captchaSolve";
+import type { Session } from "../types";
 import { useAppBack } from "../hooks/useAppBack";
 import { hideKeyboard } from "../lib/nativeInteractions";
+import { CaptchaFields } from "./CaptchaFields";
+import { useCaptcha } from "../hooks/useCaptcha";
 
 export function ReconnectModal({
   session,
@@ -16,8 +18,6 @@ export function ReconnectModal({
   onRenewed: (s: Session) => void;
   onClose: () => void;
 }) {
-  const [captcha, setCaptcha] = useState<Captcha | null>(null);
-  const [captchaText, setCaptchaText] = useState("");
   const [savedUsertype] = useState(() => {
     try {
       return localStorage.getItem("juet.portal.last_usertype") || (session.membertype === "P" ? "P" : "S");
@@ -31,61 +31,27 @@ export function ReconnectModal({
   const [busy, setBusy] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [autoSolveFailed, setAutoSolveFailed] = useState(false);
-  const [isAutoSolved, setIsAutoSolved] = useState(false);
-  const [isCaptchaLoading, setIsCaptchaLoading] = useState(true);
+  const [loginAttempt, setLoginAttempt] = useState(1);
   const captchaInputRef = useRef<HTMLInputElement>(null);
-  const loading = useRef(false);
-  const abortController = useRef<AbortController | null>(null);
   const submitAbortController = useRef<AbortController | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      abortController.current?.abort();
       submitAbortController.current?.abort();
       if (closeTimer.current !== null) clearTimeout(closeTimer.current);
-      if (focusTimer.current !== null) clearTimeout(focusTimer.current);
     };
   }, []);
 
-  const loadCaptcha = async () => {
-    if (loading.current) return;
-    abortController.current?.abort();
-    const ac = new AbortController();
-    abortController.current = ac;
-    loading.current = true;
-    setIsCaptchaLoading(true);
-    setCaptcha(null);
-    setCaptchaText("");
-    setAutoSolveFailed(false);
-    setIsAutoSolved(false);
-    try {
-      const { captcha: c, text, autoSolved } = await fetchAutosolvedCaptcha(MAX_AUTOSOLVE_ATTEMPTS, { signal: ac.signal });
-      if (ac.signal.aborted) return;
-      setCaptcha(c);
-      if (text) {
-        setCaptchaText(text);
-        setAutoSolveFailed(!autoSolved);
-        setIsAutoSolved(autoSolved);
-      } else {
-        setCaptchaText("");
-        setAutoSolveFailed(true);
-        setIsAutoSolved(false);
-      }
-      focusTimer.current = setTimeout(() => {
-        if (closeTimer.current === null && !(document.activeElement instanceof HTMLInputElement)) {
-          captchaInputRef.current?.focus();
-        }
-      }, 60);
-    } catch (error) {
-      if (!ac.signal.aborted) setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      loading.current = false;
-      if (!ac.signal.aborted) setIsCaptchaLoading(false);
-    }
-  };
+  const {
+    captcha, setCaptcha, captchaText, setCaptchaText,
+    isSolving, isAutoSolved, setIsAutoSolved, isCaptchaLoading,
+    loadCaptcha: load, stopSolving,
+  } = useCaptcha(captchaInputRef, true);
+
+  const loadCaptcha = (manual = false) => load(manual).catch((error) => {
+    setError(error instanceof Error ? error.message : String(error));
+  });
 
   useEffect(() => {
     loadCaptcha();
@@ -95,7 +61,9 @@ export function ReconnectModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!captcha || busy || isCaptchaLoading || isClosing) return;
+    stopSolving();
     setBusy(true);
+    setLoginAttempt(1);
     setError(null);
     const submitController = new AbortController();
     submitAbortController.current = submitController;
@@ -106,13 +74,23 @@ export function ReconnectModal({
         setHasSavedPassword(false);
         throw new Error("Please enter your password again.");
       }
-      const s = (await auth.login(client, {
+      const s = (await auth.loginWithCaptchaRetry(client, {
         username: String(session.username ?? session.enrollmentno),
         password: loginPassword,
         captchaText: captchaText.trim(),
         captcha,
         usertype: savedUsertype,
-      }, { signal: submitController.signal })) as unknown as Session;
+      }, {
+        signal: submitController.signal,
+        maxAttempts: isAutoSolved ? MAX_AUTOSOLVE_ATTEMPTS : 1,
+        onCaptcha: ({ captcha: image, text, attempt }) => {
+          if (submitController.signal.aborted) return;
+          setCaptcha(image);
+          setCaptchaText(text);
+          setIsAutoSolved(Boolean(text));
+          setLoginAttempt(attempt);
+        },
+      })) as unknown as Session;
       if (submitController.signal.aborted) return;
 
       if (rememberPw) await savedCredentials.save(loginPassword, account);
@@ -126,7 +104,10 @@ export function ReconnectModal({
     } catch (err: unknown) {
       if (!submitController.signal.aborted) {
         setError(err instanceof Error ? err.message : String(err));
-        loadCaptcha();
+        if ((err as { code?: string })?.code === "CAPTCHA_INVALID") {
+          setError("Couldn't verify the captcha. Enter the characters from the new image.");
+          loadCaptcha(true);
+        }
       }
     } finally {
       submitAbortController.current = null;
@@ -136,7 +117,7 @@ export function ReconnectModal({
 
   const handleClose = () => {
     if (closeTimer.current !== null || busy) return;
-    if (focusTimer.current !== null) clearTimeout(focusTimer.current);
+    stopSolving();
     hideKeyboard();
     setIsClosing(true);
     closeTimer.current = setTimeout(onClose, 200);
@@ -260,71 +241,24 @@ export function ReconnectModal({
             </div>
           )}
 
-          {/* Captcha Connected Group */}
-          <div className="auth-captcha-group">
-            {/* Captcha Image + Refresh Button */}
-            <div className="auth-captcha-media-card">
-              <label htmlFor="renew-captcha-input" className="auth-field-label">
-                Captcha
-              </label>
-              <div className="auth-captcha-media-row">
-                {captcha ? (
-                  <img src={captcha.imageDataUrl} alt="Captcha image" className="auth-captcha-img" />
-                ) : (
-                  <div className="auth-captcha-placeholder">
-                    {isCaptchaLoading ? <span className="auth-captcha-spinner" /> : <span>Captcha unavailable</span>}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className={`auth-captcha-refresh ${isCaptchaLoading || busy ? "is-loading" : ""}`}
-                  onClick={() => {
-                    setError(null);
-                    loadCaptcha();
-                  }}
-                  disabled={busy || isCaptchaLoading}
-                  aria-label="Refresh captcha"
-                  title="Refresh captcha"
-                >
-                  <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-                    <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Captcha Input with Minimal Inline Status */}
-            <div className="auth-field-card auth-captcha-input-card">
-              <div className="auth-input-action-wrapper">
-                <input
-                  id="renew-captcha-input"
-                  ref={captchaInputRef}
-                  required
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  enterKeyHint="done"
-                  value={captchaText}
-                  onChange={(e) => {
-                    setCaptchaText(e.target.value);
-                    setIsAutoSolved(false);
-                  }}
-                  placeholder={autoSolveFailed ? "solve it, too tough for me" : "Enter captcha text"}
-                  className={`auth-input ${isAutoSolved ? "has-status" : ""}`}
-                />
-                {isAutoSolved && (
-                  <span className="auth-input-inline-status" aria-label="Auto-solved guess">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <line x1="19" y1="12" x2="5" y2="12"/>
-                      <polyline points="11 18 5 12 11 6"/>
-                    </svg>
-                    <span>tried my best</span>
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+          <CaptchaFields
+            id="renew-captcha-input"
+            captcha={captcha}
+            text={captchaText}
+            loading={isCaptchaLoading}
+            solving={isSolving}
+            autoSolved={isAutoSolved}
+            busy={busy}
+            attempt={loginAttempt}
+            inputRef={captchaInputRef}
+            onChange={(value) => {
+              stopSolving();
+              setCaptchaText(value);
+              setIsAutoSolved(false);
+            }}
+            onManual={() => { stopSolving(); captchaInputRef.current?.focus(); }}
+            onRefresh={() => { setError(null); loadCaptcha(); }}
+          />
 
           {/* Modal Actions */}
           <div className="renew-modal-actions">

@@ -88,7 +88,11 @@ export const client = createClient({
       const r = await auth.refreshSession(client, s, { signal });
       if (signal.aborted) return false;
       if (r.ok) {
-        if (r.token) store.save({ ...s, token: r.token });
+        if (r.token) {
+          const renewed = { ...s, token: r.token };
+          store.save(renewed);
+          window.dispatchEvent(new CustomEvent("juet:renewed", { detail: renewed }));
+        }
         return true;
       }
     } catch {

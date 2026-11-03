@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { clearOfficialPortal, hasOfficialPortal, openOfficialPortal } from "../lib/officialPortal";
-import type { Session } from "../types";
 
-export function OfficialPortalEntry({ session }: { session: Session }) {
+export function OfficialPortalEntry() {
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
   const pending = useRef(false);
@@ -12,7 +11,7 @@ export function OfficialPortalEntry({ session }: { session: Session }) {
   const open = async () => {
     if (pending.current) return;
     pending.current = true; setOpening(true); setError("");
-    try { await openOfficialPortal(session); }
+    try { await openOfficialPortal(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not open the portal. Please retry."); }
     finally { pending.current = false; setOpening(false); }
   };

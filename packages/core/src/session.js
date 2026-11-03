@@ -81,8 +81,10 @@ function consumeKey(key) {
  * import never throws during React mount.
  */
 export function browserLocalAdapter(fallback = memoryAdapter()) {
+  const volatile = new Set();
   return {
     get: (k) => {
+      if (volatile.has(k)) return fallback.get(k);
       const s = safeStorage();
       try {
         return s ? s.getItem(PREFIX + k) : fallback.get(k);
@@ -91,22 +93,26 @@ export function browserLocalAdapter(fallback = memoryAdapter()) {
       }
     },
     set: (k, v) => {
+      fallback.set(k, v);
+      volatile.add(k);
       const s = safeStorage();
       try {
-        if (s) s.setItem(PREFIX + k, v);
-        else fallback.set(k, v);
-      } catch {
-        fallback.set(k, v);
-      }
+        if (s) {
+          s.setItem(PREFIX + k, v);
+          volatile.delete(k);
+        }
+      } catch {}
     },
     remove: (k) => {
+      fallback.remove(k);
+      volatile.add(k);
       const s = safeStorage();
       try {
-        if (s) s.removeItem(PREFIX + k);
-        else fallback.remove(k);
-      } catch {
-        fallback.remove(k);
-      }
+        if (s) {
+          s.removeItem(PREFIX + k);
+          volatile.delete(k);
+        }
+      } catch {}
     },
   };
 }

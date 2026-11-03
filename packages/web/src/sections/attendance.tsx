@@ -342,18 +342,19 @@ export function setCachedLov(
 }
 
 /** Reuse registrations without extending the lifetime of the last real LOV read. */
-export async function readAttendanceOverview(session: SectionProps["session"]) {
+export async function readAttendanceOverview(session: SectionProps["session"], signal?: AbortSignal) {
+  const generation = getCacheGeneration();
   const lov = getCachedLov(session);
-  const data = await features.getAttendance(client, session, lov ?? undefined);
+  const data = await features.getAttendance(client, session, lov ?? undefined, { signal });
   // Core preserves the supplied semester array when no LOV request was made.
   // A fallback/new lookup supplies a new array and deserves a new timestamp.
-  if (data.semesters !== lov?.semesters) setCachedLov(session, data);
+  if (!signal?.aborted && isCacheGenerationCurrent(generation) && data.semesters !== lov?.semesters) setCachedLov(session, data);
   return data;
 }
 
 export function useAttendanceInitial(session: SectionProps["session"]) {
   return useFeature<AttData>({
-    run: () => readAttendanceOverview(session),
+    run: signal => readAttendanceOverview(session, signal),
     deps: [session],
     cacheKey: sessionCacheKey("att.initial", session),
     isFresh: isCurrentPortalDay,

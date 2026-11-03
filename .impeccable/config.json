@@ -11,6 +11,12 @@
         ],
         "createdAt": "2026-10-25T10:15:36.239Z",
         "reason": "Agent: retained the existing spring token for the user-requested M3 Expressive switch and incumbent controls; intentional interaction motion."
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "var(--spring)",
+        "createdAt": "2026-11-03T16:02:05.310Z",
+        "reason": "User confirmed existing animations should be preserved: just fix the visible bugs."
       }
     ]
   }

@@ -120,7 +120,7 @@ export function createClient({
 
   async function fetchSent(sent) {
     const init = await sent.build();
-    const request = { ...sent, usedAuthorization: authorizationFrom(init) };
+    const request = { ...sent, signal: init.signal, usedAuthorization: authorizationFrom(init) };
     const response = await safeFetch(`${baseUrl}${sent.endpoint}`, init, sent.responseType);
     return { response, sent: request };
   }
@@ -246,7 +246,20 @@ export function createClient({
     }
 
     const cycle = refreshing ?? beginRefresh();
-    const outcome = await cycle.promise;
+    let abort;
+    let outcome;
+    try {
+      outcome = await Promise.race([
+        cycle.promise,
+        new Promise((_, reject) => {
+          abort = () => reject(sent.signal.reason);
+          if (sent.signal?.aborted) abort();
+          else sent.signal?.addEventListener("abort", abort, { once: true });
+        }),
+      ]);
+    } finally {
+      sent.signal?.removeEventListener("abort", abort);
+    }
     if (outcome.generation !== refreshGeneration || outcome.kind === "cancelled") {
       return { kind: "cancelled", generation: cycle.generation };
     }
@@ -270,6 +283,7 @@ export function createClient({
 
   async function expireSession(opts) {
     if (opts.silent) return;
+    failedAuthorization = currentAuthorization();
     setStatus("expired");
     if (unauthorizedNotified) return;
     unauthorizedNotified = true;
@@ -282,14 +296,20 @@ export function createClient({
 
   async function retryWithCurrentToken(sent, opts) {
     if (!hasToken(currentAuthorization())) throw new SessionExpiredError();
+    const generation = refreshGeneration;
     const retry = await fetchSent(sent);
+    if (generation !== refreshGeneration || retry.sent.usedAuthorization !== currentAuthorization()) {
+      throw new SessionExpiredError();
+    }
     const result = await handle(retry.response, retry.sent, {
       ...opts,
       skipRefresh: true,
       tokenRetry: true,
     });
-    failedAuthorization = null;
-    setStatus("authenticated");
+    if (generation === refreshGeneration) {
+      failedAuthorization = null;
+      setStatus("authenticated");
+    }
     return result;
   }
 
@@ -309,9 +329,9 @@ export function createClient({
       if (!opts.skipRefresh) {
         const retry = await refreshedRetry(sent);
         if (retry.kind === "response") {
-          // A logout/session switch may have happened while the retry was in
-          // flight. Do not let its stale 401 overwrite the newer state.
-          if (retry.generation !== refreshGeneration) {
+          // A logout, session switch or token renewal may happen during the
+          // retry. Do not let its stale 401 overwrite the newer state.
+          if (retry.generation !== refreshGeneration || retry.sent.usedAuthorization !== currentAuthorization()) {
             if (
               hasToken(currentAuthorization()) &&
               currentAuthorization() !== retry.sent.usedAuthorization

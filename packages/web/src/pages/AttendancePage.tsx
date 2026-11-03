@@ -140,12 +140,12 @@ export function AttendancePage({
   const lastSemRef = useRef(`${session.username}:${session.instituteid ?? "default"}:${semId}`);
 
   const detail = useFeature<{ rows: AttRow[] }>({
-    run: () =>
+    run: signal =>
       features.getAttendanceDetail(client, session, {
         stynumber: initial?.header?.stynumber,
         registrationid: sem?.registrationid,
         registrationcode: sem?.registrationcode,
-      }),
+      }, { signal }),
     deps: [session, semId],
     enabled: sem !== null && !isDefault,
     cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,

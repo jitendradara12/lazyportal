@@ -89,12 +89,16 @@ export function DashboardPage({
     selectionHaptic();
     scrollByTab.current[tab] = window.scrollY;
     if (next === HOME) {
-      if (window.location.hash) history.back();
-      else setTab(HOME);
+      if (window.location.hash && (history.state?.juetTab || history.state?.juetOverlay)) history.back();
+      else {
+        history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        setTab(HOME);
+      }
     } else if (tab === HOME) {
       window.location.hash = next;
+      history.replaceState({ juetTab: true }, "");
     } else {
-      history.replaceState(null, "", `#${next}`);
+      history.replaceState(history.state, "", `#${next}`);
       setTab(next);
     }
   };

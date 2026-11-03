@@ -40,6 +40,117 @@ async function pull(page, distance, { cancel = false, slow = false } = {}) {
   await page.mouse.up();
 }
 
+test.describe("attendance target control", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.getByRole("button", { name: "Close subject details" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("stays behind the title bar when scrolled", async ({ page }) => {
+    await page.getByRole("button", { name: "Attendance target 70%. Change", exact: true }).click();
+    const options = page.getByRole("radiogroup", { name: "Attendance target", exact: true });
+    await options.evaluate(async (el) => {
+      await Promise.all(el.getAnimations().map((animation) => animation.finished));
+      // Give this one-subject fixture the same scroll range as a full timetable.
+      document.querySelector(".att-list").style.minHeight = "1500px";
+      window.scrollBy({ top: el.getBoundingClientRect().top - 30, behavior: "instant" });
+    });
+    await expect.poll(() => options.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const bar = document.querySelector(".att-page .app-bar");
+      return bar.contains(document.elementFromPoint(box.x + 20, box.y + 20));
+    })).toBe(true);
+    await expect.poll(() => page.getByRole("heading", { name: "Attendance", exact: true }).evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0);
+  });
+
+  test("a touch scroll dismisses the menu without jumping back to its opening position", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "Native touch input requires Chromium's input API");
+    await page.locator(".att-list").evaluate((el) => { el.style.minHeight = "2000px"; });
+    await page.getByRole("button", { name: "Attendance target 70%. Change", exact: true }).click();
+    const options = page.getByRole("radiogroup", { name: "Attendance target", exact: true });
+    await options.evaluate(async (el) => {
+      await Promise.all(el.getAnimations().map((animation) => animation.finished));
+    });
+    const client = await page.context().newCDPSession(page);
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 200, y: 500 }] });
+    for (let y = 460; y >= 180; y -= 40) {
+      await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 200, y }] });
+      await page.waitForTimeout(20);
+    }
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(options).toHaveCount(0);
+    // Let the dismissal, history traversal and touch momentum finish.
+    await page.waitForTimeout(700);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+  });
+
+  test("closes after selection with reduced motion and can be reused", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const [from, to] of [[70, 90], [90, 80]]) {
+      await page.getByRole("button", { name: `Attendance target ${from}%. Change`, exact: true }).click();
+      await page.getByRole("radiogroup", { name: "Attendance target", exact: true }).getByRole("radio", { name: `${to}%`, exact: true }).click();
+      await expect(page.getByRole("button", { name: `Attendance target ${to}%. Change`, exact: true })).toBeVisible();
+    }
+  });
+
+  test("dismisses without changing the target on Escape or outside tap", async ({ page }) => {
+    const trigger = page.getByRole("button", { name: "Attendance target 70%. Change", exact: true });
+    await trigger.click();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await page.getByRole("heading", { name: "Attendance", exact: true }).click();
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await page.goBack();
+    await expect(trigger).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
+  });
+
+  test("reserves space for choices beside filters and the semester picker", async ({ page }) => {
+    await page.evaluate((session) => {
+      const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+      const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+      entry.data.rows[0].Ppercentage = 60;
+      entry.data.semesters.push({ registrationid: "sem2", registrationcode: "2026EVENSEM" });
+      localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+      window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+    }, SESSION);
+    await expect(page.getByRole("tablist", { name: "Filter subjects" })).toBeVisible();
+    await page.getByRole("button", { name: "Attendance target 70%. Change", exact: true }).click();
+    for (const width of [320, 393, 1000]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => page.locator(".page-toolbar").evaluate((el) => {
+        const choices = el.querySelector(".target-fab-options").getBoundingClientRect();
+        return [...el.querySelectorAll(".att-filter, .sem-picker")].every((control) => {
+          const box = control.getBoundingClientRect();
+          return choices.right <= box.left || choices.left >= box.right || choices.bottom <= box.top || choices.top >= box.bottom;
+        }) && document.documentElement.scrollWidth <= window.innerWidth;
+      })).toBe(true);
+    }
+  });
+
+  test("rapid selections keep the last choice and leave no delayed close behind", async ({ page }) => {
+    const trigger = page.getByRole("button", { name: "Attendance target 70%. Change", exact: true });
+    await trigger.click();
+    const choices = page.getByRole("radiogroup", { name: "Attendance target", exact: true });
+    await choices.evaluate((el) => {
+      el.querySelectorAll("button")[2].click();
+      el.querySelectorAll("button")[1].click();
+    });
+    const updated = page.getByRole("button", { name: "Attendance target 80%. Change", exact: true });
+    await expect(updated).toBeVisible();
+    await expect(updated).toBeFocused();
+    await updated.click();
+    await expect(choices.getByRole("radio", { name: "80%", exact: true })).toBeChecked();
+    await page.waitForTimeout(600);
+    await expect(choices).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(updated).toBeVisible();
+  });
+});
+
 test("More saves the default target across reloads and calculator overrides", async ({ page }) => {
   const calculator = page.getByRole("radiogroup", { name: "Target percentage", exact: true });
   await expect(calculator.getByRole("radio", { name: "70%", exact: true })).toBeChecked();

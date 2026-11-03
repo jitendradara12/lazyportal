@@ -147,15 +147,16 @@ export function createStore({
       await migrate();
       const record = readRecord();
       if (!record || !matches(record, identity(account))) return "";
+      const isCurrent = () => revision === generation && JSON.stringify(record) === JSON.stringify(readRecord());
       try {
         const key = volatile?.key ?? await keys.load();
-        if (!key) { remove(PASSWORD_KEY); return ""; }
+        if (!key) { if (isCurrent()) remove(PASSWORD_KEY); return ""; }
         const bytes = await crypto().subtle.decrypt({ name: "AES-GCM", iv: fromBase64(record.iv), additionalData: additionalData(record) }, key, fromBase64(record.data));
         // Logout/account switching must invalidate a decryption already in flight.
-        if (revision !== generation || JSON.stringify(record) !== JSON.stringify(readRecord())) return "";
+        if (!isCurrent()) return "";
         return new TextDecoder().decode(bytes);
       } catch {
-        remove(PASSWORD_KEY);
+        if (isCurrent()) remove(PASSWORD_KEY);
         return "";
       }
     },

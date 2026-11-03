@@ -87,7 +87,7 @@ export function MorePage({
           </button>
         </section>
 
-        <OfficialPortalEntry session={session} />
+        <OfficialPortalEntry />
 
         <div className="m3-stacked-sections" role="list">
           <Suspense fallback={null}>

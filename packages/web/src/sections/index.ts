@@ -8,18 +8,18 @@ import { MarksIcon, ExamsIcon, CalendarIcon } from "../components/icons";
  * Code-split a section: its chunk loads on first use (or from `prefetchTabs`), keeping it out of
  * the startup bundle. `memo` keeps a mounted-but-hidden tab from re-rendering with the dashboard.
  */
-const split = (factory: () => Promise<{ default: ComponentType<SectionProps> }>) => {
-  const load = lazyImport(factory);
+const split = (id: string, factory: () => Promise<{ default: ComponentType<SectionProps> }>) => {
+  const load = lazyImport(factory, id);
   const Component = memo(lazy(load));
   return { Component, prefetch: () => { void load().catch(() => {}); } };
 };
 
-const marks = split(() => import("./marks").then((m) => ({ default: m.MarksSection })));
-const exams = split(() => import("./exams").then((m) => ({ default: m.ExamsSection })));
-const calendar = split(() => import("../pages/AcademicCalendarPage").then((m) => ({ default: m.AcademicCalendarPage })));
-const grades = split(() => import("./grades").then((m) => ({ default: m.GradesSection })));
-const cgpa = split(() => import("./cgpa").then((m) => ({ default: m.CgpaSection })));
-const subjects = split(() => import("./subjects").then((m) => ({ default: m.SubjectsSection })));
+const marks = split("marks", () => import("./marks").then((m) => ({ default: m.MarksSection })));
+const exams = split("exams", () => import("./exams").then((m) => ({ default: m.ExamsSection })));
+const calendar = split("calendar", () => import("../pages/AcademicCalendarPage").then((m) => ({ default: m.AcademicCalendarPage })));
+const grades = split("grades", () => import("./grades").then((m) => ({ default: m.GradesSection })));
+const cgpa = split("cgpa", () => import("./cgpa").then((m) => ({ default: m.CgpaSection })));
+const subjects = split("subjects", () => import("./subjects").then((m) => ({ default: m.SubjectsSection })));
 
 export interface SectionEntry {
   id: string;
