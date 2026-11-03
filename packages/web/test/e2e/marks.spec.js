@@ -182,8 +182,8 @@ test("Discreet mode hides identity, neutralizes marks and survives reloads", asy
   await expect(page.locator(".profile-name")).toHaveText("Test Student");
   await expect(page.locator(".profile")).toContainText("241B123");
   await nav.getByRole("button", { name: "Marks", exact: true }).click();
-  const restoredColors = await page.locator(".score-header .score-value strong").evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
-  expect(new Set(restoredColors).size).toBe(4);
+  await expect.poll(() => page.locator(".score-header .score-value strong").evaluateAll((els) =>
+    new Set(els.map((el) => getComputedStyle(el).color)).size)).toBe(4);
   expect(requests).toEqual([]);
 });
 
