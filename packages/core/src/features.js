@@ -45,10 +45,10 @@ export const featurePostEndpoints = Object.freeze({
 });
 
 /** Attendance LOV: header (stynumber) + semester list. Plain JSON (unencrypted) — official app stringifies without AES here. */
-export async function getAttendanceRegistrations(client, session) {
+export async function getAttendanceRegistrations(client, session, { signal } = {}) {
   const body = await client.postRaw(featurePostEndpoints.attendance.registrations, {
     instituteid: session.instituteid,
-  });
+  }, { signal });
   if (!Array.isArray(body.response?.semlist)) {
     throw new PortalError("Portal returned incomplete attendance registrations. Please retry.", { code: "INVALID_RESPONSE" });
   }
@@ -59,13 +59,13 @@ export async function getAttendanceRegistrations(client, session) {
 }
 
 /** Attendance detail rows carry L/T/P percentages already (no per-subject call needed). */
-export async function getAttendanceDetail(client, session, { stynumber, registrationid, registrationcode }) {
+export async function getAttendanceDetail(client, session, { stynumber, registrationid, registrationcode }, { signal } = {}) {
   const body = await client.post(featurePostEndpoints.attendance.overview, {
     instituteid: session.instituteid,
     stynumber,
     registrationid,
     registrationcode,
-  });
+  }, { signal });
   const rows = body.response?.studentattendancelist;
   if (!Array.isArray(rows) || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) {
     throw new PortalError("Portal returned incomplete attendance records. Please retry.", { code: "INVALID_RESPONSE" });
@@ -74,10 +74,10 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
 }
 
 /** Daily attendance in one call: LOV -> latest registration -> detail rows. */
-export async function getAttendance(client, session, cachedLov) {
+export async function getAttendance(client, session, cachedLov, { signal } = {}) {
   let lov = cachedLov;
   if (!lov?.semesters?.length) {
-    lov = await getAttendanceRegistrations(client, session);
+    lov = await getAttendanceRegistrations(client, session, { signal });
   }
   const sem = lov.semesters[0];
   if (!sem) return { header: lov.header ?? null, semesters: lov.semesters ?? [], rows: [], currentSem: null };
@@ -86,11 +86,12 @@ export async function getAttendance(client, session, cachedLov) {
       stynumber: lov.header?.stynumber,
       registrationid: sem.registrationid,
       registrationcode: sem.registrationcode,
-    });
+    }, { signal });
     return { header: lov.header ?? null, semesters: lov.semesters, registrationcode: sem.registrationcode, ...detail };
   } catch (err) {
     // retry with fresh LOV only on portal parameter/data errors; bubble auth/network immediately
     const isFatal =
+      signal?.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR" ||
       err?.code === "SESSION_EXPIRED" ||
       err?.code === "NETWORK_ERROR" ||
       err?.code === "REQUEST_TIMEOUT" ||
@@ -98,7 +99,7 @@ export async function getAttendance(client, session, cachedLov) {
       err?.status === 401 ||
       (typeof err?.status === "number" && err.status >= 500);
     if (cachedLov && !isFatal) {
-      return getAttendance(client, session);
+      return getAttendance(client, session, undefined, { signal });
     }
     throw err;
   }

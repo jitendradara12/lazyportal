@@ -516,6 +516,24 @@ test("daily overview reads do not renew the registration cache; it expires after
   assert.equal(detail.mock.callCount(), 8);
 });
 
+test("logout cancels the overview transport and prevents a late registration cache write", async (t) => {
+  let release, sentSignal;
+  t.mock.method(client, "postRaw", (_path, _payload, options) => {
+    sentSignal = options?.signal;
+    return new Promise((resolve) => { release = resolve; });
+  });
+  t.mock.method(client, "post", async () => ({ response: { studentattendancelist: [] } }));
+  const { requestFeature } = await server.ssrLoadModule("/src/hooks/useFeature.ts");
+  const pending = requestFeature(sessionCacheKey("att.initial", session), signal => readAttendanceOverview(session, signal));
+  await Promise.resolve();
+  invalidateCacheGeneration();
+  values.clear();
+  release({ response: { headerlist: [], semlist: [semester] } });
+  await pending.catch(error => assert.equal(error.name, "AbortError"));
+  assert.equal(getCached(sessionCacheKey("att.lov", session)).data, null);
+  assert.equal(sentSignal?.aborted, true);
+});
+
 test("a full browser store does not refetch successful subject history on the next visit", async (t) => {
   const row = auditRow("storage-full-subject");
   t.mock.method(localStorage, "setItem", () => { throw new Error("QuotaExceededError"); });

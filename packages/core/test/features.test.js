@@ -39,6 +39,30 @@ describe("features", () => {
     assert.deepEqual(rows, []);
   });
 
+  it("attendance forwards cancellation through both reads and never retries an abort", async () => {
+    const controller = new AbortController();
+    const signals = [];
+    const lov = { semesters: [{ registrationid: "r1" }] };
+    let fail = false, lovReads = 0;
+    const fake = {
+      async postRaw(_path, _payload, options) {
+        lovReads++;
+        signals.push(options?.signal);
+        return { response: { semlist: lov.semesters } };
+      },
+      async post(_path, _payload, options) {
+        signals.push(options?.signal);
+        if (fail) throw new DOMException("Cancelled", "AbortError");
+        return { response: { studentattendancelist: [] } };
+      },
+    };
+    await getAttendance(fake, {}, undefined, { signal: controller.signal });
+    assert.deepEqual(signals, [controller.signal, controller.signal]);
+    fail = true;
+    await assert.rejects(getAttendance(fake, {}, lov, { signal: controller.signal }), { name: "AbortError" });
+    assert.equal(lovReads, 1);
+  });
+
   it("getAttendance reuses cachedLov without postRaw", async () => {
     let postRawCalled = false;
     const fake = {
