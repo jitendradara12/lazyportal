@@ -83,6 +83,7 @@ for (const failFirst of [false, true]) test(`an existing phone cache recovers al
   const ai = page.locator(".score-card").filter({ hasText: "CS303" });
   if (failFirst) {
     await expect(page.getByRole("alert")).toContainText("Earlier exam marks could not be recovered");
+    await expect(page.getByRole("alert")).toContainText("Failed step: report request.");
     await expect(ai.locator(".score-header .score-value")).toHaveText("13/25");
     await page.getByRole("button", { name: "Retry", exact: true }).click();
   }

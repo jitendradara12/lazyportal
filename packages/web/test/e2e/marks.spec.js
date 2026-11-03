@@ -1,5 +1,33 @@
 import { test, expect } from "@playwright/test";
 import { mockPortal, SESSION } from "./helpers.js";
+import { fileURLToPath } from "node:url";
+
+test("a fresh login recovers T1 from the report when the API only returns T2", async ({ page }) => {
+  await mockPortal(page);
+  const semesters = [{ registrationid: "current", registrationcode: "2026ODDSEM" }];
+  await page.route("**/api/studentcommonsontroller/getsemestercode-exammarks", (route) => route.fulfill({
+    json: { response: { semestercode: semesters } },
+  }));
+  await page.route("**/api/studentsexamview/getstudent-exammarks", (route) => route.fulfill({
+    json: { response: { viewmarksbystudent: [
+      { subjectcode: "CS303", subjectdesc: "ARTIFICIAL INTELLIGENCE", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 },
+    ] } },
+  }));
+  await page.route("**/api/studentsexamview/printstudent-exammarks/**", (route) => route.fulfill({
+    contentType: "application/pdf", path: fileURLToPath(new URL("../fixtures/marks-history.pdf", import.meta.url)),
+  }));
+  await page.addInitScript((session) => {
+    localStorage.setItem("juet.portal.session.v1", JSON.stringify(session));
+    localStorage.setItem("juet.portal.install.dismissedAt.v1", String(Date.now()));
+  }, SESSION);
+  await page.goto("/#marks");
+  const ai = page.locator(".score-card").filter({ hasText: "CS303" });
+  await expect(ai.locator(".score-header .score-value")).toHaveText("20/40");
+  await ai.locator(".score-header").click();
+  await expect(ai.locator(".score-exam-label")).toHaveText(["T1", "T2"]);
+  await expect(ai.locator(".score-exam .score-value")).toHaveText(["7/15", "13/25"]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
 
 async function setup(page) {
   await mockPortal(page);

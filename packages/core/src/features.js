@@ -395,12 +395,21 @@ export async function getMarks(client, session, { registrationid, registrationco
     obtainedweightagemarksflag: body.response?.obtainedweightagemarksflag,
   };
   if (!readPdfText) return detail;
+  let recoveryStep = "report request";
   try {
-    const history = await getMarksReport(client, session, { registrationid, registrationcode, readPdfText });
+    const history = await getMarksReport(client, session, { registrationid, registrationcode,
+      readPdfText: async (data) => {
+        recoveryStep = "PDF decoding";
+        const pages = await readPdfText(data);
+        recoveryStep = "marks table matching";
+        return pages;
+      },
+    });
     return { ...detail, rows: mergeMarkRows(history, detail.rows), historyRecovered: true };
   } catch (error) {
     if (error.code === "SESSION_EXPIRED") throw error;
-    return { ...detail, historyRecovered: false, historyError: "Earlier exam marks could not be recovered from the portal's report. Please retry." };
+    return { ...detail, historyRecovered: false,
+      historyError: `Earlier exam marks could not be recovered from the portal's report. Please retry. Failed step: ${recoveryStep}.` };
   }
 }
 

@@ -50,3 +50,27 @@ test("report read uses the selected semester; fresh JSON corrections override re
   assert.equal(partial.rows[0].obtainedmarks, 14);
   assert.match(partial.historyError, /could not be recovered/);
 });
+
+for (const step of ["report request", "PDF decoding", "marks table matching"]) {
+  test(`partial marks identify a failed ${step} without exposing report or account data`, async () => {
+    const failure = new Error("private report data and authorization");
+    const t2 = { subjectcode: "CS303", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 };
+    const client = {
+      post: async () => ({ response: { viewmarksbystudent: [t2] } }),
+      getReport: async () => {
+        if (step === "report request") throw failure;
+        return new Uint8Array([1, 2]);
+      },
+    };
+    const result = await getMarks(client, { instituteid: "i1" }, {
+      registrationid: "sem1", registrationcode: "2026ODDSEM",
+      readPdfText: async () => {
+        if (step === "PDF decoding") throw failure;
+        return [[]];
+      },
+    });
+    assert.equal(result.historyRecovered, false);
+    assert.deepEqual(result.rows, [t2]);
+    assert.equal(result.historyError, `Earlier exam marks could not be recovered from the portal's report. Please retry. Failed step: ${step}.`);
+  });
+}
