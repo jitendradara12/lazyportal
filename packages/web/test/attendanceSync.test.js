@@ -205,6 +205,95 @@ test("a changed lecture reuses its unchanged tutorial instead of refetching both
   assert.deepEqual(refreshed.data.T, logs(1));
 });
 
+test("a contradictory partial checkpoint rechecks reused components before becoming provisional", async () => {
+  const input = options("partial-checkpoint-recheck");
+  const row = { subjectid: "s0", Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial",
+    Lpercentage: 100, Tpercentage: 100, totalclass: 2, totalpresent: 2 };
+  let first = true;
+  const reads = [];
+  client.post = async (_path, payload) => {
+    const type = payload.cmpidkey[0].subjectcomponentid === "lecture" ? "L" : "T";
+    reads.push(type);
+    if (first && type === "T") throw new Error("Tutorial unavailable");
+    return { response: logs(type === "L" && !first ? 2 : 1) };
+  };
+  await assert.rejects(refreshSubjectDetail(input.session, row, input.base), /Tutorial unavailable/);
+  first = false;
+  const fresh = { ...row, totalclass: 3, totalpresent: 3 };
+  const result = await syncAttendanceDetails({ ...input, rows: [fresh] });
+  assert.equal(result.complete, true);
+  assert.equal(result.provisional, false, "a stale reused lecture must not be mistaken for a portal disagreement");
+  assert.deepEqual(reads, ["L", "T", "T", "L"], "retry only the reused lecture, retaining the fresh tutorial");
+  const entry = getCachedSubjectDetailEntry(input.session.username, input.base.registrationid, fresh, input.session.instituteid);
+  assert.deepEqual(entry.data, { L: logs(2), T: logs(1) });
+  await syncAttendanceDetails({ ...input, rows: [fresh] });
+  assert.equal(reads.length, 4, "verified recovery is cached without further reads");
+});
+
+for (const outcome of ["disagreement", "outage"]) test(`rechecking a reused component handles a real ${outcome} without retrying fresh components`, async () => {
+  const input = options(`partial-recheck-${outcome}`);
+  const row = { subjectid: "s0", Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial",
+    Lpercentage: 100, Tpercentage: 100, totalclass: 2, totalpresent: 2 };
+  let stage = "initial";
+  const reads = [];
+  client.post = async (_path, payload) => {
+    const type = payload.cmpidkey[0].subjectcomponentid === "lecture" ? "L" : "T";
+    reads.push(type);
+    if (stage === "initial" && type === "T") throw new Error("Tutorial unavailable");
+    if (stage === "recheck" && outcome === "outage" && type === "L") {
+      throw Object.assign(new Error("Unavailable"), { status: 503 });
+    }
+    return { response: logs(stage === "recovered" && type === "L" ? 2 : 1) };
+  };
+  await assert.rejects(refreshSubjectDetail(input.session, row, input.base), /Tutorial unavailable/);
+  stage = "recheck";
+  const fresh = { ...row, totalclass: 3, totalpresent: 3 };
+  const result = await syncAttendanceDetails({ ...input, rows: [fresh] });
+  assert.deepEqual(reads, ["L", "T", "T", "L"]);
+  if (outcome === "disagreement") {
+    assert.equal(result.complete, true);
+    assert.equal(result.provisional, true);
+    await syncAttendanceDetails({ ...input, rows: [fresh] });
+    assert.equal(reads.length, 4, "a confirmed disagreement settles after one recheck");
+  } else {
+    assert.equal(result.complete, false);
+    assert.equal(result.errors[0].status, 503);
+    stage = "recovered";
+    const recovered = await syncAttendanceDetails({ ...input, rows: [fresh] });
+    assert.equal(recovered.complete, true);
+    assert.equal(recovered.provisional, false);
+    assert.deepEqual(reads, ["L", "T", "T", "L", "L"], "retry retains the fresh tutorial and discards the stale lecture");
+  }
+});
+
+test("a malformed fresh component cannot discard a valid reused checkpoint", async () => {
+  const input = options("partial-recheck-malformed");
+  const row = { subjectid: "s0", Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial",
+    Lpercentage: 100, Tpercentage: 100, totalclass: 2, totalpresent: 2 };
+  let stage = "initial";
+  const reads = [];
+  client.post = async (_path, payload) => {
+    const type = payload.cmpidkey[0].subjectcomponentid === "lecture" ? "L" : "T";
+    reads.push(type);
+    if (stage === "initial" && type === "T") throw new Error("Tutorial unavailable");
+    if (stage === "malformed") {
+      if (type === "L") throw Object.assign(new Error("Unexpected lecture retry"), { status: 503 });
+      return { response: {} };
+    }
+    return { response: logs(stage === "recovered" && type === "L" ? 2 : 1) };
+  };
+  await assert.rejects(refreshSubjectDetail(input.session, row, input.base), /Tutorial unavailable/);
+  stage = "malformed";
+  const fresh = { ...row, totalclass: 3, totalpresent: 3 };
+  await assert.rejects(refreshSubjectDetail(input.session, fresh, input.base), /incomplete class records/);
+  assert.deepEqual(reads, ["L", "T", "T"]);
+  stage = "recovered";
+  const result = await syncAttendanceDetails({ ...input, rows: [fresh] });
+  assert.equal(result.complete, true);
+  assert.equal(result.provisional, false);
+  assert.deepEqual(reads, ["L", "T", "T", "T", "L"]);
+});
+
 test("a stale portal reply cannot replace saved history that agrees with the overview", async () => {
   const input = options("stale-reply");
   const row = { ...input.rows[0], Lpercentage: 94.4 };

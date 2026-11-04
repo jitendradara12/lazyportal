@@ -318,12 +318,13 @@ export async function readSubjectDetail(
     checkpoint.portalDay === portalDay, checkpointMatches);
   if (isSubjectDetailComplete(row, Object.fromEntries(completed)) &&
       subjectDetailMatchesOverview(row, Object.fromEntries(completed)) === false) completed.clear();
+  const reused = [...completed.keys()];
   const current = () => !signal?.aborted && isCacheGenerationCurrent(generation) && getPortalDayKey() === portalDay;
   const saveProgress = () => {
     if (current()) setCached(key, Object.fromEntries([...completed].filter(validComponent)), { snapshot, portalDay, componentChecksums: checksums });
   };
   try {
-    const data = await features.getSubjectAttendanceAll(client, session, row, base, "current", {
+    const read = () => features.getSubjectAttendanceAll(client, session, row, base, "current", {
       completed, signal, onComponent: saveProgress,
       onUnavailable: (error: unknown) => {
         if (!current()) return;
@@ -331,6 +332,12 @@ export async function readSubjectDetail(
         for (const notify of state.listeners) notify(error);
       },
     });
+    let data = await read();
+    if (reused.length && current() && isSubjectDetailComplete(row, data) && subjectDetailMatchesOverview(row, data) === false) {
+      for (const type of reused) completed.delete(type);
+      saveProgress();
+      data = await read();
+    }
     if (getPortalDayKey() !== portalDay) throw new Error("The portal day changed while loading. Please retry.");
     if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
     if (subjectDetailMatchesOverview(row, data) === false) {
