@@ -299,11 +299,28 @@ function isComponentKnownEmpty(row, t) {
   return true;
 }
 
+/** Whether this row needs any component reads rather than locally known empties. */
+export function hasSubjectAttendanceRequests(row, which = "current") {
+  return ["L", "T", "P"].some(type =>
+    getAttendanceComponentIds(row[`${type}subjectcomponentid`]).length > 0 &&
+    (which !== "current" || !isComponentKnownEmpty(row, type))
+  );
+}
+
 /** L/T/P detail in parallel. The caller may retain successful components for
- * retries of one exact overview snapshot; completed results stay caller-owned. */
-export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current", { completed, onComponent, signal } = {}) {
+ * retries of one exact overview snapshot; completed results stay caller-owned.
+ * onUnavailable reports the first outage immediately while siblings finish. */
+export async function getSubjectAttendanceAll(client, session, row, { registrationid, registrationcode }, which = "current", { completed, onComponent, onUnavailable, signal } = {}) {
   const out = {};
   const errors = [];
+  let unavailable = false;
+  const fail = (error) => {
+    errors.push(error);
+    if (!unavailable && isAttendanceUnavailable(error)) {
+      unavailable = true;
+      onUnavailable?.(error);
+    }
+  };
   const publish = (type, data) => {
     out[type] = data;
     completed?.set(type, data);
@@ -320,7 +337,7 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
       if (!csv) return;
-      if (signal?.aborted) { errors.push(signal.reason); return; }
+      if (signal?.aborted) { fail(signal.reason); return; }
       if (completed?.has(t)) {
         out[t] = completed.get(t);
         return;
@@ -335,7 +352,7 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
         if (isNoAttendance(e)) {
           out[t] = { summary: [] };
         } else {
-          errors.push(e);
+          fail(e);
           return;
         }
       }

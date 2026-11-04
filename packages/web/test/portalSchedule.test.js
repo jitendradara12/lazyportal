@@ -64,6 +64,8 @@ const {
   PORTAL_DAY_CUTOFF_MINUTE_IST,
   FEATURE_TTL,
   computeSubjectRowChecksum,
+  computeSubjectComponentChecksum,
+  hasSubjectCountCoverage,
   computeLegacySubjectRowChecksum,
   doesSubjectNeedDeepFetch,
   REFRESH_THROTTLE_MS,
@@ -223,6 +225,7 @@ test("computeSubjectRowChecksum produces deterministic signature of subject row"
 test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () => {
   const row = {
     subjectcode: "CS101",
+    Lsubjectcomponentid: "lecture",
     totalclass: 20,
     totalpresent: 18,
     Ltotalclass: 20,
@@ -273,7 +276,7 @@ test("doesSubjectNeedDeepFetch accurately identifies when to fetch or skip", () 
   const multiChecksum = computeSubjectRowChecksum(multiCompRow);
   const incompleteDetailOnlyT = { T: { summary: [{ present: "Y" }] } };
   const incompleteDetailNullL = { L: null, T: { summary: [{ present: "Y" }] } };
-  const completeDetail = { L: { summary: [] }, T: { summary: [] } };
+  const completeDetail = { L: { totalclass: 31, totalpresent: 30 }, T: { totalclass: 3, totalpresent: 3 } };
   assert.equal(doesSubjectNeedDeepFetch(multiCompRow, incompleteDetailOnlyT, fixedNow, multiChecksum, fixedNow), true);
   assert.equal(doesSubjectNeedDeepFetch(multiCompRow, incompleteDetailNullL, fixedNow, multiChecksum, fixedNow), true);
   assert.equal(doesSubjectNeedDeepFetch(multiCompRow, completeDetail, fixedNow, multiChecksum, fixedNow), false);
@@ -668,7 +671,7 @@ test("clamp safely handles non-finite values (Infinity, NaN) by defaulting to mi
 });
 
 test("doesSubjectNeedDeepFetch keeps matching history across portal days, including subject expansion", () => {
-  const row = { subjectcode: "CS101", totalclass: 10, totalpresent: 8 };
+  const row = { subjectcode: "CS101", Lsubjectcomponentid: "lecture", totalclass: 10, totalpresent: 8 };
   const checksum = computeSubjectRowChecksum(row);
   const dummyDetail = { L: { totalclass: 10, totalpresent: 8 } };
   const today = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST Oct 7
@@ -750,7 +753,7 @@ test("component reassignment invalidates equal-percentage history without treati
 
 test("legacy checksum format from prior app versions is treated as fresh when row counts match", () => {
   const row = { subjectid: "legacy-sub", subjectcode: "CS102", Lsubjectcomponentid: "comp1", Lpercentage: 85, Ltotalclass: 20, Ltotalpresent: 17 };
-  const data = { L: { summary: Array(20).fill({ present: "Y" }) } };
+  const data = { L: { summary: [...Array(17).fill({ present: "Y" }), ...Array(3).fill({ present: "N" })] } };
   const legacyChecksum = computeLegacySubjectRowChecksum(row);
   const newChecksum = computeSubjectRowChecksum(row);
   assert.notEqual(legacyChecksum, newChecksum);
@@ -771,10 +774,124 @@ test("raw legacy checksum format with string zero component id is treated as fre
     totalclass: 10,
     totalpresent: 9,
   };
-  const data = { P: { summary: Array(10).fill({ present: "Y" }) } };
+  const data = { P: { summary: [...Array(9).fill({ present: "Y" }), { present: "N" }] } };
   // Raw legacy computed isLab=false because Boolean("0") === true
   const rawLegacyChecksum = `${row.subjectid}|10|9||::|::|::90`;
   assert.equal(doesSubjectNeedDeepFetch(row, data, Date.now(), rawLegacyChecksum), false);
+});
+
+test("unchanged percentage-only history is checked once each portal day", () => {
+  const yesterday = Date.UTC(2026, 9, 6, 8, 30);
+  const today = yesterday + 86400000;
+  const row = { subjectid: "perfect", Lsubjectcomponentid: "lecture", Lpercentage: 100 };
+  const data = { L: { summary: [{ present: "Y" }] } };
+  const checksum = computeSubjectRowChecksum(row);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, today, checksum, today), false);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, yesterday, checksum, today), true, "100% does not reveal newly attended classes");
+  assert.equal(doesSubjectNeedDeepFetch(row, data, yesterday, null, today), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, today, null, today), false);
+});
+
+test("a matching overview checksum cannot certify contradictory cached history", () => {
+  const row = { subjectid: "lagging", Lsubjectcomponentid: "lecture", Lpercentage: 94.4 };
+  const data = { L: { totalclass: 32, totalpresent: 30 } };
+  const now = Date.now();
+  assert.equal(doesSubjectNeedDeepFetch(row, data, now, computeSubjectRowChecksum(row), now), true);
+});
+
+test("provisional portal disagreements stay cached today but revalidate next portal day", () => {
+  const today = Date.UTC(2026, 9, 7, 8, 30);
+  const tomorrow = today + 86400000;
+  const data = { L: { totalclass: 32, totalpresent: 30 } };
+  for (const counts of [{}, { Ltotalclass: 36, Ltotalpresent: 34 }]) {
+    const row = { subjectid: "provisional", Lsubjectcomponentid: "lecture", Lpercentage: 94.4, ...counts };
+    const checksum = computeSubjectRowChecksum(row);
+    assert.equal(doesSubjectNeedDeepFetch(row, data, today, checksum, today, true), false);
+    assert.equal(doesSubjectNeedDeepFetch(row, data, today, checksum, tomorrow, true), true);
+    assert.equal(doesSubjectNeedDeepFetch(row, data, today, checksum, today), true, "ordinary mismatched entries still require repair");
+    assert.equal(doesSubjectNeedDeepFetch({ ...row, Lpercentage: 95 }, data, today, checksum, today, true), true);
+    assert.equal(doesSubjectNeedDeepFetch({ ...row, Lsubjectcomponentid: "replacement" }, data, today, checksum, today, true), true);
+  }
+});
+
+test("provisional caching still requires complete data, a valid timestamp, and the current checksum", () => {
+  const now = Date.UTC(2026, 9, 7, 8, 30);
+  const row = { subjectid: "provisional-validation", Lsubjectcomponentid: "lecture", Lpercentage: 94.4 };
+  const data = { L: { totalclass: 32, totalpresent: 30 } };
+  const checksum = computeSubjectRowChecksum(row);
+  assert.equal(doesSubjectNeedDeepFetch(row, {}, now, checksum, now, true), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, null, checksum, now, true), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, now, null, now, true), true);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, now, computeLegacySubjectRowChecksum(row), now, true), true);
+});
+
+test("unknown overview metadata keeps same-day history while invalid timestamps remain stale", () => {
+  const row = { subjectid: "unknown", Lsubjectcomponentid: "lecture" };
+  const data = { L: { totalclass: 5, totalpresent: 4 } };
+  const now = Date.now();
+  const checksum = computeSubjectRowChecksum(row);
+  assert.equal(doesSubjectNeedDeepFetch(row, data, now, checksum, now), false);
+  for (const updatedAt of [null, 0, -1, NaN, Infinity]) {
+    assert.equal(doesSubjectNeedDeepFetch(row, data, updatedAt, checksum, now), true);
+  }
+});
+
+test("subjects without real components can cache their empty result", () => {
+  const row = { subjectid: "empty", Lsubjectcomponentid: "0", Tsubjectcomponentid: " null ", Psubjectcomponentid: "undefined" };
+  const now = Date.now();
+  assert.equal(doesSubjectNeedDeepFetch(row, {}, now, computeSubjectRowChecksum(row), now), false);
+  assert.equal(doesSubjectNeedDeepFetch({ ...row, Lsubjectcomponentid: "lecture" }, {}, now, computeSubjectRowChecksum(row), now), true);
+});
+
+test("component checksums canonicalize equivalent ID lists and isolate L/T changes", () => {
+  const row = { subjectid: "ids", Lsubjectcomponentid: "a,b", Lpercentage: 100, Tsubjectcomponentid: "t", Tpercentage: 100 };
+  const equivalent = { ...row, Lsubjectcomponentid: " b, a, a, 0, null, undefined, " };
+  assert.equal(computeSubjectRowChecksum(equivalent), computeSubjectRowChecksum(row));
+  assert.equal(computeSubjectComponentChecksum(equivalent, "L"), computeSubjectComponentChecksum(row, "L"));
+  assert.equal(computeSubjectComponentChecksum({ ...row, Tpercentage: 50 }, "L"), computeSubjectComponentChecksum(row, "L"));
+  assert.notEqual(computeSubjectComponentChecksum({ ...row, Lsubjectcomponentid: "c" }, "L"), computeSubjectComponentChecksum(row, "L"));
+});
+
+test("count coverage requires valid total and present pairs for all real components or the aggregate", () => {
+  const row = { Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", Ltotalclass: 5, Ltotalpresent: 4 };
+  assert.equal(hasSubjectCountCoverage(row), false);
+  assert.equal(hasSubjectCountCoverage({ ...row, Ttotalclass: 0, Ttotalpresent: 0 }), true);
+  assert.equal(hasSubjectCountCoverage({ ...row, totalclasses: "7", totalpresents: "5" }), true);
+  for (const [totalclass, totalpresent] of [["", 0], [" ", 0], [-1, 0], [5, 6], [5.5, 4], [Infinity, 4], [5, null]]) {
+    assert.equal(hasSubjectCountCoverage({ ...row, totalclass, totalpresent }), false);
+  }
+  assert.equal(hasSubjectCountCoverage({ Lsubjectcomponentid: "0" }), true);
+});
+
+test("mixed practical history remains daily unless practical counts are covered separately", () => {
+  const yesterday = Date.UTC(2026, 9, 6, 8, 30);
+  const today = yesterday + 86400000;
+  for (const type of ["L", "T"]) {
+    const row = { [`${type}subjectcomponentid`]: "theory", Psubjectcomponentid: "practical", totalclass: 1, totalpresent: 1, [`${type}percentage`]: 100, Ppercentage: 100 };
+    const data = { [type]: { totalclass: 1, totalpresent: 1 }, P: { totalclass: 1, totalpresent: 1 } };
+    assert.equal(hasSubjectCountCoverage(row), false, "aggregate counts cover theory but say nothing about practical classes");
+    assert.equal(doesSubjectNeedDeepFetch(row, data, yesterday, computeSubjectRowChecksum(row), today), true);
+    const covered = { ...row, Ptotalclass: 1, Ptotalpresent: 1 };
+    assert.equal(hasSubjectCountCoverage(covered), true);
+    assert.equal(doesSubjectNeedDeepFetch(covered, data, yesterday, computeSubjectRowChecksum(covered), today), false);
+  }
+  assert.equal(hasSubjectCountCoverage({ Psubjectcomponentid: "practical", totalclass: 1, totalpresent: 1 }), true);
+});
+
+test("count coverage and current checksums recognize the same count aliases as attendance parsing", () => {
+  const row = { Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTotalclass: "5", ltotalpresent: "4", ttotalclass: "2", TTotalpresent: "1" };
+  assert.equal(hasSubjectCountCoverage(row), true);
+  const aggregate = { Lsubjectcomponentid: "lecture", totalclasses: 7, totalpresents: 5 };
+  assert.equal(hasSubjectCountCoverage(aggregate), true);
+  assert.notEqual(computeSubjectRowChecksum(aggregate), computeSubjectRowChecksum({ ...aggregate, totalpresents: 6 }));
+});
+
+test("previous ID-bearing checksums remain compatible after ID normalization", () => {
+  const row = { subjectid: "old-ids", Lsubjectcomponentid: " b,a,a ", Lpercentage: 100, Ltotalclass: 2, Ltotalpresent: 2 };
+  const previousChecksum = "old-ids||||2:2:100: b,a,a |:::|:::";
+  const data = { L: { totalclass: 2, totalpresent: 2 } };
+  const now = Date.now();
+  assert.equal(doesSubjectNeedDeepFetch(row, data, now, previousChecksum, now), false);
 });
 
 

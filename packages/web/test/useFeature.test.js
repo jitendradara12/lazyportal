@@ -282,17 +282,41 @@ test("logout aborts active shared transports, not just their eventual cache writ
   assert.equal(getCached("audit.active-abort").data, null);
 });
 
-test("a failed older version does not silently retry a waiting version", async () => {
+test("a failed older version releases a newer snapshot without retrying the old read", async () => {
   let fail, calls = 0;
   const error = new Error("Portal unavailable");
   const old = requestFeature("audit.version-error", () => new Promise((_, reject) => { fail = reject; }), {}, "old");
+  const joinedOld = requestFeature("audit.version-error", async () => { throw new Error("Duplicate old read"); }, {}, "old");
+  assert.equal(joinedOld, old);
   await Promise.resolve();
-  const queued = requestFeature("audit.version-error", async () => { calls++; }, {}, "new");
+  const readNew = async () => { calls++; return "new data"; };
+  const queued = requestFeature("audit.version-error", readNew, { checksum: "new" }, "new");
+  const joined = requestFeature("audit.version-error", readNew, { checksum: "new" }, "new");
+  assert.equal(calls, 0);
   fail(error);
   await Promise.all([
     assert.rejects(old, (err) => err === error),
-    assert.rejects(queued, (err) => err === error),
+    queued,
+    joined,
+  ]);
+  assert.equal((await queued).data, "new data");
+  assert.deepEqual(await joined, await queued);
+  assert.equal(calls, 1);
+  assert.equal(getCached("audit.version-error").checksum, "new");
+});
+
+test("logout cancels a newer snapshot even when the older read later rejects", async () => {
+  let fail, calls = 0;
+  const error = new Error("Old request failed after logout");
+  const old = requestFeature("audit.version-error-logout", () => new Promise((_, reject) => { fail = reject; }), {}, "old");
+  await Promise.resolve();
+  const queued = requestFeature("audit.version-error-logout", async () => { calls++; return "discard"; }, {}, "new");
+  invalidateCacheGeneration();
+  fail(error);
+  await Promise.all([
+    assert.rejects(old, (err) => err === error),
+    assert.rejects(queued, { name: "AbortError" }),
   ]);
   assert.equal(calls, 0);
-  assert.equal((await requestFeature("audit.version-error", async () => "retried", {}, "new")).data, "retried");
+  assert.equal(getCached("audit.version-error-logout").data, null);
 });

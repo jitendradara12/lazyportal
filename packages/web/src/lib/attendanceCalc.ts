@@ -198,6 +198,66 @@ function isLabRow(r: Record<string, unknown>): boolean {
   );
 }
 
+/** True/false means agreement/disagreement; null means the overview cannot verify the history. */
+export function subjectDetailMatchesOverview(
+  row: Record<string, unknown>,
+  detail?: Record<string, unknown> | null,
+): boolean | null {
+  if (!isSubjectDetailComplete(row, detail)) return false;
+  const count = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = row[key];
+      if (value == null || typeof value === "boolean" || String(value).trim() === "") continue;
+      const n = Number(value);
+      if (Number.isInteger(n) && n >= 0) return n;
+    }
+    return null;
+  };
+  const componentCounts = (type: string) => [
+    count(`${type}totalclass`, `${type}Totalclass`, `${type.toLowerCase()}totalclass`),
+    count(`${type}totalpresent`, `${type}Totalpresent`, `${type.toLowerCase()}totalpresent`),
+  ];
+  const compare = (total: number, present: number, expectedTotal: number | null, expectedPresent: number | null, rawPercentage: unknown): boolean | null => {
+    if ((expectedTotal !== null && total !== expectedTotal) ||
+      (expectedPresent !== null && present !== expectedPresent)) return false;
+    let known = expectedTotal !== null || expectedPresent !== null;
+    if (expectedTotal !== null && expectedPresent !== null) return true;
+    const percentage = pct(rawPercentage as string | number | null | undefined);
+    if (percentage !== null && percentage >= 0 && percentage <= 100) {
+      if (total === 0) {
+        if (percentage > 0) return false;
+        // A portal 0% can mean either no classes or all classes missed.
+      } else {
+        const decimals = Math.max(1, String(rawPercentage).replace("%", "").trim().split(".")[1]?.length ?? 0);
+        if (Number(((present / total) * 100).toFixed(Math.min(100, decimals))) !== percentage) return false;
+        known = true;
+      }
+    }
+    return known ? true : null;
+  };
+  const types = ["L", "T", "P"].filter(type => features.getAttendanceComponentIds(row[`${type}subjectcomponentid`]).length);
+  let known = false;
+  const stats = new Map(types.map(type => [type, parseClassLogs(detail![type], type, false)]));
+  for (const type of types) {
+    const parsed = stats.get(type);
+    const [expectedTotal, expectedPresent] = componentCounts(type);
+    const result = compare(parsed?.total ?? 0, parsed?.attended ?? 0, expectedTotal, expectedPresent, row[`${type}percentage`]);
+    if (result === false) return false;
+    known ||= result === true;
+  }
+  const combinedTypes = types.filter(type => type !== "P" || !types.some(t => t === "L" || t === "T"));
+  if (combinedTypes.length) {
+    const total = combinedTypes.reduce((sum, type) => sum + (stats.get(type)?.total ?? 0), 0);
+    const present = combinedTypes.reduce((sum, type) => sum + (stats.get(type)?.attended ?? 0), 0);
+    const exactComponents = combinedTypes.every(type => componentCounts(type).every(value => value !== null));
+    const percentage = exactComponents ? undefined : isLabRow(row) ? row.Ppercentage : row.LTpercantage ?? row.LTpercentage;
+    const result = compare(total, present, count("totalclass", "totalclasses", "Totalclass"), count("totalpresent", "totalpresents", "Totalpresent"), percentage);
+    if (result === false) return false;
+    known ||= result === true;
+  }
+  return known ? true : null;
+}
+
 function hasExplicitOverviewPercentage(r: Record<string, unknown>): boolean {
   // Mirror the percentage sources used by the overview calculation below.
   return [

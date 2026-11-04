@@ -3,12 +3,59 @@ import assert from "node:assert/strict";
 
 const {
   isSubjectDetailComplete,
+  subjectDetailMatchesOverview,
   combinedAttendance,
   computeBunkMargin,
   getColorClass,
   parseClassLogs,
   pct,
 } = await import("../src/lib/attendanceCalc.ts");
+
+const history = (present, total) => ({ summary: Array.from({ length: total }, (_, i) => ({ present: i < present ? "Y" : "N" })) });
+
+test("history agreement detects stale portal responses without requiring counts to increase", () => {
+  const row = { Lsubjectcomponentid: "lecture", Lpercentage: 94.4, LTpercantage: 94.4 };
+  assert.equal(subjectDetailMatchesOverview(row, { L: history(34, 36) }), true);
+  assert.equal(subjectDetailMatchesOverview(row, { L: history(30, 32) }), false);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Lpercentage: 93.8, LTpercantage: 93.8 }, { L: history(30, 32) }), true);
+});
+
+test("explicit attendance counts take precedence over inconsistent overview percentages", () => {
+  const row = { Lsubjectcomponentid: "lecture", Ltotalclass: "36", Ltotalpresent: "34", Lpercentage: 93.8 };
+  assert.equal(subjectDetailMatchesOverview(row, { L: history(34, 36) }), true);
+  assert.equal(subjectDetailMatchesOverview(row, { L: history(30, 32) }), false);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ltotalclass: 32, Ltotalpresent: 30 }, { L: history(30, 32) }), true);
+  assert.equal(subjectDetailMatchesOverview({ Lsubjectcomponentid: "lecture", Ltotalclass: 36, Lpercentage: 94.4 }, { L: history(30, 36) }), false);
+});
+
+test("overview agreement uses weighted L/T totals and checks practical components separately", () => {
+  const row = { Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", Psubjectcomponentid: "practical", LTpercantage: 97.1, Ppercentage: 80 };
+  const detail = { L: history(30, 31), T: history(3, 3), P: history(4, 5) };
+  assert.equal(subjectDetailMatchesOverview(row, detail), true);
+  assert.equal(subjectDetailMatchesOverview(row, { ...detail, T: history(2, 3) }), false);
+  assert.equal(subjectDetailMatchesOverview(row, { ...detail, P: history(3, 5) }), false);
+  assert.equal(subjectDetailMatchesOverview({ ...row, totalclass: 34, totalpresent: 33, LTpercantage: 0 }, detail), true);
+});
+
+test("missing metadata and zero percent cannot prove that history is empty", () => {
+  const row = { Psubjectcomponentid: "practical" };
+  assert.equal(subjectDetailMatchesOverview(row, { P: history(4, 5) }), null);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: 0 }, { P: history(0, 0) }), null);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: 0 }, { P: history(0, 5) }), true);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: 80 }, { P: history(0, 0) }), false);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ptotalclass: 0, Ptotalpresent: 0 }, { P: history(0, 0) }), true);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: "broken", Ptotalclass: " " }, { P: history(4, 5) }), null);
+  assert.equal(subjectDetailMatchesOverview(row, {}), false);
+});
+
+test("history percentages match the precision supplied by the portal", () => {
+  const row = { Psubjectcomponentid: "practical" };
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: "66.67%" }, { P: history(2, 3) }), true);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: 66.7 }, { P: history(2, 3) }), true);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: "66.70%" }, { P: history(2, 3) }), false);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Ppercentage: 100 }, { P: history(9, 10) }), false);
+  assert.equal(subjectDetailMatchesOverview({ ...row, Lsubjectcomponentid: "0", LTpercantage: 0, Ppercentage: 80 }, { P: history(4, 5) }), true);
+});
 
 const {
   doesSubjectNeedDeepFetch,
@@ -295,8 +342,8 @@ test("doesSubjectNeedDeepFetch detects incomplete cache and triggers repair", ()
 
   // Complete cache: both L and T present
   const completeCached = {
-    L: { summary: [{ present: "Y" }] },
-    T: { summary: [{ present: "Y" }] },
+    L: { totalclass: 31, totalpresent: 28 },
+    T: { totalclass: 3, totalpresent: 3 },
   };
   const doesNotNeedDeep = doesSubjectNeedDeepFetch(row, completeCached, now, checksum, now);
   assert.equal(doesNotNeedDeep, false, "complete cache with matching checksum skips deep fetch");

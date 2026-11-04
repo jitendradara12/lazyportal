@@ -251,7 +251,7 @@ function cacheHistory(row, count, present = count, age = 0) {
 }
 
 test("cache-only attendance visits preserve sync time and emit no sync event", async (t) => {
-  const row = auditRow("p1");
+  const row = { ...auditRow("p1"), Ptotalclass: 7, Ptotalpresent: 7 };
   cacheHistory(row, 7, 7, 86400000);
   const post = t.mock.method(client, "post", async () => { throw new Error("Unexpected history fetch"); });
   const events = t.mock.method(window, "dispatchEvent");
@@ -293,8 +293,8 @@ test("a completed history read records its actual completion time", async (t) =>
   assert.equal(values.get("juet.portal.last_sync"), String(completedAt));
 });
 
-test("unchanged weekly subjects cause no history requests across seven daily checks", async (t) => {
-  const rows = [auditRow("p1"), auditRow("p2", 80)];
+test("unchanged count-verified subjects cause no history requests across seven daily checks", async (t) => {
+  const rows = [{ ...auditRow("p1"), Ptotalclass: 7, Ptotalpresent: 7 }, { ...auditRow("p2", 80), Ptotalclass: 5, Ptotalpresent: 4 }];
   cacheHistory(rows[0], 7, 7, 8 * 86400000);
   cacheHistory(rows[1], 5, 4, 8 * 86400000);
   const post = t.mock.method(client, "post", async () => { throw new Error("Unexpected history fetch"); });
@@ -309,7 +309,7 @@ test("unchanged weekly subjects cause no history requests across seven daily che
 });
 
 test("background sync fetches only changed, missing, or incomplete subject history", async (t) => {
-  const original = auditRow("unchanged");
+  const original = { ...auditRow("unchanged"), Ptotalclass: 7, Ptotalpresent: 7 };
   cacheHistory(original, 7, 7, 8 * 86400000);
   const changed = auditRow("changed", 100);
   cacheHistory(changed, 5);
@@ -328,8 +328,8 @@ test("background sync fetches only changed, missing, or incomplete subject histo
   assert.equal(calls.length, 3);
 });
 
-test("manual refresh skips unchanged history, including weekly subjects across days", async (t) => {
-  const rows = [auditRow("p1"), auditRow("weekly", 80)];
+test("manual refresh skips unchanged count-verified history across days", async (t) => {
+  const rows = [{ ...auditRow("p1"), Ptotalclass: 7, Ptotalpresent: 7 }, { ...auditRow("weekly", 80), Ptotalclass: 5, Ptotalpresent: 4 }];
   cacheHistory(rows[0], 7, 7, 8 * 86400000);
   cacheHistory(rows[1], 5, 4, 8 * 86400000);
   const post = t.mock.method(client, "post", async () => { throw new Error("Unexpected history fetch"); });
@@ -422,7 +422,7 @@ test("manual retry rechecks a successful sibling if its overview changed", async
 });
 
 test("a new portal day resets the checkpoint but preserves matching subject caches", async (t) => {
-  const rows = [auditRow("p1"), auditRow("p2")];
+  const rows = [{ ...auditRow("p1"), Ptotalclass: 8, Ptotalpresent: 8 }, auditRow("p2")];
   const checkpoint = {};
   const calls = { p1: 0, p2: 0 };
   let fail = true;
@@ -574,15 +574,16 @@ test("background detail retry reuses successful subjects and spends no quota", a
 });
 
 test("an open sheet pauses queued subjects and resume reuses its completed read", async (t) => {
-  const rows = [auditRow("pause1"), auditRow("pause2")];
+  const rows = Array.from({ length: 7 }, (_, i) => auditRow(`pause${i + 1}`));
   let finishFirst, firstStarted;
+  const gate = new Promise(resolve => { finishFirst = resolve; });
   const started = new Promise((resolve) => { firstStarted = resolve; });
   const calls = [];
   t.mock.method(client, "post", async (_path, payload) => {
     calls.push(payload.subjectid);
-    if (payload.subjectid === "pause1") {
-      firstStarted();
-      await new Promise((resolve) => { finishFirst = resolve; });
+    if (["pause1", "pause2", "pause3", "pause4", "pause5"].includes(payload.subjectid)) {
+      if (calls.length === 5) firstStarted();
+      await gate;
     }
     return { response: auditLogs(8) };
   });
@@ -592,14 +593,14 @@ test("an open sheet pauses queued subjects and resume reuses its completed read"
   try {
     finishFirst();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(calls, ["pause1"]);
-    await refreshSubjectDetail(session, rows[1], base);
-    assert.deepEqual(calls, ["pause1", "pause2"]);
+    assert.deepEqual(calls, ["pause1", "pause2", "pause3", "pause4", "pause5"]);
+    await refreshSubjectDetail(session, rows[5], base);
+    assert.deepEqual(calls, ["pause1", "pause2", "pause3", "pause4", "pause5", "pause6"]);
   } finally {
     resume();
   }
   assert.equal((await batch).complete, true);
-  assert.deepEqual(calls, ["pause1", "pause2"]);
+  assert.deepEqual(calls, ["pause1", "pause2", "pause3", "pause4", "pause5", "pause6", "pause7"]);
   assert.equal(getManualRefreshQuota(session).used, 0);
 });
 
@@ -741,9 +742,12 @@ for (const change of ["overview", "component", "semester", "account", "institute
       Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
     let fail = true, lectureReads = 0;
     t.mock.method(client, "post", async (_path, payload) => {
-      if (payload.cmpidkey[0].subjectcomponentid.startsWith("lecture")) { lectureReads++; return { response: auditLogs(9) }; }
+      if (payload.cmpidkey[0].subjectcomponentid.startsWith("lecture")) {
+        lectureReads++;
+        return { response: auditLogs(9, change === "overview" && !fail ? 8 : 9) };
+      }
       if (fail) throw new Error("Tutorial unavailable");
-      return { response: auditLogs(4) };
+      return { response: auditLogs(change === "overview" ? 1 : 4) };
     });
     await assert.rejects(refreshSubjectDetail(session, row, base));
     fail = false;
@@ -800,7 +804,7 @@ test("logout prevents a late component failure from restoring its partial checkp
 });
 
 test("a request timeout halts the background sync queue to protect slow portals", async (t) => {
-  const rows = [auditRow("to1"), auditRow("to2")];
+  const rows = Array.from({ length: 7 }, (_, i) => auditRow(`to${i + 1}`));
   const calls = [];
   t.mock.method(client, "post", async (_path, payload) => {
     calls.push(payload.subjectid);
@@ -813,11 +817,11 @@ test("a request timeout halts the background sync queue to protect slow portals"
   });
   const res = await syncAttendanceDetails({ session, rows, base });
   assert.equal(res.complete, false);
-  assert.deepEqual(calls, ["to1"], "queued subjects were cancelled after timeout");
+  assert.deepEqual(calls, ["to1", "to2", "to3", "to4", "to5"], "no queued subjects start after the in-flight timeout");
 });
 
 test("a network error or 504 halts the background sync queue", async (t) => {
-  const rows = [auditRow("net1"), auditRow("net2")];
+  const rows = Array.from({ length: 7 }, (_, i) => auditRow(`net${i + 1}`));
   const calls = [];
   t.mock.method(client, "post", async (_path, payload) => {
     calls.push(payload.subjectid);
@@ -831,7 +835,7 @@ test("a network error or 504 halts the background sync queue", async (t) => {
   });
   const res = await syncAttendanceDetails({ session, rows, base });
   assert.equal(res.complete, false);
-  assert.deepEqual(calls, ["net1"], "queued subjects were cancelled after network error");
+  assert.deepEqual(calls, ["net1", "net2", "net3", "net4", "net5"], "no queued subjects start after the in-flight network error");
 });
 
 test("subjects without attendance complete sync and reuse their empty history checksums", async (t) => {
@@ -875,14 +879,14 @@ test("successful components are saved and visible while a sibling is still pendi
 
 test("sync reports one coherent terminal failure with its unfinished subjects", async (t) => {
   const states = [];
-  const rows = [auditRow("state1"), auditRow("state2")];
+  const rows = Array.from({ length: 7 }, (_, i) => auditRow(`state${i + 1}`));
   t.mock.method(client, "post", async () => { throw Object.assign(new Error("Timed out"), { code: "REQUEST_TIMEOUT" }); });
   const result = await syncAttendanceDetails({ session, rows, base, onProgress: state => states.push(state) });
   assert.equal(result.complete, false);
   assert.deepEqual(states.map(state => state.phase), ["running", "failed"]);
-  assert.equal(states.at(-1).done, 1);
-  assert.equal(states.at(-1).total, 2);
-  assert.deepEqual([...states.at(-1).pending], ["state2"]);
+  assert.equal(states.at(-1).done, 5);
+  assert.equal(states.at(-1).total, 7);
+  assert.deepEqual([...states.at(-1).pending], ["state6", "state7"]);
 });
 
 test("a paused sync cancels immediately without waiting for the open sheet", async (t) => {

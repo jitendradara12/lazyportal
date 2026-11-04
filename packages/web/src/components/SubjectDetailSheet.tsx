@@ -85,7 +85,7 @@ export function SubjectDetailSheet({
 
   const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
   const activeDetail = detail.data ?? cachedDetail ?? entry.data;
-  const savedBreakdown = Boolean(activeDetail) && doesSubjectNeedDeepFetch(row, activeDetail, entry.updatedAt, entry.checksum);
+  const savedBreakdown = Boolean(activeDetail) && (entry.provisional || doesSubjectNeedDeepFetch(row, activeDetail, entry.updatedAt, entry.checksum, Date.now(), entry.provisional));
   const attInfo = combinedAttendance(row, activeDetail, target / 100, savedBreakdown);
   const emptyHistory = !attInfo.hasHeldClasses && attInfo.pctNum === null && isSubjectDetailComplete(row, activeDetail);
 
@@ -207,7 +207,7 @@ export function SubjectDetailSheet({
                 <span className="att-sheet-ratio-val">
                   <strong>{attInfo.totalPresent}</strong> / {attInfo.totalClasses}
                 </span>
-                <span className="att-sheet-ratio-label">classes attended</span>
+                <span className="att-sheet-ratio-label">{savedBreakdown ? "saved classes attended" : "classes attended"}</span>
               </div>
             )}
           </div>

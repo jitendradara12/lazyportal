@@ -6,6 +6,8 @@ import {
   isCurrentPortalDay,
   getPortalDayKey,
   computeSubjectRowChecksum,
+  computeSubjectComponentChecksum,
+  hasSubjectCountCoverage,
   doesSubjectNeedDeepFetch,
   FEATURE_TTL,
   type SessionRef,
@@ -19,6 +21,7 @@ import {
   cleanDateTime,
   isSubjectDetailComplete,
   parseClassLogs,
+  subjectDetailMatchesOverview,
 } from "../lib/attendanceCalc";
 import type { SectionProps, Semester } from "../types";
 
@@ -187,6 +190,8 @@ export interface SubjectDetailCacheEntry {
   data: Record<string, Record<string, unknown>> | null;
   updatedAt: number | null;
   checksum?: string | null;
+  componentChecksums?: Record<string, string>;
+  provisional?: boolean;
 }
 
 export function getCachedSubjectDetailEntry(
@@ -201,6 +206,8 @@ export function getCachedSubjectDetailEntry(
     data: cached.data,
     updatedAt: cached.updatedAt,
     checksum: typeof cached.checksum === "string" ? cached.checksum : null,
+    componentChecksums: cached.componentChecksums as Record<string, string> | undefined,
+    provisional: cached.provisional === true,
   };
 }
 
@@ -225,8 +232,8 @@ export function setCachedSubjectDetail(
     row,
     session.instituteid ? String(session.instituteid) : undefined,
   );
-  const checksum = isSubjectDetailComplete(row, data) ? computeSubjectRowChecksum(row) : null;
-  return setCached(key, data, checksum ? { checksum } : undefined);
+  const checksum = subjectDetailMatchesOverview(row, data) !== false ? computeSubjectRowChecksum(row) : null;
+  return setCached(key, data, { checksum });
 }
 
 function subjectDetailRequest(
@@ -239,7 +246,37 @@ function subjectDetailRequest(
     row.individualsubjectcode ?? row.subjectcode,
     ...["L", "T", "P"].map((type) => features.getAttendanceComponentIds(row[`${type}subjectcomponentid`])),
   ]);
-  return { key, snapshot, portalDay };
+  return { key, snapshot, portalDay, version: JSON.stringify([snapshot, portalDay]) };
+}
+
+const subjectReads = new Map<string, { active: boolean; unavailable?: unknown; listeners: Set<(error: unknown) => void> }>();
+
+function subjectReadState(request: ReturnType<typeof subjectDetailRequest>) {
+  const key = JSON.stringify([getCacheGeneration(), request.key, request.version]);
+  let state = subjectReads.get(key);
+  if (!state) subjectReads.set(key, state = { active: false, listeners: new Set() });
+  const release = () => {
+    if (!state!.active && !state!.listeners.size && subjectReads.get(key) === state) subjectReads.delete(key);
+  };
+  return { state, release };
+}
+
+function componentRow(row: AttRow & Record<string, unknown>, type: string) {
+  const keys = new RegExp(`^${type}(subjectcomponentid|percentage|totalclass|totalpresent)$`, "i");
+  return Object.fromEntries(Object.entries(row).filter(([key]) => keys.test(key)));
+}
+
+function componentChecksums(row: AttRow & Record<string, unknown>, base: { registrationcode?: string | null }) {
+  return Object.fromEntries(["L", "T", "P"].map(type => [type, JSON.stringify([
+    row.subjectid, row.individualsubjectcode ?? row.subjectcode, base.registrationcode,
+    computeSubjectComponentChecksum(row, type),
+  ])]));
+}
+
+function detailMetadata(row: AttRow & Record<string, unknown>, base: { registrationcode?: string | null }, provisional: boolean) {
+  return { checksum: computeSubjectRowChecksum(row), provisional,
+    ...(!provisional ? { componentChecksums: componentChecksums(row, base) } : {}),
+  };
 }
 
 function validSubjectComponent(row: AttRow & Record<string, unknown>, [type, data]: [string, Record<string, unknown>]) {
@@ -251,23 +288,58 @@ export async function readSubjectDetail(
   session: SectionProps["session"], row: AttRow & Record<string, unknown>,
   base: { registrationid?: string | null; registrationcode?: string | null },
   signal?: AbortSignal,
+  onProvisional?: () => void,
 ) {
   const generation = getCacheGeneration();
-  const { key, snapshot, portalDay } = subjectDetailRequest(session, row, base);
+  const request = subjectDetailRequest(session, row, base);
+  const { key, snapshot, portalDay } = request;
+  const { state, release } = subjectReadState(request);
+  state.active = true;
   const checkpoint = getCached<Record<string, Record<string, unknown>>>(key);
+  const saved = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
+  const checksums = componentChecksums(row, base);
   const validComponent = (entry: [string, Record<string, unknown>]) => validSubjectComponent(row, entry);
-  const reusable = checkpoint.snapshot === snapshot && checkpoint.portalDay === portalDay ? checkpoint.data : null;
-  const completed = new Map(Object.entries(reusable ?? {}).filter(validComponent));
+  const completed = new Map<string, Record<string, unknown>>();
+  const reuse = (data: Record<string, Record<string, unknown>> | null, previous: Record<string, string> | undefined, sameDay: boolean, exact = false) => {
+    for (const [type, component] of Object.entries(data ?? {})) {
+      if (!validComponent([type, component])) continue;
+      const matches = subjectDetailMatchesOverview(componentRow(row, type), { [type]: component });
+      if (matches === null && !exact) continue;
+      if (matches !== false &&
+          (sameDay || hasSubjectCountCoverage(componentRow(row, type))) &&
+          (exact || previous?.[type] === checksums[type])) completed.set(type, component);
+    }
+  };
+  if (saved.checksum !== computeSubjectRowChecksum(row)) {
+    reuse(saved.data, saved.componentChecksums, isCurrentPortalDay(saved.updatedAt));
+  }
+  const checkpointMatches = checkpoint.snapshot === snapshot && checkpoint.portalDay === portalDay;
+  reuse(checkpoint.data, checkpoint.componentChecksums as Record<string, string> | undefined,
+    checkpoint.portalDay === portalDay, checkpointMatches);
+  if (isSubjectDetailComplete(row, Object.fromEntries(completed)) &&
+      subjectDetailMatchesOverview(row, Object.fromEntries(completed)) === false) completed.clear();
   const current = () => !signal?.aborted && isCacheGenerationCurrent(generation) && getPortalDayKey() === portalDay;
   const saveProgress = () => {
-    if (current()) setCached(key, Object.fromEntries([...completed].filter(validComponent)), { snapshot, portalDay });
+    if (current()) setCached(key, Object.fromEntries([...completed].filter(validComponent)), { snapshot, portalDay, componentChecksums: checksums });
   };
-  const data = await features.getSubjectAttendanceAll(client, session, row, base, "current", {
-    completed, signal, onComponent: saveProgress,
-  });
-  if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
-  if (current()) setCached(key, {}, { snapshot, portalDay });
-  return data;
+  try {
+    const data = await features.getSubjectAttendanceAll(client, session, row, base, "current", {
+      completed, signal, onComponent: saveProgress,
+      onUnavailable: (error: unknown) => {
+        if (!current()) return;
+        state.unavailable = error;
+        for (const notify of state.listeners) notify(error);
+      },
+    });
+    if (getPortalDayKey() !== portalDay) throw new Error("The portal day changed while loading. Please retry.");
+    if (!isSubjectDetailComplete(row, data)) throw new Error("Portal returned incomplete class records");
+    if (subjectDetailMatchesOverview(row, data) === false) {
+      onProvisional?.();
+      return isSubjectDetailComplete(row, saved.data) ? saved.data! : data;
+    }
+    if (current()) setCached(key, {}, { snapshot, portalDay });
+    return data;
+  } finally { state.active = false; release(); }
 }
 
 /** Full saved history stays visible; a first load can show completed components. */
@@ -276,7 +348,8 @@ export function useSubjectDetail(
   base: { registrationid?: string | null; registrationcode?: string | null },
 ) {
   const checksum = computeSubjectRowChecksum(row);
-  const { key, snapshot, portalDay } = subjectDetailRequest(session, row, base);
+  const { key, snapshot, portalDay, version } = subjectDetailRequest(session, row, base);
+  const validation = { provisional: false };
   const [, updateProgress] = useState(0);
   useEffect(() => {
     const update = (event: Event) => {
@@ -286,15 +359,15 @@ export function useSubjectDetail(
     return () => window.removeEventListener("juet:cache-updated", update);
   }, [key]);
   const detail = useFeature<Record<string, Record<string, unknown>>>({
-    run: signal => readSubjectDetail(session, row, base, signal),
+    run: signal => readSubjectDetail(session, row, base, signal, () => { validation.provisional = true; }),
     deps: [session, base.registrationid, base.registrationcode, rowSubId(row), checksum],
     cacheKey: getSubjectCacheKey(session.username, base.registrationid, row, session.instituteid),
-    requestVersion: checksum,
+    requestVersion: version,
     isFresh: () => {
       const entry = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
-      return !doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum);
+      return !doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
     },
-    writeExtra: { checksum },
+    writeExtra: () => detailMetadata(row, base, validation.provisional),
   });
   const progress = getCached<Record<string, Record<string, unknown>>>(key);
   const partial = useMemo(() => progress.snapshot === snapshot && progress.portalDay === portalDay
@@ -306,14 +379,24 @@ export function useSubjectDetail(
 export function refreshSubjectDetail(
   session: SectionProps["session"], row: AttRow & Record<string, unknown>,
   base: { registrationid?: string | null; registrationcode?: string | null },
+  onUnavailable?: (error: unknown) => void,
 ) {
-  const checksum = computeSubjectRowChecksum(row);
+  const request = subjectDetailRequest(session, row, base);
+  const { state, release } = subjectReadState(request);
+  let provisional = false;
+  if (onUnavailable) {
+    state.listeners.add(onUnavailable);
+    if (state.unavailable) onUnavailable(state.unavailable);
+  }
   return requestFeature(
     getSubjectCacheKey(session.username, base.registrationid, row, session.instituteid),
-    signal => readSubjectDetail(session, row, base, signal),
-    { checksum },
-    checksum,
-  );
+    signal => readSubjectDetail(session, row, base, signal, () => { provisional = true; }),
+    () => detailMetadata(row, base, provisional),
+    request.version,
+  ).finally(() => {
+    if (onUnavailable) state.listeners.delete(onUnavailable);
+    release();
+  });
 }
 
 export interface AttLovData {

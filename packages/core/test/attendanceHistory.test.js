@@ -1,12 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getSubjectAttendanceAll, fetchSubjectAttendance } from "../src/features.js";
+import { getSubjectAttendanceAll, fetchSubjectAttendance, hasSubjectAttendanceRequests } from "../src/features.js";
 import { createClient } from "../src/client.js";
 
 const session = { username: "student", instituteid: "i", token: "t" };
 const base = { registrationid: "r", registrationcode: "R" };
 const row = { subjectid: "s", Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial" };
 const history = { summary: [{ present: "Y" }] };
+
+test("request prediction matches actual component reads for empty, unknown, and positive attendance", async () => {
+  for (const [name, componentRow, expected, which = "current"] of [
+    ["missing IDs", { subjectid: "s" }, false],
+    ["placeholder IDs", { subjectid: "s", Lsubjectcomponentid: "0,null,undefined, " }, false],
+    ["unknown totals", { ...row, Lpercentage: 0, Tpercentage: "" }, true],
+    ["subject totals cannot establish component emptiness", { ...row, totalclass: 0, totalpresent: 0 }, true],
+    ["explicit zero component totals", { ...row, Ltotalclass: 0, Ttotalclass: "0" }, false],
+    ["positive present count overrides zero total", { ...row, Ltotalclass: 0, Ttotalclass: 0, Ltotalpresent: 1 }, true],
+    ["positive percentage overrides zero total", { ...row, Ltotalclass: 0, Ttotalclass: 0, Tpercentage: "50%" }, true],
+    ["previous reads ignore current empty counts", { ...row, Ltotalclass: 0, Ttotalclass: 0 }, true, "previous"],
+  ]) {
+    let calls = 0;
+    const client = { post: async () => { calls++; return { response: history }; } };
+    assert.equal(hasSubjectAttendanceRequests(componentRow, which), expected, name);
+    await getSubjectAttendanceAll(client, session, componentRow, base, which);
+    assert.equal(calls > 0, expected, name);
+  }
+});
 
 test("subject totals and missing percentages cannot erase positive component history", async () => {
   for (const evidence of [
@@ -62,6 +81,42 @@ test("an outage cannot be hidden by a later component data error", async () => {
     await new Promise(resolve => setImmediate(resolve));
     throw dataError;
   } }, session, row, base), e => e === outage);
+});
+
+test("an outage is reported once before slow siblings finish and their successful history is retained", async () => {
+  const outage = Object.assign(new Error("Service unavailable"), { status: 503 });
+  const limited = Object.assign(new Error("Too many requests"), { status: 429 });
+  const completed = new Map();
+  const unavailable = [];
+  let finishPractical;
+  let settled = false;
+  const request = getSubjectAttendanceAll({ post: async (_path, payload) => {
+    const id = payload.cmpidkey[0].subjectcomponentid;
+    if (id === "lecture") throw outage;
+    if (id === "tutorial") throw limited;
+    await new Promise(resolve => { finishPractical = resolve; });
+    return { response: history };
+  } }, session, { ...row, Psubjectcomponentid: "practical" }, base, "current", {
+    completed, onUnavailable: error => unavailable.push(error),
+  });
+  const rejected = assert.rejects(request, error => error === outage).then(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  try {
+    assert.deepEqual(unavailable, [outage]);
+    assert.equal(settled, false, "aggregate request waits for successful siblings");
+    assert.equal(completed.has("P"), false);
+  } finally { finishPractical(); await rejected; }
+  assert.deepEqual(completed.get("P"), history);
+  assert.deepEqual(unavailable, [outage]);
+});
+
+test("component data errors do not report the portal unavailable", async () => {
+  const error = new Error("Invalid row");
+  const unavailable = [];
+  await assert.rejects(getSubjectAttendanceAll({ post: async () => { throw error; } }, session, row, base, "current", {
+    onUnavailable: failure => unavailable.push(failure),
+  }), failure => failure === error);
+  assert.deepEqual(unavailable, []);
 });
 
 test("equivalent component lists share one request", async () => {

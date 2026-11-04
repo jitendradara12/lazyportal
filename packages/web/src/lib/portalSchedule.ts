@@ -1,4 +1,5 @@
-import { isSubjectDetailComplete } from "./attendanceCalc.ts";
+import { features } from "@juet/core";
+import { isSubjectDetailComplete, subjectDetailMatchesOverview } from "./attendanceCalc.ts";
 import { REFRESH_POLICIES, type RefreshPolicy } from "./refreshPolicy.ts";
 export { isSubjectDetailComplete };
 
@@ -310,7 +311,7 @@ function pickComponent(row: Record<string, unknown>, prefix: string): string {
   const tot = pick(row, `${prefix}totalclass`, `${prefix}Totalclass`, `${prefix.toLowerCase()}totalclass`);
   const pres = pick(row, `${prefix}totalpresent`, `${prefix}Totalpresent`, `${prefix.toLowerCase()}totalpresent`);
   const pct = pick(row, `${prefix}percentage`);
-  const components = pick(row, `${prefix}subjectcomponentid`).split(",").filter(Boolean).sort().join(",");
+  const components = features.getAttendanceComponentIds(row[`${prefix}subjectcomponentid`]).join(",");
   return `${tot}:${pres}:${pct}:${components}`;
 }
 
@@ -327,25 +328,59 @@ function isValidComponentId(id: unknown): boolean {
   return s !== "" && s !== "0" && s !== "null" && s !== "undefined";
 }
 
+export function computeSubjectComponentChecksum(row: Record<string, unknown>, type: string): string {
+  return pickComponent(row, type);
+}
+
+/** Percentages can stay unchanged as new classes are recorded; exact counts cannot. */
+export function hasSubjectCountCoverage(row: Record<string, unknown>): boolean {
+  const count = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = row[key];
+      if (value == null || typeof value === "boolean" || String(value).trim() === "") continue;
+      const n = Number(value);
+      if (Number.isInteger(n) && n >= 0) return n;
+    }
+    return null;
+  };
+  const pair = (total: number | null, present: number | null) => total !== null && present !== null && present <= total;
+  const covered = (type: string) => pair(
+    count(`${type}totalclass`, `${type}Totalclass`, `${type.toLowerCase()}totalclass`),
+    count(`${type}totalpresent`, `${type}Totalpresent`, `${type.toLowerCase()}totalpresent`),
+  );
+  const types = ["L", "T", "P"].filter(type => features.getAttendanceComponentIds(row[`${type}subjectcomponentid`]).length);
+  if (pair(count("totalclass", "totalclasses", "Totalclass"), count("totalpresent", "totalpresents", "Totalpresent"))) {
+    // The aggregate excludes P when the subject also has lecture/tutorial attendance.
+    return !types.includes("P") || !types.some(type => type === "L" || type === "T") || covered("P");
+  }
+  return types.every(covered);
+}
+
+function subjectRowChecksum(
+  row: Record<string, unknown>,
+  component: (row: Record<string, unknown>, prefix: string) => string,
+  componentMode: "canonical" | "legacy" | "raw" = "canonical",
+): string {
+  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
+  const has = (type: string) => componentMode === "canonical"
+    ? features.getAttendanceComponentIds(row[`${type}subjectcomponentid`]).length > 0
+    : componentMode === "legacy" ? isValidComponentId(row[`${type}subjectcomponentid`]) : Boolean(row[`${type}subjectcomponentid`]);
+  const isLab = Boolean((has("P") || row.Ppercentage) && !has("L") && !has("T"));
+  const overall = isLab
+    ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
+    : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
+  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
+  const pres = componentMode === "canonical"
+    ? pick(row, "totalpresent", "totalpresents", "Totalpresent") : pick(row, "totalpresent", "Totalpresent");
+  return `${subId}|${tot}|${pres}|${overall}|${component(row, "L")}|${component(row, "T")}|${component(row, "P")}`;
+}
+
 /**
  * Legacy row checksum prior to component ID inclusion (e.g. before commit bf74c24).
  * Retained for backward compatibility so existing user caches do not trigger full background refetches.
  */
 export function computeLegacySubjectRowChecksum(row: Record<string, unknown>): string {
-  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
-  const hasL = isValidComponentId(row.Lsubjectcomponentid);
-  const hasT = isValidComponentId(row.Tsubjectcomponentid);
-  const hasP = isValidComponentId(row.Psubjectcomponentid) || Boolean(row.Ppercentage);
-  const isLab = Boolean(hasP && !hasL && !hasT);
-  const overall = isLab
-    ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
-    : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
-  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
-  const pres = pick(row, "totalpresent", "Totalpresent");
-  const L = pickLegacyComponent(row, "L");
-  const T = pickLegacyComponent(row, "T");
-  const P = pickLegacyComponent(row, "P");
-  return `${subId}|${tot}|${pres}|${overall}|${L}|${T}|${P}`;
+  return subjectRowChecksum(row, pickLegacyComponent, "legacy");
 }
 
 /**
@@ -353,20 +388,7 @@ export function computeLegacySubjectRowChecksum(row: Record<string, unknown>): s
  * Captures all component counts, totals, and percentages.
  */
 export function computeSubjectRowChecksum(row: Record<string, unknown>): string {
-  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
-  const hasL = isValidComponentId(row.Lsubjectcomponentid);
-  const hasT = isValidComponentId(row.Tsubjectcomponentid);
-  const hasP = isValidComponentId(row.Psubjectcomponentid) || Boolean(row.Ppercentage);
-  const isLab = Boolean(hasP && !hasL && !hasT);
-  const overall = isLab
-    ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
-    : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
-  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
-  const pres = pick(row, "totalpresent", "Totalpresent");
-  const L = pickComponent(row, "L");
-  const T = pickComponent(row, "T");
-  const P = pickComponent(row, "P");
-  return `${subId}|${tot}|${pres}|${overall}|${L}|${T}|${P}`;
+  return subjectRowChecksum(row, pickComponent);
 }
 
 function getComponentTotal(comp: unknown): number {
@@ -380,21 +402,11 @@ function getComponentTotal(comp: unknown): number {
 
 
 function computeRawLegacySubjectRowChecksum(row: Record<string, unknown>): string {
-  const subId = pick(row, "subjectid", "individualsubjectcode", "subjectcode");
-  const isLab = Boolean(
-    (row.Psubjectcomponentid || row.Ppercentage) &&
-    !row.Lsubjectcomponentid &&
-    !row.Tsubjectcomponentid
-  );
-  const overall = isLab
-    ? pick(row, "Ppercentage", "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance")
-    : pick(row, "LTpercantage", "LTpercentage", "overallattendance", "percentage", "attendance");
-  const tot = pick(row, "totalclass", "totalclasses", "Totalclass");
-  const pres = pick(row, "totalpresent", "Totalpresent");
-  const L = pickLegacyComponent(row, "L");
-  const T = pickLegacyComponent(row, "T");
-  const P = pickLegacyComponent(row, "P");
-  return `${subId}|${tot}|${pres}|${overall}|${L}|${T}|${P}`;
+  return subjectRowChecksum(row, pickLegacyComponent, "raw");
+}
+
+function computePreviousSubjectRowChecksum(row: Record<string, unknown>): string {
+  return subjectRowChecksum(row, (r, type) => `${pickLegacyComponent(r, type)}:${pick(r, `${type}subjectcomponentid`).split(",").filter(Boolean).sort().join(",")}`, "legacy");
 }
 
 export function doesSubjectNeedDeepFetch(
@@ -403,26 +415,31 @@ export function doesSubjectNeedDeepFetch(
   cachedUpdatedAt: number | null,
   cachedChecksum?: string | null,
   now = Date.now(),
+  provisional = false,
 ): boolean {
-  if (!cached || Object.keys(cached).length === 0) return true;
+  if (!cached) return true;
 
   // Incomplete / corrupted cache detection:
   // If a component is expected by the row, but is missing or null in cached,
   // we must deep fetch to repair the incomplete cache (e.g. only tutorials fetched).
   if (!isSubjectDetailComplete(row, cached)) return true;
-
+  if (!cachedUpdatedAt || !Number.isFinite(cachedUpdatedAt) || cachedUpdatedAt <= 0) return true;
   const currentChecksum = computeSubjectRowChecksum(row);
+  // A confirmed portal disagreement is useful for this exact snapshot today.
+  if (provisional) return cachedChecksum !== currentChecksum || !isCurrentPortalDay(cachedUpdatedAt, now);
+  if (subjectDetailMatchesOverview(row, cached) === false) return true;
+  if (!hasSubjectCountCoverage(row) && !isCurrentPortalDay(cachedUpdatedAt, now)) return true;
+
   if (cachedChecksum) {
     if (
       cachedChecksum !== currentChecksum &&
+      cachedChecksum !== computePreviousSubjectRowChecksum(row) &&
       cachedChecksum !== computeLegacySubjectRowChecksum(row) &&
       cachedChecksum !== computeRawLegacySubjectRowChecksum(row)
     ) {
       return true;
     }
-    // Missing or corrupted timestamp
-    if (!cachedUpdatedAt) return true;
-    // A valid checksum is the freshness signal; age alone must not trigger a refetch.
+    // Count-bearing rows can retain unchanged history beyond the current portal day.
     return false;
   }
   // Backward compatibility when checksum was not yet stored in cache

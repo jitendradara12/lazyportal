@@ -197,10 +197,11 @@ export function requestFeature<T>(
   const existing = cacheKey ? inFlight.get(cacheKey) : undefined;
   if (existing) {
     if (existing.version === requestVersion) return existing.promise as Promise<{ data: T; updatedAt: number }>;
-    return existing.promise.then(() => {
+    const next = () => {
       if (!isCacheGenerationCurrent(generation)) throw new DOMException("Request cancelled.", "AbortError");
       return requestFeature(cacheKey, run, writeExtra, requestVersion);
-    });
+    };
+    return existing.promise.then(next, next);
   }
   const controller = new AbortController();
   const request = Promise.resolve().then(() => {

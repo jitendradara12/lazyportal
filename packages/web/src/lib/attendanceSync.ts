@@ -1,5 +1,5 @@
 import { parseClassLogs } from "./attendanceCalc";
-import { doesSubjectNeedDeepFetch, computeSubjectRowChecksum, getPortalDayKey, recordSuccessfulManualRefresh } from "./portalSchedule";
+import { doesSubjectNeedDeepFetch, computeSubjectRowChecksum, getPortalDayKey, getManualRefreshQuota, recordSuccessfulManualRefresh } from "./portalSchedule";
 import { getCachedSubjectDetailEntry, refreshSubjectDetail, rowSubId, type AttRow } from "../sections/attendance";
 import type { Session } from "../types";
 import type { AttData } from "../sections/attendance";
@@ -37,15 +37,17 @@ export function pauseAttendanceSync() {
   };
 }
 
-async function waitForOpenSheets(signal?: AbortSignal) {
-  while (openSheets > 0 && !signal?.aborted) await new Promise<void>((resolve) => {
+async function waitForOpenSheets(signal?: AbortSignal, stopped?: AbortSignal) {
+  while (openSheets > 0 && !signal?.aborted && !stopped?.aborted) await new Promise<void>((resolve) => {
     const resume = () => {
       resumeListeners.delete(resume);
       signal?.removeEventListener("abort", resume);
+      stopped?.removeEventListener("abort", resume);
       resolve();
     };
     resumeListeners.add(resume);
     signal?.addEventListener("abort", resume, { once: true });
+    stopped?.addEventListener("abort", resume, { once: true });
   });
 }
 
@@ -84,7 +86,7 @@ export function attendanceRowsChanged(before: AttRow[], after: AttRow[]) {
 
 /** All syncs use overview checksums to avoid refetching unchanged history. */
 export async function syncAttendanceDetails({
-  session, rows, base, isCurrent = () => true, onDetail, onProgress, overviewUpdatedAt, signal,
+  session, rows, base, isCurrent = () => true, onDetail, onProgress, overviewUpdatedAt, signal, forceProvisional = false,
 }: {
   session: Session;
   rows: AttRow[];
@@ -95,15 +97,16 @@ export async function syncAttendanceDetails({
   signal?: AbortSignal;
   /** Time of the real overview read, so cache-only visits cannot claim a new sync. */
   overviewUpdatedAt?: number | null;
+  forceProvisional?: boolean;
 }) {
   const queue = rows.map((row) => ({
     row,
     entry: getCachedSubjectDetailEntry(
       session.username, base.registrationid, row, session.instituteid,
     ),
-  })).filter(({ row, entry }) => doesSubjectNeedDeepFetch(
-    row, entry.data, entry.updatedAt, entry.checksum,
-  ));
+  })).filter(({ row, entry }) => (forceProvisional && entry.provisional) || doesSubjectNeedDeepFetch(
+    row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional,
+  )).sort((a, b) => Number(features.hasSubjectAttendanceRequests(a.row)) - Number(features.hasSubjectAttendanceRequests(b.row)));
   const total = queue.length;
   const pending = new Set(queue.map(({ row }) => rowSubId(row)));
   let done = 0;
@@ -111,38 +114,53 @@ export async function syncAttendanceDetails({
   let phase: AttendanceSyncState["phase"] = "running";
   let syncedAt = overviewUpdatedAt ?? 0;
   const errors: unknown[] = [];
-  const current = () => !signal?.aborted && isCurrent();
+  const portalDay = getPortalDayKey();
+  const current = () => !signal?.aborted && isCurrent() && getPortalDayKey() === portalDay;
+  const canStart = () => phase === "running" || phase === "paused";
+  const stopped = new AbortController();
+  const stop = (next: "failed" | "cancelled") => { phase = next; stopped.abort(); };
   const progress = () => { if (isCurrent()) onProgress?.({ phase, pending: new Set(pending), done, total }); };
   progress();
-  while (queue.length && phase === "running") {
-    if (!current()) { phase = "cancelled"; break; }
-    if (openSheets > 0) { phase = "paused"; progress(); }
-    await waitForOpenSheets(signal);
-    if (!current()) { phase = "cancelled"; break; }
-    if (phase === "paused") { phase = "running"; progress(); }
-    const { row, entry } = queue.shift()!;
-    const id = rowSubId(row);
-    try {
-      // A sheet may have loaded this queued subject while the worker was
-      // busy. Recheck at dequeue time, not just when the batch was created.
-      const latest = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
-      const needsRead = doesSubjectNeedDeepFetch(row, latest.data, latest.updatedAt, latest.checksum);
-      const result = needsRead ? await waitForHistory(refreshSubjectDetail(session, row, base), signal)
-        : { data: latest.data!, updatedAt: latest.updatedAt };
-      if (!current()) { phase = "cancelled"; break; }
-      syncedAt = Math.max(syncedAt, result.updatedAt ?? 0);
-      changed ||= detailSignature(entry.data) !== detailSignature(result.data);
-      onDetail?.(id, result.data);
-    } catch (error) {
-      if (!current()) { phase = "cancelled"; break; }
-      errors.push(error);
-      if (features.isAttendanceUnavailable(error)) phase = "failed";
-    } finally {
-      pending.delete(id);
-      done++;
-      if (phase === "running" && queue.length) progress();
+  const worker = async () => {
+    while (queue.length && canStart()) {
+      if (!current()) { stop("cancelled"); break; }
+      if (features.hasSubjectAttendanceRequests(queue[0].row)) {
+        if (openSheets > 0 && phase !== "paused") { phase = "paused"; progress(); }
+        await waitForOpenSheets(signal, stopped.signal);
+      }
+      if (!current()) { stop("cancelled"); break; }
+      if (!canStart()) break;
+      if (phase === "paused" && openSheets === 0) { phase = "running"; progress(); }
+      const next = queue.shift();
+      if (!next) break;
+      const { row, entry } = next;
+      const id = rowSubId(row);
+      try {
+        // A sheet may have loaded this queued subject while the worker was
+        // busy. Recheck at dequeue time, not just when the batch was created.
+        const latest = getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid);
+        const needsRead = (forceProvisional && latest.provisional) || doesSubjectNeedDeepFetch(row, latest.data, latest.updatedAt, latest.checksum, Date.now(), latest.provisional);
+        const result = needsRead ? await waitForHistory(refreshSubjectDetail(session, row, base, () => {
+          if (current() && canStart()) stop("failed");
+        }), signal)
+          : { data: latest.data!, updatedAt: latest.updatedAt };
+        if (!current()) { stop("cancelled"); break; }
+        syncedAt = Math.max(syncedAt, result.updatedAt ?? 0);
+        changed ||= detailSignature(entry.data) !== detailSignature(result.data);
+        onDetail?.(id, result.data);
+      } catch (error) {
+        if (!current()) { stop("cancelled"); break; }
+        errors.push(error);
+        if (features.isAttendanceUnavailable(error)) stop("failed");
+      } finally {
+        pending.delete(id);
+        done++;
+        if (canStart() && done < total) progress();
+      }
     }
-  }
+  };
+  // Overlap slow subjects without launching the entire semester at once.
+  await Promise.all(Array.from({ length: Math.min(5, total) }, worker));
   const complete = current() && errors.length === 0 && done === total;
   phase = !current() ? "cancelled" : complete ? "complete" : "failed";
   progress();
@@ -155,7 +173,8 @@ export async function syncAttendanceDetails({
       }
     } catch {}
   }
-  return { changed, errors, complete };
+  const provisional = rows.some(row => getCachedSubjectDetailEntry(session.username, base.registrationid, row, session.instituteid).provisional);
+  return { changed, errors, complete, provisional };
 }
 
 /** A failed/cancelled batch keeps successful cache writes, but spends no quota. */
@@ -167,9 +186,9 @@ export async function runManualAttendanceRefresh({
   checkpoint?: ManualAttendanceRefreshCheckpoint;
   policy?: RefreshPolicy;
 }) {
-  const current = () => !sync.signal?.aborted && (sync.isCurrent?.() ?? true);
-  if (!current()) return null;
   const portalDay = getPortalDayKey();
+  const current = () => !sync.signal?.aborted && (sync.isCurrent?.() ?? true) && getPortalDayKey() === portalDay;
+  if (!current()) return null;
   if (checkpoint.portalDay !== portalDay) {
     checkpoint.changed = false;
     checkpoint.portalDay = portalDay;
@@ -184,12 +203,14 @@ export async function runManualAttendanceRefresh({
     ...sync, rows: fresh.rows,
     base: { registrationid: semester.registrationid, registrationcode: semester.registrationcode },
     overviewUpdatedAt,
+    forceProvisional: true,
   });
   checkpoint.changed ||= result.changed;
   if (!current()) return null;
   if (!result.complete) throw result.errors[0] ?? new Error("Attendance refresh did not finish. Please try again.");
   const changed = Boolean(checkpoint.changed);
-  const quota = recordSuccessfulManualRefresh(sync.session, { changed }, policy);
-  checkpoint.changed = false;
-  return { changed, quota };
+  const quota = result.provisional ? getManualRefreshQuota(sync.session, undefined, policy)
+    : recordSuccessfulManualRefresh(sync.session, { changed }, policy);
+  if (!result.provisional) checkpoint.changed = false;
+  return { changed, quota, provisional: result.provisional };
 }

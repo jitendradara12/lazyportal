@@ -181,7 +181,7 @@ export function AttendancePage({
     for (const row of rows) {
       const id = rowSubId(row);
       const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
-      const saved = Boolean(entry.data) && doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum);
+      const saved = Boolean(entry.data) && (entry.provisional || doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional));
       states[id] = { data: entry.data, saved, attendance: combinedAttendance(row, entry.data, defaultTarget / 100, saved) };
     }
     return states;
@@ -322,7 +322,7 @@ export function AttendancePage({
       });
       if (!result) return;
       setRefreshQuota(result.quota);
-      if (!result.changed) showNotice("Up to date with portal", 2500);
+      if (!result.changed && !result.provisional) showNotice("Up to date with portal", 2500);
     } catch (err: unknown) {
       if (current()) setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
