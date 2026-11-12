@@ -522,6 +522,13 @@ test("future skew and corrupt storage timestamps are safely sanitized", () => {
   assert.equal(qCorrupt.used, 0);
   assert.equal(qCorrupt.unchanged, 0);
   assert.equal(qCorrupt.canRefresh, true);
+
+  // 3. Unparseable corrupted JSON in storage is caught and cleaned
+  values.set(key, "not-valid-json{[[");
+  const qUnparseable = getManualRefreshQuota(session, now);
+  assert.equal(qUnparseable.used, 0);
+  assert.equal(qUnparseable.canRefresh, true);
+  assert.equal(values.has(key), false);
 });
 
 test("4th unchanged attempt after 3 cap is strictly rejected, preserves lastUnchangedAt, and resets at portal day cutoff", () => {

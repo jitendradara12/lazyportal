@@ -608,4 +608,51 @@ describe("request deadlines", () => {
     assert.equal((await client.getReport("/recover")).response.fresh, true);
     assert.deepEqual(statuses, ["recovering", "authenticated"]);
   });
+
+  it("aborted signal without reason property rejects with standard AbortError during refresh recovery", async () => {
+    const emitter = new EventTarget();
+    const mockSignal = {
+      aborted: false,
+      reason: undefined,
+      addEventListener: emitter.addEventListener.bind(emitter),
+      removeEventListener: emitter.removeEventListener.bind(emitter),
+    };
+    let signalRefreshStarted;
+    const refreshStarted = new Promise((resolve) => { signalRefreshStarted = resolve; });
+    let releaseRefresh;
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => "t1",
+      onRefresh: () => {
+        signalRefreshStarted();
+        return new Promise((resolve) => { releaseRefresh = () => resolve(false); });
+      },
+      fetchImpl: async () => ({ status: 401 }),
+    });
+    const req = client.postRaw("/test", {}, { signal: mockSignal });
+    await refreshStarted;
+    mockSignal.aborted = true;
+    emitter.dispatchEvent(new Event("abort"));
+    await assert.rejects(
+      req,
+      (err) => err && (err.name === "AbortError" || err.code === "ABORT_ERR")
+    );
+    releaseRefresh?.();
+  });
+
+  it("response body stream read failure maps to NETWORK_ERROR PortalError", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => { throw new Error("Premature stream closure"); },
+      }),
+    });
+    await assert.rejects(
+      client.getPublic("/stream-break"),
+      (err) => err instanceof PortalError && err.code === "NETWORK_ERROR"
+    );
+  });
 });

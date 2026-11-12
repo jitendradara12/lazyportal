@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { login, loginWithPassword, fetchCaptcha } from "../src/auth.js";
+import { login, loginWithPassword, fetchCaptcha, refreshSession } from "../src/auth.js";
 
 const NOW = new Date(2026, 8, 28);
 const ok = (obj) => ({ ok: true, status: 200, text: async () => JSON.stringify(obj) });
@@ -109,7 +109,6 @@ describe("auth", () => {
         return { response: { msg: "Success", token: "T2" } };
       },
     };
-    const { refreshSession } = await import("../src/auth.js");
     const controller = new AbortController();
     const out = await refreshSession(fakeClient, { username: "u", tokendate: "d" }, { signal: controller.signal });
     assert.deepEqual(seen, ["/token/refreshTokenRequest", { username: "u", tokendate: "d" }]);
@@ -119,13 +118,35 @@ describe("auth", () => {
   });
 
   it("refreshSession reports failure without success msg", async () => {
+    let called = false;
     const fakeClient = {
       async postRaw() {
+        called = true;
         return { response: { msg: "Expired" } };
       },
     };
-    const { refreshSession } = await import("../src/auth.js");
+    assert.deepEqual(await refreshSession(fakeClient, { username: "u" }), { ok: false });
+    assert.equal(called, true);
+  });
+
+  it("refreshSession handles null, undefined, or missing session safely", async () => {
+    const fakeClient = { async postRaw() { throw new Error("should not call"); } };
+    assert.deepEqual(await refreshSession(fakeClient, null), { ok: false });
+    assert.deepEqual(await refreshSession(fakeClient, undefined), { ok: false });
     assert.deepEqual(await refreshSession(fakeClient, {}), { ok: false });
+  });
+
+  it("refreshSession falls back to enrollmentno when username is absent", async () => {
+    let seen;
+    const fakeClient = {
+      async postRaw(endpoint, payload) {
+        seen = payload;
+        return { response: { msg: "Success", token: "T3" } };
+      },
+    };
+    const out = await refreshSession(fakeClient, { enrollmentno: "221B001", tokendate: "td" });
+    assert.equal(seen.username, "221B001");
+    assert.deepEqual(out, { ok: true, token: "T3" });
   });
 
   it("login skips global 401 refresh (is the refresh itself)", async () => {

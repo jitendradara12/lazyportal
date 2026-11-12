@@ -44,6 +44,10 @@ export const featurePostEndpoints = Object.freeze({
   }),
 });
 
+function asArray(val) {
+  return Array.isArray(val) ? val : [];
+}
+
 /** Attendance LOV: header (stynumber) + semester list. Plain JSON (unencrypted) — official app stringifies without AES here. */
 export async function getAttendanceRegistrations(client, session, { signal } = {}) {
   const body = await client.postRaw(featurePostEndpoints.attendance.registrations, {
@@ -53,7 +57,7 @@ export async function getAttendanceRegistrations(client, session, { signal } = {
     throw new PortalError("Portal returned incomplete attendance registrations. Please retry.", { code: "INVALID_RESPONSE" });
   }
   return {
-    header: body.response?.headerlist?.[0] ?? null,
+    header: asArray(body.response?.headerlist)[0] ?? null,
     semesters: body.response.semlist,
   };
 }
@@ -75,19 +79,18 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
 
 /** Daily attendance in one call: LOV -> latest registration -> detail rows. */
 export async function getAttendance(client, session, cachedLov, { signal } = {}) {
-  let lov = cachedLov;
-  if (!lov?.semesters?.length) {
-    lov = await getAttendanceRegistrations(client, session, { signal });
-  }
-  const sem = lov.semesters[0];
-  if (!sem) return { header: lov.header ?? null, semesters: lov.semesters ?? [], rows: [], currentSem: null };
+  const usedCache = Array.isArray(cachedLov?.semesters) && cachedLov.semesters.length > 0;
+  const lov = usedCache ? cachedLov : await getAttendanceRegistrations(client, session, { signal });
+  const sems = asArray(lov?.semesters);
+  const sem = sems[0];
+  if (!sem) return { header: lov?.header ?? null, semesters: sems, rows: [], currentSem: null };
   try {
     const detail = await getAttendanceDetail(client, session, {
-      stynumber: lov.header?.stynumber,
+      stynumber: lov?.header?.stynumber,
       registrationid: sem.registrationid,
       registrationcode: sem.registrationcode,
     }, { signal });
-    return { header: lov.header ?? null, semesters: lov.semesters, registrationcode: sem.registrationcode, ...detail };
+    return { header: lov?.header ?? null, semesters: sems, registrationcode: sem.registrationcode, ...detail };
   } catch (err) {
     // retry with fresh LOV only on portal parameter/data errors; bubble auth/network immediately
     const isFatal =
@@ -98,7 +101,7 @@ export async function getAttendance(client, session, cachedLov, { signal } = {})
       err?.code === "INVALID_RESPONSE" ||
       err?.status === 401 ||
       (typeof err?.status === "number" && err.status >= 500);
-    if (cachedLov && !isFatal) {
+    if (usedCache && !isFatal) {
       return getAttendance(client, session, undefined, { signal });
     }
     throw err;
@@ -111,7 +114,7 @@ export async function getExamSemesters(client, session) {
     clientid: session.clientid,
     instituteid: session.instituteid,
   });
-  return body.response?.semesterCodeinfo?.semestercode ?? [];
+  return asArray(body.response?.semesterCodeinfo?.semestercode);
 }
 
 /** Exam events for a semester. Encrypted; backend key has a typo (`registationid`). */
@@ -120,7 +123,7 @@ export async function getExamEvents(client, session, { registrationid }) {
     instituteid: session.instituteid,
     registationid: registrationid,
   });
-  return body.response?.eventcode?.examevent ?? [];
+  return asArray(body.response?.eventcode?.examevent);
 }
 
 /** Exam timetable rows: datetime, datetimeupto, subjectdesc, roomcode, seatno. */
@@ -130,7 +133,7 @@ export async function getExamSchedule(client, session, { registrationid, exameve
     registrationid,
     exameventid,
   });
-  return body.response?.subjectinfo ?? [];
+  return asArray(body.response?.subjectinfo);
 }
 
 /** Grade card student info (branch/program needed for the grade call). Encrypted {instituteid}. */
@@ -146,7 +149,7 @@ export async function getGradeRegistrations(client, session) {
   const body = await client.post(featurePostEndpoints.more.gradeRegistrations, {
     instituteid: session.instituteid,
   });
-  return body.response?.registrations ?? [];
+  return asArray(body.response?.registrations);
 }
 
 /** Grade rows: subjectcode, subjectdesc, grade, earnedcredit, gradepoint, minorsubject. */
@@ -157,7 +160,7 @@ export async function getGradeCard(client, session, { registrationid, branchid, 
     branchid,
     programid,
   });
-  return body.response?.gradecard ?? [];
+  return asArray(body.response?.gradecard);
 }
 
 /** Grades in one call: info -> latest registration -> rows. */
@@ -181,7 +184,8 @@ export async function getFacultyRegistrations(client, session) {
   const body = await client.post(featurePostEndpoints.more.facultyRegistrations, {
     instituteid: session.instituteid,
   });
-  return body.response?.registrations ?? body.response?.registrationList ?? [];
+  const regs = body.response?.registrations;
+  return Array.isArray(regs) ? regs : asArray(body.response?.registrationList);
 }
 
 /** Subject-faculty rows + credit total. Encrypted {instituteid, registrationid}. */
@@ -191,7 +195,7 @@ export async function getFaculties(client, session, { registrationid }) {
     registrationid,
   });
   return {
-    rows: body.response?.registrations ?? [],
+    rows: asArray(body.response?.registrations),
     totalcreditpoints: body.response?.totalcreditpoints ?? null,
   };
 }
@@ -337,7 +341,7 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
     ["L", "T", "P"].map(async (t) => {
       const csv = row[`${t}subjectcomponentid`];
       if (!csv) return;
-      if (signal?.aborted) { fail(signal.reason); return; }
+      if (signal?.aborted) { fail(signal.reason ?? new DOMException("The operation was aborted", "AbortError")); return; }
       if (completed?.has(t)) {
         out[t] = completed.get(t);
         return;
@@ -366,8 +370,7 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
 /** Choice-print semesters. Encrypted {} -> registrationcodelist. */
 export async function getChoiceSemesters(client) {
   const body = await client.post(featurePostEndpoints.more.choiceSemesters, {});
-  const rows = body.response?.registrationcodelist ?? [];
-  return Array.isArray(rows) ? rows : [];
+  return asArray(body.response?.registrationcodelist);
 }
 
 /** Enrolled subjects for a semester. Encrypted {instituteid, clientid, registrationid}. */
@@ -377,8 +380,7 @@ export async function getChoiceSubjects(client, session, { registrationid }) {
     clientid: session.clientid,
     registrationid,
   });
-  const rows = body.response?.subjectpreferencegrid ?? [];
-  return Array.isArray(rows) ? rows : [];
+  return asArray(body.response?.subjectpreferencegrid);
 }
 
 /** Registered subjects in one call: LOV -> latest registration -> rows. */
@@ -395,7 +397,7 @@ export async function getMarksSemesters(client, session) {
   const body = await client.post(featurePostEndpoints.marks.semesters, {
     instituteid: session.instituteid,
   });
-  return body.response?.semestercode ?? [];
+  return asArray(body.response?.semestercode);
 }
 
 /** Marks detail rows + display flags. Encrypted {instituteid, registrationid, companyid}. */
@@ -406,7 +408,7 @@ export async function getMarks(client, session, { registrationid, registrationco
     companyid: session.companyid,
   });
   const detail = {
-    rows: body.response?.viewmarksbystudent ?? [],
+    rows: asArray(body.response?.viewmarksbystudent),
     fullMarksFlag: body.response?.fullMarksFlag,
     passingMarksFlag: body.response?.passingMarksFlag,
     weightageMarksFlag: body.response?.weightageMarksFlag,
@@ -463,7 +465,7 @@ export async function getSgpaStudentInfo(client, session) {
     const body = await client.post(featurePostEndpoints.more.sgpaInfo, {
       instituteid: session.instituteid,
     });
-    return body.response?.studentInfo?.[0] ?? null;
+    return asArray(body.response?.studentInfo)[0] ?? null;
   } catch (err) {
     if (isSgpa500(err)) return null;
     throw err;
@@ -516,8 +518,7 @@ export async function getSgpaSemesters(client, session, { studentid, stynumber }
       studentid,
       stynumber,
     });
-    const list = body.response?.semesterList;
-    return Array.isArray(list) ? list : [];
+    return asArray(body.response?.semesterList);
   } catch (err) {
     if (isSgpa500(err)) return [];
     throw err;

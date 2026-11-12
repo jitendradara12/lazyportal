@@ -65,7 +65,7 @@ export function createClient({
 
   async function safeFetch(url, init, responseType) {
     const controller = new AbortController();
-    const abort = () => controller.abort(init.signal.reason);
+    const abort = () => controller.abort(init.signal?.reason);
     if (init.signal?.aborted) abort();
     else init.signal?.addEventListener("abort", abort, { once: true });
     const timeoutMs = Number.isFinite(requestTimeoutMs)
@@ -73,6 +73,7 @@ export function createClient({
     const timer = setTimeout(() => controller.abort(new PortalError(
       "JUET's portal took too long to respond. Please retry.", { code: "REQUEST_TIMEOUT" },
     )), timeoutMs);
+    if (timer?.unref) timer.unref();
     let rejectAbort;
     const aborted = new Promise((_, reject) => {
       rejectAbort = () => reject(controller.signal.reason);
@@ -252,7 +253,7 @@ export function createClient({
       outcome = await Promise.race([
         cycle.promise,
         new Promise((_, reject) => {
-          abort = () => reject(sent.signal.reason);
+          abort = () => reject(sent.signal?.reason ?? new DOMException("The operation was aborted", "AbortError"));
           if (sent.signal?.aborted) abort();
           else sent.signal?.addEventListener("abort", abort, { once: true });
         }),

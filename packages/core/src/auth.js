@@ -26,9 +26,11 @@ export async function fetchCaptcha(client, { signal } = {}) {
  * when the server rotates it (field name varies, so sniff a few keys).
  */
 export async function refreshSession(client, session, { signal } = {}) {
+  const username = session?.username || session?.enrollmentno;
+  if (!username) return { ok: false };
   const body = await client.postRaw(
     REFRESH,
-    { username: session.username, tokendate: session.tokendate ?? new Date().toString() },
+    { username, tokendate: session.tokendate ?? new Date().toString() },
     { skipRefresh: true, silent: true, signal }
   );
   const res = body.response ?? {};

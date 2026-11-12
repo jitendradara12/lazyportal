@@ -196,6 +196,7 @@ function readQuotaRecord(session?: SessionRef | null, portalDay?: string, nowMs 
       lastUnchangedAt,
     };
   } catch {
+    try { localStorage.removeItem(key); } catch {}
     return fallback;
   }
 }

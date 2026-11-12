@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getFacultyRegistrations, getSubjectAttendanceAll, getChoiceSemesters, getChoiceSubjects, getChoiceSubjectsLatest } from "../src/features.js";
+import { getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getGradeRegistrations, getGradeCard, getFacultyRegistrations, getFaculties, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getSubjectAttendanceAll, getChoiceSemesters, getChoiceSubjects, getChoiceSubjectsLatest } from "../src/features.js";
 
 describe("features", () => {
   it("getAttendance chains LOV default semester into detail", async () => {
@@ -1026,5 +1026,59 @@ describe("features", () => {
       "/reqsubfaculty/getregistrationList",
       "/reqsubfaculty/getfaculties",
     ]) assert.ok(calls.includes(e), e);
+  });
+
+  it("normalizes unexpected non-array shapes to arrays across exam, marks, grades, choices, and faculty reads", async () => {
+    const fake = {
+      async post() {
+        return {
+          response: {
+            semesterCodeinfo: { semestercode: { notAnArray: true } },
+            eventcode: { examevent: "invalid-string" },
+            subjectinfo: null,
+            semestercode: 12345,
+            registrations: { single: "obj" },
+            gradecard: null,
+            viewmarksbystudent: { bad: true },
+            subjectpreferencegrid: "not-an-array",
+          },
+        };
+      },
+    };
+    const session = { clientid: "c1", instituteid: "i1", companyid: "co1" };
+    assert.deepEqual(await getExamSemesters(fake, session), []);
+    assert.deepEqual(await getExamEvents(fake, session, { registrationid: "r1" }), []);
+    assert.deepEqual(await getExamSchedule(fake, session, { registrationid: "r1", exameventid: "e1" }), []);
+    assert.deepEqual(await getMarksSemesters(fake, session), []);
+    assert.deepEqual((await getMarks(fake, session, { registrationid: "r1", registrationcode: "c1" })).rows, []);
+    assert.deepEqual(await getGradeRegistrations(fake, session), []);
+    assert.deepEqual(await getGradeCard(fake, session, { registrationid: "r", branchid: "b", programid: "p" }), []);
+    assert.deepEqual(await getFacultyRegistrations(fake, session), []);
+    assert.deepEqual(await getChoiceSubjects(fake, session, { registrationid: "r" }), []);
+    const facultyRes = await getFaculties(fake, session, { registrationid: "r" });
+    assert.deepEqual(facultyRes.rows, []);
+
+    const fallbackFake = {
+      async post() {
+        return { response: { registrations: { single: "obj" }, registrationList: [{ registrationid: "r2" }] } };
+      },
+    };
+    assert.deepEqual(await getFacultyRegistrations(fallbackFake, session), [{ registrationid: "r2" }]);
+  });
+
+  it("getAttendance ignores non-array cachedLov.semesters and fetches fresh LOV once", async () => {
+    let lovCalls = 0;
+    const fake = {
+      async postRaw() {
+        lovCalls++;
+        return { response: { headerlist: [{ stynumber: 2 }], semlist: [{ registrationid: "r1", registrationcode: "S1" }] } };
+      },
+      async post() {
+        return { response: { studentattendancelist: [{ subjectcode: "CS1" }], currentSem: "S1" } };
+      },
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" }, { semesters: "not-an-array" });
+    assert.equal(lovCalls, 1);
+    assert.equal(res.rows.length, 1);
   });
 });

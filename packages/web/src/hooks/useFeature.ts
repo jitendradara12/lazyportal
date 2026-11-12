@@ -220,6 +220,19 @@ export function requestFeature<T>(
   return request;
 }
 
+export const NOT_REFRESHING = Symbol("idle");
+export type RefreshingKey = string | undefined | typeof NOT_REFRESHING;
+
+/** True only when the active refresh belongs to the currently visible cache key (including unkeyed undefined). */
+export function isRefreshingForKey(refreshingKey: RefreshingKey, cacheKey: string | undefined): boolean {
+  return refreshingKey === cacheKey;
+}
+
+/** Clear refreshing state only if no newer key has superseded it. */
+export function clearRefreshingForKey(prev: RefreshingKey, cacheKey: string | undefined): RefreshingKey {
+  return prev === cacheKey ? NOT_REFRESHING : prev;
+}
+
 export function useFeature<T>({
   run,
   deps = [],
@@ -238,7 +251,8 @@ export function useFeature<T>({
   // switch cannot briefly show the previous key's data before effects run.
   const visibleState = resolveFeatureState(state, cacheKey, enabled);
   const [retryKey, setRetryKey] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshingKey, setRefreshingKey] = useState<RefreshingKey>(NOT_REFRESHING);
+  const refreshing = isRefreshingForKey(refreshingKey, cacheKey);
   const mounted = useRef(false);
   const activeKey = useRef(cacheKey);
   activeKey.current = cacheKey;
@@ -253,6 +267,7 @@ export function useFeature<T>({
   writeExtraRef.current = writeExtra;
 
   const setStateForKey = useCallback((key: string | undefined, update: Partial<FeatureState<T>>) => {
+    if (!mounted.current) return;
     setState((previous) => {
       const base = previous.cacheKey === key ? previous : createFeatureState<T>(key, enabled);
       return { ...base, ...update, cacheKey: key };
@@ -275,7 +290,7 @@ export function useFeature<T>({
   const refresh = useCallback(async () => {
     const generation = getCacheGeneration();
     const current = () => mounted.current && activeKey.current === cacheKey && isCacheGenerationCurrent(generation);
-    setRefreshing(true);
+    if (mounted.current) setRefreshingKey(cacheKey);
     setStateForKey(cacheKey, { error: null });
     try {
       const result = await requestFeature(cacheKey, runRef.current, writeExtraRef.current, requestVersion);
@@ -285,7 +300,7 @@ export function useFeature<T>({
       if (current()) setStateForKey(cacheKey, { error: toMessage(error), loading: false });
       throw error;
     } finally {
-      if (current()) setRefreshing(false);
+      if (current()) setRefreshingKey((prev) => clearRefreshingForKey(prev, cacheKey));
     }
   }, [cacheKey, requestVersion, setStateForKey]);
 
@@ -325,7 +340,7 @@ export function useFeature<T>({
 
   useEffect(() => {
     if (!enabled) {
-      setRefreshing(false);
+      setRefreshingKey(NOT_REFRESHING);
       forceRef.current = false;
       setStateForKey(cacheKey, { loading: false, error: null });
       return;
@@ -338,33 +353,33 @@ export function useFeature<T>({
       ? isFresh(cached.updatedAt)
       : Boolean(cached.updatedAt && Date.now() - cached.updatedAt < staleTimeMs);
     if (!isForce && cached.data && cached.updatedAt && isFreshEntry) {
-      setRefreshing(false);
+      setRefreshingKey(NOT_REFRESHING);
       setStateForKey(cacheKey, {
         data: cached.data,
         updatedAt: cached.updatedAt,
         loading: false,
         error: null,
       });
-      return () => void (live = false);
+      return () => { live = false; };
     }
     setStateForKey(cacheKey, { error: null, loading: cached.data === null });
 
-    setRefreshing(true);
+    setRefreshingKey(cacheKey);
     const promise = requestFeature(cacheKey, runRef.current, writeExtraRef.current, requestVersion);
 
     promise.then(
       ({ data: d, updatedAt: time }) => {
         if (!live) return;
-        setRefreshing(false);
+        setRefreshingKey((prev) => clearRefreshingForKey(prev, cacheKey));
         setStateForKey(cacheKey, { data: d as T, updatedAt: time, loading: false, error: null });
       },
       (e) => {
         if (!live) return;
-        setRefreshing(false);
+        setRefreshingKey((prev) => clearRefreshingForKey(prev, cacheKey));
         setStateForKey(cacheKey, { error: toMessage(e), loading: false });
       },
     );
-    return () => void (live = false);
+    return () => { live = false; };
     // Deps are caller-controlled (session, selected ids) plus retry counter and cacheKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, retryKey, cacheKey, requestVersion, ...deps]);

@@ -43,6 +43,9 @@ const {
   sessionCacheKey,
   resolveTargetScope,
   resolveFeatureState,
+  NOT_REFRESHING,
+  isRefreshingForKey,
+  clearRefreshingForKey,
   getCacheGeneration,
   isCacheGenerationCurrent,
   invalidateCacheGeneration,
@@ -319,4 +322,28 @@ test("logout cancels a newer snapshot even when the older read later rejects", a
   ]);
   assert.equal(calls, 0);
   assert.equal(getCached("audit.version-error-logout").data, null);
+});
+
+test("getCached handles corrupted invalid JSON in localStorage safely", () => {
+  values.set("juet.cache.corrupt-test", "not-a-{valid-json");
+  const result = getCached("corrupt-test");
+  assert.deepEqual(result, { data: null, updatedAt: null });
+});
+
+test("refreshing state stays scoped to its cacheKey including unkeyed undefined requests", () => {
+  assert.equal(isRefreshingForKey(NOT_REFRESHING, undefined), false);
+  assert.equal(isRefreshingForKey(NOT_REFRESHING, "sem1"), false);
+
+  // Unkeyed fetch (cacheKey === undefined) still reports refreshing
+  assert.equal(isRefreshingForKey(undefined, undefined), true);
+  assert.equal(isRefreshingForKey(undefined, "sem1"), false);
+  assert.equal(clearRefreshingForKey(undefined, undefined), NOT_REFRESHING);
+
+  // Switching semester keys does not leak the previous key's refreshing indicator
+  assert.equal(isRefreshingForKey("sem1", "sem1"), true);
+  assert.equal(isRefreshingForKey("sem1", "sem2"), false);
+
+  // Late completion of sem1 does not clear sem2's active refreshing state
+  assert.equal(clearRefreshingForKey("sem2", "sem1"), "sem2");
+  assert.equal(clearRefreshingForKey("sem2", "sem2"), NOT_REFRESHING);
 });

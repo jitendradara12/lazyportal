@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { decodeExp, isExpired, createStore, memoryAdapter, browserLocalAdapter, markSessionExpired, consumeSessionExpired } from "../src/session.js";
+import { decodeExp, isExpired, createStore, memoryAdapter, browserLocalAdapter, markSessionExpired, consumeSessionExpired, clearSessionExpired } from "../src/session.js";
 
 function jwt(exp) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -94,5 +94,59 @@ describe("session", () => {
     } finally {
       globalThis.localStorage = prev;
     }
+  });
+
+  it("expiry flag works via in-memory fallback when localStorage is missing or throws", () => {
+    const prev = globalThis.localStorage;
+    delete globalThis.localStorage;
+    try {
+      assert.equal(consumeSessionExpired(), false);
+      markSessionExpired();
+      assert.equal(consumeSessionExpired(), true);
+      assert.equal(consumeSessionExpired(), false);
+
+      globalThis.localStorage = {
+        getItem() { throw new Error("SecurityError"); },
+        setItem() { throw new Error("SecurityError"); },
+        removeItem() { throw new Error("SecurityError"); },
+      };
+      markSessionExpired();
+      clearSessionExpired();
+      assert.equal(consumeSessionExpired(), false);
+      markSessionExpired();
+      assert.equal(consumeSessionExpired(), true);
+      assert.equal(consumeSessionExpired(), false);
+    } finally {
+      globalThis.localStorage = prev;
+    }
+  });
+
+  it("load handles corrupted primitive or null json gracefully", () => {
+    for (const bad of ["null", "123", "\"string\"", "true"]) {
+      const adapter = memoryAdapter(new Map([["session.v1", bad]]));
+      const store = createStore(adapter);
+      assert.equal(store.load(), null);
+      assert.equal(adapter.get("session.v1"), null);
+    }
+  });
+
+  it("save retains active session in memory if adapter.set throws quota error", () => {
+    const adapter = {
+      get: () => null,
+      set: () => { throw new Error("QuotaExceededError"); },
+      remove: () => {},
+    };
+    const store = createStore(adapter);
+    store.save({ token: "in-memory-token", userid: "u1" });
+    assert.equal(store.load()?.token, "in-memory-token");
+  });
+
+  it("load returns null when another tab removes a persisted session", () => {
+    const map = new Map();
+    const store = createStore(memoryAdapter(map));
+    store.save({ token: "t1", userid: "u1" });
+    assert.equal(store.load()?.token, "t1");
+    map.delete("session.v1");
+    assert.equal(store.load(), null);
   });
 });

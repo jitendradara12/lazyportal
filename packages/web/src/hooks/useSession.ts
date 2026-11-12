@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { session as coreSession } from "@juet/core";
 import { cancelSessionRecovery, getSessionStatus, onSessionStatus, savedCredentials, setSessionStatus, store, type SessionStatus } from "../lib/portal";
 import { invalidateCacheGeneration } from "./useFeature";
 import type { Session } from "../types";
@@ -15,6 +16,7 @@ export function useSession() {
   const save = useCallback((s: Session) => {
     clearOfficialPortal();
     cancelSessionRecovery();
+    coreSession.clearSessionExpired();
     store.save(s);
     setSession(s);
     setSessionStatus("authenticated");
@@ -25,6 +27,7 @@ export function useSession() {
     clearOfficialPortal();
     cancelSessionRecovery();
     invalidateCacheGeneration();
+    coreSession.clearSessionExpired();
     store.clear();
     savedCredentials.clear();
     try {

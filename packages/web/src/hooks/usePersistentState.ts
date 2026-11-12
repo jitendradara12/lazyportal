@@ -17,6 +17,37 @@ export function resolvePersistentValue(
   return stored.key === key ? stored.value : readValue(key, initial);
 }
 
+/** Resolve an incoming storage or custom state event for `key` without overwriting with stale storage. */
+export function resolvePersistentEventValue(
+  event: Event,
+  key: string,
+  initial: string | null,
+): { match: boolean; value: string | null } {
+  const se = event as StorageEvent;
+  const ce = event as CustomEvent<{ key?: string; value?: string | null }>;
+  const changedKey = ce.detail?.key ?? (se.key ? se.key.replace(/^juet\.portal\./, "") : null);
+  if (changedKey !== key && changedKey !== null) return { match: false, value: initial };
+  const value = ce.detail && "value" in ce.detail ? (ce.detail.value ?? initial) : readValue(key, initial);
+  return { match: true, value };
+}
+
+/** Persist to localStorage (best effort) and broadcast in-memory update across mounted hooks. */
+export function writePersistentValue(key: string, next: string | null): void {
+  try {
+    if (next === null) globalThis.localStorage?.removeItem(`juet.portal.${key}`);
+    else globalThis.localStorage?.setItem(`juet.portal.${key}`, next);
+  } catch {
+    /* storage blocked or quota exceeded */
+  }
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("juet:persistent-state", { detail: { key, value: next } }));
+    }
+  } catch {
+    /* dispatch blocked */
+  }
+}
+
 /** useState persisted to localStorage, so semester picks survive reloads. */
 export function usePersistentState(key: string, initial: string | null): [string | null, (v: string | null) => void] {
   const [stored, setStored] = useState<{ key: string; value: string | null }>(() => ({
@@ -34,12 +65,8 @@ export function usePersistentState(key: string, initial: string | null): [string
   useEffect(() => {
     if (typeof window === "undefined") return;
     const update = (e: Event) => {
-      const se = e as StorageEvent;
-      const ce = e as CustomEvent<{ key: string }>;
-      const changedKey = ce.detail?.key ?? (se.key ? se.key.replace(/^juet\.portal\./, "") : null);
-      if (changedKey === key || changedKey === null) {
-        setStored({ key, value: readValue(key, initial) });
-      }
+      const next = resolvePersistentEventValue(e, key, initial);
+      if (next.match) setStored({ key, value: next.value });
     };
     window.addEventListener?.("storage", update);
     window.addEventListener?.("juet:persistent-state", update);
@@ -50,17 +77,9 @@ export function usePersistentState(key: string, initial: string | null): [string
   }, [key, initial]);
 
   const set = useCallback((next: string | null) => {
-    setStored({ key, value: next });
-    try {
-      if (next === null) globalThis.localStorage?.removeItem(`juet.portal.${key}`);
-      else globalThis.localStorage?.setItem(`juet.portal.${key}`, next);
-      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-        window.dispatchEvent(new CustomEvent("juet:persistent-state", { detail: { key, value: next } }));
-      }
-    } catch {
-      /* storage blocked */
-    }
-  }, [key]);
+    setStored({ key, value: next ?? initial });
+    writePersistentValue(key, next);
+  }, [key, initial]);
 
   return [value, set];
 }

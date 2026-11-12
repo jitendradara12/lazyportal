@@ -47,19 +47,38 @@ function safeStorage() {
 }
 
 const EXPIRED_KEY = "expired";
+let memoryExpired = false;
 
 /** Remember that the last logout was a server-side expiry (LoginPage shows a notice). */
 export function markSessionExpired() {
   try {
-    safeStorage()?.setItem(PREFIX + EXPIRED_KEY, "1");
+    const s = safeStorage();
+    if (s) {
+      s.setItem(PREFIX + EXPIRED_KEY, "1");
+      return;
+    }
   } catch {
     /* storage blocked */
   }
+  memoryExpired = true;
 }
 
 /** Read + clear the expiry flag. */
 export function consumeSessionExpired() {
-  return consumeKey(EXPIRED_KEY);
+  const inMemory = memoryExpired;
+  memoryExpired = false;
+  const inStorage = consumeKey(EXPIRED_KEY);
+  return inMemory || inStorage;
+}
+
+/** Clear any pending expiry flag (on explicit logout or fresh login/reconnect). */
+export function clearSessionExpired() {
+  memoryExpired = false;
+  try {
+    safeStorage()?.removeItem(PREFIX + EXPIRED_KEY);
+  } catch {
+    /* storage blocked */
+  }
 }
 
 function consumeKey(key) {
@@ -123,10 +142,19 @@ const SESSION_KEY = "session.v1";
 export function createStore(adapter = memoryAdapter()) {
   let cachedRaw = null;
   let cachedSession = null;
+  let persistFailed = false;
 
   return {
     load() {
-      const raw = adapter.get(SESSION_KEY);
+      if (persistFailed && cachedSession !== null) {
+        return { ...cachedSession };
+      }
+      let raw = null;
+      try {
+        raw = adapter.get(SESSION_KEY);
+      } catch {
+        return cachedSession ? { ...cachedSession } : null;
+      }
       if (!raw) {
         cachedRaw = null;
         cachedSession = null;
@@ -137,28 +165,37 @@ export function createStore(adapter = memoryAdapter()) {
       }
       try {
         const parsed = JSON.parse(raw);
-        cachedRaw = raw;
-        cachedSession = parsed;
-        return { ...parsed };
-      } catch {
-        cachedRaw = null;
-        cachedSession = null;
-        try {
-          adapter.remove(SESSION_KEY);
-        } catch {}
-        return null;
-      }
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          cachedRaw = raw;
+          cachedSession = parsed;
+          return { ...parsed };
+        }
+      } catch {}
+      cachedRaw = null;
+      cachedSession = null;
+      try {
+        adapter.remove(SESSION_KEY);
+      } catch {}
+      return null;
     },
     save(session) {
       const raw = JSON.stringify(session);
       cachedRaw = raw;
       cachedSession = JSON.parse(raw);
-      adapter.set(SESSION_KEY, raw);
+      persistFailed = false;
+      try {
+        adapter.set(SESSION_KEY, raw);
+      } catch {
+        persistFailed = true;
+      }
     },
     clear() {
       cachedRaw = null;
       cachedSession = null;
-      adapter.remove(SESSION_KEY);
+      persistFailed = false;
+      try {
+        adapter.remove(SESSION_KEY);
+      } catch {}
     },
     loadValid(opts) {
       const s = this.load();
