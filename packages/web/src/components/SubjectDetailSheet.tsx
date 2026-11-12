@@ -67,7 +67,9 @@ export function SubjectDetailSheet({
   const sheetCode = badge || (rawCode && rawCode.toLowerCase() !== name.toLowerCase() ? rawCode : "");
   const base = { registrationid, registrationcode };
   const detail = useSubjectDetail(session, row, base);
-  const pending = detail.loading || detail.refreshing;
+  const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
+  const needsFetch = doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
+  const pending = detail.loading || detail.refreshing || needsFetch;
   useEffect(() => {
     if (visible && pending) return pauseAttendanceSync();
   }, [visible, pending]);
@@ -83,7 +85,6 @@ export function SubjectDetailSheet({
     }
   }, [detail.data, detail.updatedAt, row]);
 
-  const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
   const activeDetail = detail.data ?? cachedDetail ?? entry.data;
   const savedBreakdown = Boolean(activeDetail) && (entry.provisional || doesSubjectNeedDeepFetch(row, activeDetail, entry.updatedAt, entry.checksum, Date.now(), entry.provisional));
   const attInfo = combinedAttendance(row, activeDetail, target / 100, savedBreakdown);

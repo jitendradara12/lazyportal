@@ -324,7 +324,7 @@ test("a timed-out read releases shared work so reopening can retry without losin
     calls++;
     if (calls === 1) await gate;
     await route.fulfill({ json: { status: { responseStatus: "Success" }, response: {
-      student_attdsummarylist: Array.from({ length: 30 }, () => ({ present: "Y", datetime: "28/10/2026 09:00 AM" })),
+      student_attdsummarylist: Array.from({ length: 30 }, (_, i) => ({ present: i < 27 ? "Y" : "N", datetime: "28/10/2026 09:00 AM" })),
     } } });
   });
   await page.evaluate((session) => {
@@ -390,7 +390,10 @@ test("a newer overview arriving during a breakdown read gets its own revalidatio
     calls++;
     if (calls === 1) await gate;
     await route.fulfill({ json: { response: {
-      student_attdsummarylist: Array.from({ length: calls === 1 ? 30 : 32 }, () => ({ present: "Y", datetime: "28/10/2026 09:00 AM" })),
+      student_attdsummarylist: Array.from({ length: calls === 1 ? 30 : 32 }, (_, i) => ({
+        present: calls === 1 ? (i < 27 ? "Y" : "N") : (i < 24 ? "Y" : "N"),
+        datetime: "28/10/2026 09:00 AM",
+      })),
     } } });
   });
   const update = (percentage) => page.evaluate(({ session, percentage }) => {
@@ -403,7 +406,7 @@ test("a newer overview arriving during a breakdown read gets its own revalidatio
   await update(90);
   await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
   await expect.poll(() => calls).toBe(1);
-  await update(80);
+  await update(75);
   release();
   await expect(page.getByRole("dialog").getByRole("button", { name: "All (32)", exact: true })).toBeVisible();
   expect(calls).toBe(2);
@@ -425,7 +428,7 @@ test("a normal 25-second portal response shows progress and succeeds on its firs
   await page.evaluate((session) => {
     const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
     const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
-    entry.data.rows[0].Ppercentage = 90;
+    entry.data.rows[0] = { ...entry.data.rows[0], totalclass: 1, totalpresent: 1, Ptotalclass: 1, Ptotalpresent: 1, Ppercentage: 100 };
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
     window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
   }, SESSION);
@@ -580,7 +583,7 @@ test("background caching resumes after the open subject finishes, while its shee
   await page.evaluate(session => {
     const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
     const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
-    entry.data.rows[0].Ppercentage = 90;
+    entry.data.rows[0] = { ...entry.data.rows[0], totalclass: 1, totalpresent: 1, Ptotalclass: 1, Ptotalpresent: 1, Ppercentage: 100 };
     entry.data.rows.push({ subjectid: "subject2", subjectcode: "SECOND SUBJECT(CS102)", Psubjectcomponentid: "p2", Ppercentage: 100 });
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
     window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
