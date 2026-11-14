@@ -601,7 +601,7 @@ export function AttendancePage({
             <p className="muted" style={{ padding: "24px 20px" }}>No attendance rows found.</p>
           )}
 
-          {error && <SectionError label="Attendance" error={error} retry={retry} />}
+          {error && <SectionError label="Attendance" error={error} retry={retry} autoRetry={!refreshError} />}
         </section>
       </div>
 

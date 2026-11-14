@@ -219,7 +219,7 @@ const { createRoot } = await import("react-dom/client");
 
 let server;
 let cacheDir;
-let AttendancePage, SubjectDetailSheet, useSession, resolveRenewedSession;
+let AttendancePage, SubjectDetailSheet, useSession;
 let sessionCacheKey, setCached, invalidateCacheGeneration, getCacheGeneration;
 let client, store, setSessionStatus;
 let syncAttendanceDetails, getSubjectCacheKey, getCachedSubjectDetailEntry;
@@ -234,7 +234,7 @@ before(async () => {
   });
   ({ AttendancePage } = await server.ssrLoadModule("/src/pages/AttendancePage.tsx"));
   ({ SubjectDetailSheet } = await server.ssrLoadModule("/src/components/SubjectDetailSheet.tsx"));
-  ({ useSession, resolveRenewedSession } = await server.ssrLoadModule("/src/hooks/useSession.ts"));
+  ({ useSession } = await server.ssrLoadModule("/src/hooks/useSession.ts"));
   ({ sessionCacheKey, setCached, invalidateCacheGeneration, getCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ client, store, setSessionStatus } = await server.ssrLoadModule("/src/lib/portal.ts"));
   ({ syncAttendanceDetails } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
@@ -703,16 +703,7 @@ test("4b. AttendancePage re-runs auto-sync for remaining subjects when handleRef
   }
 });
 
-test("5. Silent token renewal (juet:renewed) preserves session identity and does NOT abort in-flight syncAttendanceDetails", async () => {
-  // 5a: Unit test resolveRenewedSession
-  const s1 = makeSession({ token: "t1", tokendate: "d1", institutelist: [{ value: "inst-1", label: "Campus 1" }] });
-  const renewedSame = makeSession({ token: "t2", tokendate: "d2", institutelist: [{ value: "inst-1", label: "Campus 1" }] });
-  assert.equal(resolveRenewedSession(s1, renewedSame), s1, "token/tokendate renewal keeps exact session object identity");
-  assert.equal(resolveRenewedSession(null, renewedSame), renewedSame, "null session adopts renewed session");
-  const changedInst = makeSession({ token: "t2", instituteid: "inst-2", institutelist: [{ value: "inst-1", label: "Campus 1" }] });
-  assert.equal(resolveRenewedSession(s1, changedInst), changedInst, "institute change returns new session object");
-
-  // 5b: Integration test with useSession + AttendancePage while syncAttendanceDetails is in-flight
+test("5. Silent token renewal (juet:renewed) updates session.token and does NOT abort in-flight syncAttendanceDetails", async () => {
   const session = makeSession({ username: "renew-inflight-user", token: "old-token" });
   store.save(session);
   const rows = [
@@ -745,7 +736,7 @@ test("5. Silent token renewal (juet:renewed) preserves session identity and does
     await flush();
     assert.equal(fetchCount, 1);
     assert.equal(abortedDuringFetch, false);
-    const initialSessionRef = sessionSeen;
+    assert.equal(sessionSeen.token, "old-token");
 
     // Dispatch silent token renewal (new object reference, new token & tokendate)
     const renewed = { ...session, token: "new-token", tokendate: "Sun Nov 15 2026" };
@@ -755,7 +746,7 @@ test("5. Silent token renewal (juet:renewed) preserves session identity and does
     });
     await flush();
 
-    assert.equal(sessionSeen, initialSessionRef, "useSession kept session reference stable");
+    assert.equal(sessionSeen.token, "new-token", "useSession must propagate renewed token so callers like institute switch preserve it");
     assert.equal(abortedDuringFetch, false, "juet:renewed must NOT abort in-flight syncAttendanceDetails");
     assert.equal(fetchCount, 1, "must not restart a second sync wave");
 
