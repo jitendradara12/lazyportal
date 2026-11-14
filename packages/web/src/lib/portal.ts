@@ -1,6 +1,6 @@
 // Wiring only. No crypto, no endpoint strings, no localStorage.clear().
 import { Capacitor, registerPlugin } from "@capacitor/core";
-import { auth, createClient, createPortalTransport, credentials, features, session } from "@juet/core";
+import { auth, createClient, createPortalTransport, credentials, errors, features, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
 import { preserveSelectedInstitute } from "./sessionSelection";
 import { selectRefreshPolicy } from "./refreshPolicy";
@@ -73,6 +73,28 @@ export function onSessionStatus(cb: (status: SessionStatus) => void): () => void
   };
 }
 
+function isNavigatorOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+function isAbortError(err: unknown): boolean {
+  const e = err as { name?: string; code?: string } | null | undefined;
+  return Boolean(e && (e.name === "AbortError" || e.code === "ABORT_ERR"));
+}
+
+function isTransientNetworkError(err: unknown): boolean {
+  const e = err as { code?: string } | null | undefined;
+  return Boolean(
+    e && (e.code === "NETWORK_ERROR" || e.code === "REQUEST_TIMEOUT" || isAbortError(e)),
+  );
+}
+
+function offlineError(err?: unknown): Error {
+  return isTransientNetworkError(err)
+    ? (err as Error)
+    : new errors.PortalError("You are offline.", { code: "NETWORK_ERROR" });
+}
+
 export const client = createClient({
   baseUrl: BASE_URL,
   fetchImpl: transport.fetch,
@@ -82,8 +104,12 @@ export const client = createClient({
     if (signal.aborted) return false;
     const s = store.load();
     if (!s?.username) return false;
+    if (isNavigatorOffline()) {
+      throw new errors.PortalError("You are offline.", { code: "NETWORK_ERROR" });
+    }
 
     // 1. Try lightweight token refresh
+    let refreshTransientError: unknown = null;
     try {
       const r = await auth.refreshSession(client, s, { signal });
       if (signal.aborted) return false;
@@ -95,9 +121,14 @@ export const client = createClient({
         }
         return true;
       }
-    } catch {
+    } catch (e) {
       if (signal.aborted) return false;
-      // Upstream token refresh request failed
+      if (isNavigatorOffline()) throw offlineError(e);
+      if (isTransientNetworkError(e)) {
+        const code = (e as { code?: string })?.code;
+        if (code === "REQUEST_TIMEOUT" || isAbortError(e)) throw e;
+        refreshTransientError = e;
+      }
     }
 
     // 2. Silent re-login if saved password exists. Portal shows no captcha
@@ -111,21 +142,27 @@ export const client = createClient({
     if (signal.aborted) return false;
 
     if (savedPw) {
+      let lastTransientError: unknown = refreshTransientError;
       const maxAttempts = MAX_AUTOSOLVE_ATTEMPTS;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (signal.aborted) return false;
         let cap;
         try {
           cap = await auth.fetchCaptcha(client, { signal });
-        } catch {
+        } catch (e) {
           if (signal.aborted) return false;
-          if (typeof navigator !== "undefined" && navigator.onLine === false) {
-            return false;
+          if (isNavigatorOffline()) throw offlineError(e);
+          const code = (e as { code?: string })?.code;
+          if (code === "REQUEST_TIMEOUT" || isAbortError(e)) throw e;
+          if (code === "NETWORK_ERROR") {
+            lastTransientError = e;
+            continue;
           }
-          // Captcha image fetch failed (network/portal blip): retry.
+          // Captcha image fetch failed (non-network blip): retry.
           continue;
         }
         if (signal.aborted) return false;
+        lastTransientError = null;
         let captchaText = "";
         try {
           captchaText = await auth.solveCaptcha(cap, { signal });
@@ -160,19 +197,25 @@ export const client = createClient({
           const msg = (e as Error)?.message ?? "";
           const isCaptchaErr = code === "CAPTCHA_INVALID" || /captcha/i.test(msg);
           if (isCaptchaErr) continue;
-          if (typeof navigator !== "undefined" && navigator.onLine === false) {
-            return false;
-          }
           // Explicit credential rejection: clear saved credentials
           if (/invalid (user|password|credential)|wrong password|password.*incorrect|user id or password/i.test(msg)) {
             savedCredentials.clear();
             return false;
           }
-          // Transient: portal down / session race — retry with a fresh captcha.
-          if (code === "NETWORK_ERROR" || code === "SESSION_EXPIRED") continue;
+          if (isNavigatorOffline()) throw offlineError(e);
+          if (code === "REQUEST_TIMEOUT" || isAbortError(e)) throw e;
+          if (code === "NETWORK_ERROR") {
+            lastTransientError = e;
+            continue;
+          }
+          // Transient session race — retry with a fresh captcha.
+          if (code === "SESSION_EXPIRED") continue;
           return false;
         }
       }
+      if (lastTransientError) throw lastTransientError;
+    } else if (refreshTransientError) {
+      throw refreshTransientError;
     }
 
     return false;

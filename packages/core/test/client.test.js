@@ -586,6 +586,108 @@ describe("client", () => {
       ["https://x/slow", "Bearer new"],
     ]);
   });
+
+  for (const makeTransient of [
+    () => new PortalError("You are offline.", { code: "NETWORK_ERROR" }),
+    () => new PortalError("JUET's portal took too long to respond. Please retry.", { code: "REQUEST_TIMEOUT" }),
+    () => Object.assign(new Error("Transport aborted"), { name: "AbortError" }),
+  ]) {
+    it(`transient refresh failure (${makeTransient().code || makeTransient().name}) does not pin failedAuthorization or expire session`, async () => {
+      let token = "old";
+      let refreshes = 0;
+      let unauthorized = 0;
+      const statuses = [];
+      const client = createClient({
+        baseUrl: "https://x",
+        getToken: () => token,
+        fetchImpl: mockFetch(async (_url, init) => {
+          if (init.headers.Authorization === "Bearer old") {
+            return { ok: false, status: 401, text: async () => "{}" };
+          }
+          return ok({ status: { responseStatus: "Success" }, response: { ok: true } });
+        }),
+        onRefresh: async () => {
+          refreshes++;
+          if (refreshes === 1) throw makeTransient();
+          token = "new";
+          return true;
+        },
+        onUnauthorized: () => {
+          unauthorized++;
+        },
+        onSessionStatusChange: (status) => statuses.push(status),
+        now: () => NOW,
+      });
+
+      const firstErr = await client.post("/first", {}).catch((e) => e);
+      assert.notEqual(firstErr.name, "SessionExpiredError");
+      assert.equal(unauthorized, 0);
+      assert.deepEqual(statuses, ["recovering", "authenticated"]);
+
+      const recovered = await client.post("/retry", {});
+      assert.equal(recovered.response.ok, true);
+      assert.equal(refreshes, 2);
+      assert.equal(unauthorized, 0);
+      assert.deepEqual(statuses, ["recovering", "authenticated", "recovering", "authenticated"]);
+    });
+  }
+
+  it("recoverSession after a transient refresh failure can retry once connectivity returns", async () => {
+    let token = "old";
+    let refreshes = 0;
+    let unauthorized = 0;
+    const statuses = [];
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      onRefresh: async () => {
+        refreshes++;
+        if (refreshes === 1) throw new PortalError("You are offline.", { code: "NETWORK_ERROR" });
+        token = "new";
+        return true;
+      },
+      onUnauthorized: () => {
+        unauthorized++;
+      },
+      onSessionStatusChange: (status) => statuses.push(status),
+      now: () => NOW,
+    });
+
+    assert.equal(await client.recoverSession("old"), false);
+    assert.equal(unauthorized, 0);
+    assert.deepEqual(statuses, ["recovering", "authenticated"]);
+
+    assert.equal(await client.recoverSession("old"), true);
+    assert.equal(refreshes, 2);
+    assert.equal(unauthorized, 0);
+    assert.deepEqual(statuses, ["recovering", "authenticated", "recovering", "authenticated"]);
+  });
+
+  it("non-transient error thrown by onRefresh still expires and pins the token", async () => {
+    let refreshes = 0;
+    let unauthorized = 0;
+    const statuses = [];
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => "bad-token",
+      fetchImpl: mockFetch(async () => ({ ok: false, status: 401, text: async () => "{}" })),
+      onRefresh: async () => {
+        refreshes++;
+        throw new PortalError("Wrong password");
+      },
+      onUnauthorized: () => {
+        unauthorized++;
+      },
+      onSessionStatusChange: (status) => statuses.push(status),
+      now: () => NOW,
+    });
+
+    await assert.rejects(() => client.post("/first", {}), SessionExpiredError);
+    await assert.rejects(() => client.post("/second", {}), SessionExpiredError);
+    assert.equal(refreshes, 1);
+    assert.equal(unauthorized, 1);
+    assert.deepEqual(statuses, ["recovering", "expired"]);
+  });
 });
 
 

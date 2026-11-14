@@ -13,6 +13,18 @@ const DEFAULT_REFRESH_TIMEOUT_MS = 90_000;
 // Lecture history can take about 25s even without competing requests.
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
+function isAbortError(err) {
+  return Boolean(err && (err.name === "AbortError" || err.code === "ABORT_ERR"));
+}
+
+function isTransientRefreshError(err) {
+  if (!err) return false;
+  if (err.code === "NETWORK_ERROR" || err.code === "REQUEST_TIMEOUT") return true;
+  if (isAbortError(err)) return true;
+  if (err instanceof TypeError && /fetch|network/i.test(err.message)) return true;
+  return false;
+}
+
 /**
  * @param baseUrl e.g. https://studentportal.juet.ac.in/StudentPortalAPI
  * @param getToken () => string — read live each request so a refreshed token applies instantly.
@@ -95,7 +107,7 @@ export function createClient({
     } catch (err) {
       if (controller.signal.aborted) throw controller.signal.reason;
       // Aborts are control flow for recovery/logout, not a portal outage.
-      if (err && (err.name === "AbortError" || err.code === "ABORT_ERR")) throw err;
+      if (isAbortError(err)) throw err;
       if (err instanceof PortalError) throw err;
       throw new PortalError(
         typeof navigator !== "undefined" && navigator.onLine === false
@@ -154,7 +166,11 @@ export function createClient({
       .then(() => onRefresh(controller.signal))
       .then(
         (ok) => ({ kind: "result", ok: Boolean(ok) }),
-        () => ({ kind: "result", ok: false }),
+        (error) => (
+          !controller.signal.aborted && isTransientRefreshError(error)
+            ? { kind: "transient", error }
+            : { kind: "result", ok: false }
+        ),
       );
 
     const timeoutMs = Number.isFinite(refreshTimeoutMs)
@@ -192,6 +208,14 @@ export function createClient({
           failedAuthorization = null;
           setStatus("authenticated");
           return { kind: "token-changed", generation };
+        }
+
+        if (outcome.kind === "transient") {
+          // Offline/network/transport aborts prevented silent recovery from
+          // completing; leave failedAuthorization unset and avoid marking the
+          // session expired so later retries can attempt recovery again.
+          setStatus(hasToken(currentAuthorization()) ? "authenticated" : "expired");
+          return { kind: "transient", error: outcome.error, generation };
         }
 
         // This token has now had its full silent recovery attempt. Keep later
@@ -353,6 +377,9 @@ export function createClient({
           }
           // Explicit logout/session replacement owns the status transition.
           throw new SessionExpiredError();
+        }
+        if (retry.kind === "transient") {
+          throw retry.error;
         }
       }
 

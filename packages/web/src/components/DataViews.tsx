@@ -1,8 +1,9 @@
 /** Shared bits for dashboard sections. */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { isCurrentPortalDay } from "../lib/portalSchedule";
 import { dateFormatter } from "../lib/dateFormat";
+import { useShell } from "./AppBar";
 
 /** Tonal M3 skeleton rows for uncached loading states. */
 export function ListSkeleton({
@@ -102,18 +103,105 @@ export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
   );
 }
 
+const AUTH_OR_CLIENT_ERROR_RE =
+  /session.*expired|logged you out|invalid.*token|token.*expired|login again|unauthorized|forbidden|captcha|invalid (user|password|credential)|wrong password|password.*incorrect|\b40[0134]\b/i;
+
+export function classifySectionError(
+  error: string,
+  online = typeof navigator === "undefined" ? true : navigator.onLine !== false,
+) {
+  const isAuthOrClient = AUTH_OR_CLIENT_ERROR_RE.test(error);
+  const isOffline = !isAuthOrClient && (online === false || /you are offline|offline/i.test(error));
+  const isDown =
+    !isOffline &&
+    !isAuthOrClient &&
+    /down \(not us\)|network error|failed to fetch|unable to reach|\b50[0-9]\b|\b429\b/i.test(error);
+  const isTimeout =
+    !isOffline && !isDown && !isAuthOrClient && /took too long|timed?\s*out|timeout/i.test(error);
+  return {
+    isOffline,
+    isDown,
+    isTimeout,
+    isTransient: !isAuthOrClient && (isOffline || isDown || isTimeout),
+  };
+}
+
+export function subscribeSectionAutoRetry({
+  isTransient,
+  isExpired = false,
+  retry,
+  win = typeof window !== "undefined" ? window : undefined,
+  doc = typeof document !== "undefined" ? document : undefined,
+  nav = typeof navigator !== "undefined" ? navigator : undefined,
+}: {
+  isTransient: boolean;
+  isExpired?: boolean;
+  retry: () => void;
+  win?: Pick<Window, "addEventListener" | "removeEventListener">;
+  doc?: Pick<Document, "addEventListener" | "removeEventListener" | "visibilityState">;
+  nav?: Pick<Navigator, "onLine">;
+}): () => void {
+  if (!isTransient || isExpired) return () => {};
+  let triggeredForCycle = false;
+
+  const attemptRetry = () => {
+    if (triggeredForCycle) return;
+    if (nav && nav.onLine === false) return;
+    if (doc && doc.visibilityState === "hidden") return;
+    triggeredForCycle = true;
+    retry();
+  };
+
+  const onOnline = () => {
+    attemptRetry();
+  };
+
+  const onVisibilityChange = () => {
+    if (!doc) return;
+    if (doc.visibilityState === "hidden") {
+      triggeredForCycle = false;
+      return;
+    }
+    if (doc.visibilityState === "visible") {
+      attemptRetry();
+    }
+  };
+
+  win?.addEventListener("online", onOnline);
+  doc?.addEventListener("visibilitychange", onVisibilityChange);
+
+  return () => {
+    win?.removeEventListener("online", onOnline);
+    doc?.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+}
+
 /** Error line with retry, shared by every section. */
-export function SectionError({ label, error, retry }: { label: string; error: string; retry: () => void }) {
+export function SectionError({
+  label,
+  error,
+  retry,
+  autoRetry = true,
+}: {
+  label: string;
+  error: string;
+  retry: () => void;
+  autoRetry?: boolean;
+}) {
   const [retrying, setRetrying] = useState(false);
-  const isOffline = (typeof navigator !== "undefined" && !navigator.onLine) || /you are offline|offline/i.test(error);
-  const isDown = !isOffline && /down \(not us\)|network error|failed to fetch|unable to reach|\b50[0-9]\b|\b429\b/i.test(error);
+  const { isExpired } = useShell();
+  const { isOffline, isDown, isTransient } = classifySectionError(error);
+  const retryRef = useRef(retry);
+  retryRef.current = retry;
 
   useEffect(() => {
-    if (!isOffline || typeof window === "undefined") return;
-    const onOnline = () => retry();
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, [isOffline, retry]);
+    if (!autoRetry) return;
+    return subscribeSectionAutoRetry({
+      isTransient,
+      isExpired,
+      retry: () => retryRef.current(),
+    });
+  }, [autoRetry, isTransient, isExpired]);
 
   const handleRetry = () => {
     if (retrying) return;
