@@ -1,8 +1,11 @@
 package com.lazyportal.juet;
 
+import android.app.Activity;
+import android.content.Context;
 import android.webkit.WebView;
 import android.webkit.WebStorage;
 import androidx.webkit.WebViewFeature;
+import com.getcapacitor.Bridge;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -20,22 +23,37 @@ public class OfficialPortalPlugin extends Plugin {
     private OfficialPortalView portal;
     private PortalPolicy policy;
     private WebViewListener pageListener;
+    private volatile boolean destroyed;
 
     @Override public void load() {
-        try { policy = PortalPolicy.load(getContext()); }
-        catch (Exception ignored) { /* open() reports a missing/broken policy. */ }
+        try {
+            Context context = getContext();
+            if (context != null) policy = PortalPolicy.load(context);
+        } catch (Exception ignored) { /* open() reports a missing/broken policy. */ }
         // Also remove storage left by a process kill, which may skip dismiss.
-        getActivity().runOnUiThread(() -> {
-            if (policy != null) PortalStorage.clear(getActivity(), policy.origin, success -> {});
-        });
+        Activity activity = getActivity();
+        if (activity != null) {
+            activity.runOnUiThread(() -> {
+                Activity current = getActivity();
+                if (!destroyed && policy != null && current != null) PortalStorage.clear(current, policy.origin, success -> {});
+            });
+        }
         pageListener = new WebViewListener() {
             @Override public void onPageStarted(WebView view) { closeView(); }
         };
-        getBridge().addWebViewListener(pageListener);
+        Bridge bridge = getBridge();
+        if (bridge != null) bridge.addWebViewListener(pageListener);
     }
 
     @PluginMethod public void open(PluginCall call) {
-        getActivity().runOnUiThread(() -> {
+        Activity activity = getActivity();
+        if (destroyed || activity == null) {
+            call.reject("Could not open the official portal. Please retry.");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            Activity current = getActivity();
+            if (destroyed || current == null) { call.reject("Could not open the official portal. Please retry."); return; }
             if (portal != null) { call.reject("The official portal is already open."); return; }
             if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
                 call.reject("Update Android System WebView to open the official portal."); return;
@@ -45,11 +63,15 @@ public class OfficialPortalPlugin extends Plugin {
                 call.reject("Invalid portal session. Reconnect and retry."); return;
             }
             try {
-                if (policy == null) policy = PortalPolicy.load(getContext());
+                if (policy == null) {
+                    Context context = getContext();
+                    if (context == null) { call.reject("Could not open the official portal. Please retry."); return; }
+                    policy = PortalPolicy.load(context);
+                }
                 if (call.getInt("version", 0) != policy.version) {
                     call.reject("Update Lazyportal to open this portal view."); return;
                 }
-                portal = new OfficialPortalView(getActivity(), policy, bootstrap, expired -> {
+                portal = new OfficialPortalView(current, policy, bootstrap, expired -> {
                     portal = null; call.resolve(new JSObject().put("expired", expired));
                 });
                 portal.show();
@@ -60,10 +82,18 @@ public class OfficialPortalPlugin extends Plugin {
     }
 
     @PluginMethod public void clear(PluginCall call) {
-        getActivity().runOnUiThread(() -> {
-            closeView();
+        Activity activity = getActivity();
+        if (destroyed || activity == null) {
             if (policy == null) call.resolve();
-            else PortalStorage.clear(getActivity(), policy.origin, success -> {
+            else call.reject("Could not clear the old portal session. Please restart the app.");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            closeView();
+            Activity current = getActivity();
+            if (policy == null) call.resolve();
+            else if (destroyed || current == null) call.reject("Could not clear the old portal session. Please restart the app.");
+            else PortalStorage.clear(current, policy.origin, success -> {
                 if (success) call.resolve();
                 else call.reject("Could not clear the old portal session. Please restart the app.");
             });
@@ -76,7 +106,11 @@ public class OfficialPortalPlugin extends Plugin {
     }
 
     @Override protected void handleOnDestroy() {
-        if (pageListener != null) getBridge().removeWebViewListener(pageListener);
-        getActivity().runOnUiThread(this::closeView);
+        destroyed = true;
+        Bridge bridge = getBridge();
+        if (pageListener != null && bridge != null) bridge.removeWebViewListener(pageListener);
+        Activity activity = getActivity();
+        if (activity != null) activity.runOnUiThread(this::closeView);
+        else closeView();
     }
 }

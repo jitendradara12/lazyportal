@@ -1,5 +1,6 @@
 package com.lazyportal.juet.officialportal;
 
+import android.os.Looper;
 import android.util.Base64;
 import android.webkit.WebResourceResponse;
 import java.io.ByteArrayInputStream;
@@ -13,7 +14,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import org.json.JSONObject;
 
 /** Direct, bounded, cancellable networking for one portal view. Default TLS
@@ -21,9 +27,12 @@ import org.json.JSONObject;
  * automatic redirect following, or authenticated response cache. */
 public final class PortalTransport implements AutoCloseable {
     public interface Connections { HttpURLConnection open(URL url) throws IOException; }
+    private static final Executor DISCONNECT_EXECUTOR = createDisconnectExecutor();
     private final PortalPolicy policy;
     private final Connections connections;
     private final PortalAssetCache cache;
+    private final BooleanSupplier mainThreadCheck;
+    private final Executor disconnectExecutor;
     private final Map<String, HttpURLConnection> active = new ConcurrentHashMap<>();
     private final AtomicLong assetSequence = new AtomicLong();
     private volatile boolean closed;
@@ -34,9 +43,40 @@ public final class PortalTransport implements AutoCloseable {
         + "connect-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; "
         + "base-uri 'self'; form-action 'none'";
 
+    private static Executor createDisconnectExecutor() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(
+            4, 4, 10L, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+            runnable -> {
+                Thread thread = new Thread(runnable, "juet-portal-disconnect");
+                thread.setDaemon(true);
+                return thread;
+            }
+        );
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
+
+    private static boolean isAndroidMainThread() {
+        try {
+            Looper main = Looper.getMainLooper();
+            return main != null && main.isCurrentThread();
+        } catch (RuntimeException ignored) {
+            // Plain JVM unit tests provide stubbed Android Looper classes that throw here.
+            return false;
+        }
+    }
+
     public PortalTransport(PortalPolicy policy, Connections connections) { this(policy, connections, null); }
     public PortalTransport(PortalPolicy policy, Connections connections, PortalAssetCache cache) {
-        this.policy = policy; this.connections = connections; this.cache = cache;
+        this(policy, connections, cache, PortalTransport::isAndroidMainThread, DISCONNECT_EXECUTOR);
+    }
+    PortalTransport(PortalPolicy policy, Connections connections, PortalAssetCache cache,
+            BooleanSupplier mainThreadCheck, Executor disconnectExecutor) {
+        this.policy = policy;
+        this.connections = connections;
+        this.cache = cache;
+        this.mainThreadCheck = mainThreadCheck;
+        this.disconnectExecutor = disconnectExecutor;
     }
 
     private HttpURLConnection connect(String id, URL target, String method) throws IOException {
@@ -190,9 +230,26 @@ public final class PortalTransport implements AutoCloseable {
     }
 
     public void cancel(String id) {
+        if (id == null) return;
         HttpURLConnection connection = active.remove(id);
-        if (connection != null) connection.disconnect();
+        if (connection == null) return;
+        if (mainThreadCheck.getAsBoolean()) {
+            disconnectExecutor.execute(() -> disconnectQuietly(connection));
+        } else {
+            disconnectQuietly(connection);
+        }
     }
 
-    @Override public void close() { closed = true; for (String id : active.keySet()) cancel(id); }
+    private static void disconnectQuietly(HttpURLConnection connection) {
+        try {
+            connection.disconnect();
+        } catch (RuntimeException | Error ignored) {
+            // Avoid NetworkOnMainThreadException or internal SSL/socket teardown errors escaping.
+        }
+    }
+
+    @Override public void close() {
+        closed = true;
+        for (String id : active.keySet().toArray(new String[0])) cancel(id);
+    }
 }

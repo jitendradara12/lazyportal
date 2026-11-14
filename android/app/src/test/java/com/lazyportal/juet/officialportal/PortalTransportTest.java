@@ -10,6 +10,12 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.Test;
@@ -55,11 +61,91 @@ public class PortalTransportTest {
         assertThrows(IOException.class, () -> transport.api(request("/clxuser/getmenulist", "POST")));
         assertEquals(1, connections);
     }
+    @Test public void cancelAndCloseOffloadDisconnectOffMainThread() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch releaseApi = new CountDownLatch(1);
+        CountDownLatch releaseDisconnect = new CountDownLatch(1);
+        CountDownLatch disconnectedLatch = new CountDownLatch(1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        ExecutorService disconnectPool = Executors.newSingleThreadExecutor();
+        PortalTransport mainThreadTransport = new PortalTransport(policy, url -> {
+            last = new FakeConnection(url) {
+                @Override public int getResponseCode() {
+                    entered.countDown();
+                    try { releaseApi.await(5, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+                    return 302;
+                }
+                @Override public void disconnect() {
+                    disconnectThread = Thread.currentThread();
+                    try { releaseDisconnect.await(5, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+                    disconnected = true;
+                    disconnectedLatch.countDown();
+                }
+            };
+            return last;
+        }, null, () -> true, disconnectPool);
+        try {
+            Future<?> call = worker.submit(() -> {
+                try { mainThreadTransport.api(request("/clxuser/getmenulist", "POST")); } catch (Exception ignored) {}
+            });
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            Thread mainCaller = Thread.currentThread();
+            // close() must return immediately without blocking on disconnect() or running it on mainCaller.
+            mainThreadTransport.close();
+            assertFalse(last.disconnected);
+            releaseDisconnect.countDown();
+            assertTrue(disconnectedLatch.await(5, TimeUnit.SECONDS));
+            assertNotNull(last.disconnectThread);
+            assertNotSame(mainCaller, last.disconnectThread);
+            releaseApi.countDown();
+            call.get(5, TimeUnit.SECONDS);
+        } finally {
+            worker.shutdownNow();
+            disconnectPool.shutdownNow();
+        }
+    }
+    @Test public void disconnectFailuresNeverPropagateFromCancelOrClose() throws Exception {
+        CountDownLatch bothEntered = new CountDownLatch(2);
+        CountDownLatch releaseApi = new CountDownLatch(1);
+        AtomicInteger disconnectCalls = new AtomicInteger();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        PortalTransport resilient = new PortalTransport(policy, url -> new FakeConnection(url) {
+            @Override public int getResponseCode() {
+                bothEntered.countDown();
+                try { releaseApi.await(5, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+                return 302;
+            }
+            @Override public void disconnect() {
+                int count = disconnectCalls.incrementAndGet();
+                disconnected = true;
+                if (count == 1) throw new RuntimeException("NetworkOnMainThreadException");
+                throw new AssertionError("SSL socket teardown failure");
+            }
+        });
+        try {
+            Future<?> first = workers.submit(() -> {
+                try { resilient.api(request("/clxuser/getmenulist", "POST").put("id", "req-1")); } catch (Exception ignored) {}
+            });
+            Future<?> second = workers.submit(() -> {
+                try { resilient.api(request("/clxuser/getmenulist", "POST").put("id", "req-2")); } catch (Exception ignored) {}
+            });
+            assertTrue(bothEntered.await(5, TimeUnit.SECONDS));
+            resilient.cancel("req-1");
+            resilient.close();
+            assertEquals(2, disconnectCalls.get());
+            releaseApi.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+        } finally {
+            workers.shutdownNow();
+        }
+    }
     private static class FakeConnection extends HttpURLConnection {
-        boolean disconnected;
+        volatile boolean disconnected;
+        volatile Thread disconnectThread;
         FakeConnection(URL url) { super(url); }
         @Override public void connect() {}
-        @Override public void disconnect() { disconnected = true; }
+        @Override public void disconnect() { disconnected = true; disconnectThread = Thread.currentThread(); }
         @Override public boolean usingProxy() { return false; }
         @Override public OutputStream getOutputStream() { return new ByteArrayOutputStream(); }
         @Override public int getResponseCode() { return 302; }
