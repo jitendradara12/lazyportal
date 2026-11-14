@@ -23,6 +23,7 @@ import {
   subjectName,
   rowSubId,
   subjectRowId,
+  getSubjectCacheKey,
   getCachedSubjectDetail,
   getCachedSubjectDetailEntry,
   useAttendanceInitial,
@@ -48,7 +49,11 @@ export function AttendancePage({
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [detailSyncError, setDetailSyncError] = useState<string | null>(null);
   const [detailSyncAttempt, setDetailSyncAttempt] = useState(0);
+  const [manualRefreshSeq, setManualRefreshSeq] = useState(0);
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const detailUpdatedAtRef = useRef<Record<string, number>>({});
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showNotice = (msg: string, ms: number) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -131,6 +136,7 @@ export function AttendancePage({
     setDetailSyncError(null);
     setSyncState(idleAttendanceSync());
     manualCheckpoint.current = {};
+    detailUpdatedAtRef.current = {};
     return () => {
       manualController.current?.abort();
       manualController.current = null;
@@ -153,6 +159,8 @@ export function AttendancePage({
   });
 
   const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const semesters = initial?.semesters ?? [];
 
   const loading = att.loading || detail.loading;
@@ -205,10 +213,39 @@ export function AttendancePage({
       if (entry.updatedAt && loadedUpdatedAt && entry.updatedAt > loadedUpdatedAt && entry.data !== data) {
         return;
       }
+      if (loadedUpdatedAt) {
+        detailUpdatedAtRef.current[subId] = Math.max(detailUpdatedAtRef.current[subId] ?? 0, loadedUpdatedAt);
+      }
       setDetailsMap((prev) => (prev[subId] === data ? prev : { ...prev, [subId]: data }));
     },
     [session.username, semId, session.instituteid]
   );
+
+  // Sync detailsMap if a subject read finishes after SubjectDetailSheet closes.
+  const activeRegId = sem?.registrationid ?? semId;
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+    const prefix = `${sessionCacheKey("att.subject", sessionRef.current, activeRegId)}:`;
+    const onCacheUpdated = (event: Event) => {
+      if (!pageIsLive.current) return;
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (typeof key !== "string" || !key.startsWith(prefix)) return;
+      const currentSession = sessionRef.current;
+      const matched = rowsRef.current.find(
+        (r) => getSubjectCacheKey(currentSession.username, activeRegId, r, currentSession.instituteid) === key
+      );
+      if (!matched) return;
+      const subId = rowSubId(matched);
+      const entry = getCachedSubjectDetailEntry(currentSession.username, activeRegId, matched, currentSession.instituteid);
+      if (!entry.data) return;
+      const prevUpdatedAt = detailUpdatedAtRef.current[subId] ?? 0;
+      if (entry.updatedAt && prevUpdatedAt && entry.updatedAt < prevUpdatedAt) return;
+      if (entry.updatedAt) detailUpdatedAtRef.current[subId] = entry.updatedAt;
+      setDetailsMap((prev) => (prev[subId] === entry.data ? prev : { ...prev, [subId]: entry.data! }));
+    };
+    window.addEventListener("juet:cache-updated", onCacheUpdated);
+    return () => window.removeEventListener("juet:cache-updated", onCacheUpdated);
+  }, [session.username, session.enrollmentno, session.instituteid, activeRegId]);
 
   useEffect(() => {
     if (isExpired) {
@@ -220,11 +257,12 @@ export function AttendancePage({
   // Wait for today's overview before fetching logs, otherwise the old row
   // checksum can launch a second wave of identical reads when it is replaced.
   useEffect(() => {
-    if (!rows.length || isExpired || !isDefault || manualController.current ||
-      att.refreshing || !isCurrentPortalDay(att.updatedAt)) {
+    if (!rows.length || isExpired || !isDefault || isRefreshing || manualController.current ||
+      att.refreshing || !isCurrentPortalDay(att.updatedAt) || refreshError) {
       if (!manualController.current) setSyncState(previous => previous.phase === "idle" ? previous : idleAttendanceSync());
       return;
     }
+    const currentSession = sessionRef.current;
     setDetailSyncError(null);
     const generation = getCacheGeneration();
     let active = true;
@@ -232,16 +270,16 @@ export function AttendancePage({
     const current = () => active && pageIsLive.current && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired";
     const currentMap: Record<string, Record<string, unknown>> = {};
     for (const row of rows) {
-      const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
+      const entry = getCachedSubjectDetailEntry(currentSession.username, semId, row, currentSession.instituteid);
       if (entry.data) currentMap[rowSubId(row)] = entry.data;
     }
-    const key = `${session.username}:${session.instituteid ?? "default"}:${semId}`;
+    const key = `${currentSession.username}:${currentSession.instituteid ?? "default"}:${semId}`;
     const changedSemester = lastSemRef.current !== key;
     lastSemRef.current = key;
     setDetailsMap((prev) => changedSemester ? currentMap : { ...prev, ...currentMap });
 
     void syncAttendanceDetails({
-      session, rows,
+      session: currentSession, rows,
       overviewUpdatedAt: att.updatedAt,
       base: { registrationid: sem?.registrationid, registrationcode: sem?.registrationcode },
       isCurrent: current,
@@ -252,9 +290,104 @@ export function AttendancePage({
       if (current() && !result.complete) setDetailSyncError("Some class details could not be updated. Retry to load the remaining subjects.");
     });
     return () => { active = false; controller.abort(); };
-  }, [rows, semId, session, sem?.registrationid, sem?.registrationcode, isExpired, att.refreshing, att.updatedAt, detailSyncAttempt]);
+  }, [
+    rows,
+    semId,
+    session.username,
+    session.enrollmentno,
+    session.instituteid,
+    sem?.registrationid,
+    sem?.registrationcode,
+    isExpired,
+    isRefreshing,
+    manualRefreshSeq,
+    refreshError,
+    att.refreshing,
+    att.updatedAt,
+    detailSyncAttempt,
+  ]);
 
   const isSyncing = !isExpired && (isRefreshing || loading || att.refreshing || syncingHistory);
+
+  const attRetryInDispatchRef = useRef(false);
+  const triggerAttRetry = useCallback(() => {
+    if (attRetryInDispatchRef.current) return;
+    attRetryInDispatchRef.current = true;
+    Promise.resolve().then(() => {
+      attRetryInDispatchRef.current = false;
+    });
+    att.retry();
+  }, [att.retry]);
+
+  const wasHiddenRef = useRef(typeof document !== "undefined" && document.visibilityState !== "visible");
+  useEffect(() => {
+    if (!att.error && !detailSyncError) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      wasHiddenRef.current = true;
+    }
+  }, [att.error, detailSyncError]);
+
+  const resumeRef = useRef<() => void>(() => {});
+  resumeRef.current = () => {
+    if (!pageIsLive.current) return;
+    if (!isDefault || isExpired || isSyncing || manualController.current) return;
+    if (getSessionStatus() === "expired") return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (refreshError) return;
+
+    if (att.error) {
+      triggerAttRetry();
+      return;
+    }
+
+    if (!isCurrentPortalDay(att.updatedAt)) return;
+
+    const currentSession = sessionRef.current;
+    const needsDeepFetch = rows.some((row) => {
+      const entry = getCachedSubjectDetailEntry(currentSession.username, semId, row, currentSession.instituteid);
+      return doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
+    });
+    if (detailSyncError || needsDeepFetch) {
+      setDetailSyncError(null);
+      setDetailSyncAttempt((attempt) => attempt + 1);
+    }
+  };
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState !== "visible") {
+        wasHiddenRef.current = true;
+        return;
+      }
+      if (!wasHiddenRef.current) return;
+      wasHiddenRef.current = false;
+      resumeRef.current();
+    };
+    const onOnline = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        wasHiddenRef.current = true;
+        return;
+      }
+      resumeRef.current();
+    };
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("online", onOnline);
+    }
+    return () => {
+      if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
+      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+        window.removeEventListener("online", onOnline);
+      }
+    };
+  }, []);
 
   // Single-pass short-count + filter for cheap mobile renders.
   const { shortsCount, filteredRows } = useMemo(() => {
@@ -330,6 +463,7 @@ export function AttendancePage({
         manualController.current = null;
         if (pageIsLive.current) {
           setIsRefreshing(false);
+          setManualRefreshSeq((n) => n + 1);
           setSyncState(idleAttendanceSync());
         }
       }
@@ -338,7 +472,7 @@ export function AttendancePage({
 
   const error = refreshError ?? att.error ?? detail.error ?? (isDefault ? detailSyncError : null);
   const isHardBlocked = isDefault && !refreshQuota.canRefresh && !error;
-  const retry = refreshError ? () => handleRefresh() : att.error ? att.retry
+  const retry = refreshError ? () => handleRefresh() : att.error ? triggerAttRetry
     : detail.error ? detail.retry : () => setDetailSyncAttempt((attempt) => attempt + 1);
 
   const status = isSyncing ? (

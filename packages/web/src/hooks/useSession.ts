@@ -9,6 +9,23 @@ function restore(): Session | null {
   return store.load();
 }
 
+/** Preserve session object identity across silent token renewals when only auth credentials rotated. */
+export function resolveRenewedSession(prev: Session | null, next: Session): Session {
+  if (!prev) return next;
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const key of keys) {
+    if (key === "token" || key === "tokendate") continue;
+    const a = prev[key];
+    const b = next[key];
+    if (a === b) continue;
+    if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+      if (JSON.stringify(a) === JSON.stringify(b)) continue;
+    }
+    return next;
+  }
+  return prev;
+}
+
 export function useSession() {
   const [session, setSession] = useState<Session | null>(restore);
   const [status, setStatus] = useState<SessionStatus>(() => (restore() ? getSessionStatus() : "expired"));
@@ -61,7 +78,7 @@ export function useSession() {
     const onRenewed = (e: Event) => {
       const detail = (e as CustomEvent<Session>).detail;
       if (detail) {
-        setSession(detail);
+        setSession((prev) => resolveRenewedSession(prev, detail));
         setSessionStatus("authenticated");
         setStatus("authenticated");
       }

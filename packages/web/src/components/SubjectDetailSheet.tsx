@@ -69,7 +69,7 @@ export function SubjectDetailSheet({
   const detail = useSubjectDetail(session, row, base);
   const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
   const needsFetch = doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
-  const pending = detail.loading || detail.refreshing || needsFetch;
+  const pending = detail.loading || detail.refreshing || (!detail.error && needsFetch);
   useEffect(() => {
     if (visible && pending) return pauseAttendanceSync();
   }, [visible, pending]);
