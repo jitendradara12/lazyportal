@@ -20,3 +20,13 @@ test("long browser caching is restricted to generated assets, leaving shell and 
   await assert.rejects(access(new URL("../packages/web/public/assets", import.meta.url)), { code: "ENOENT" });
   assert.equal(config.rewrites.find((route) => route.source === "/api/:path*")?.destination, "/api/proxy?path=:path*");
 });
+
+test("deployment sets standard browser security headers across all routes", () => {
+  const catchAll = config.headers.find((route) => route.source === "/(.*)");
+  assert.ok(catchAll, "expected /(.*) security header rule");
+  const byKey = new Map(catchAll.headers.map((header) => [header.key.toLowerCase(), header.value]));
+  assert.equal(byKey.get("x-content-type-options"), "nosniff");
+  assert.equal(byKey.get("x-frame-options"), "DENY");
+  assert.equal(byKey.get("referrer-policy"), "strict-origin-when-cross-origin");
+  assert.equal(byKey.get("permissions-policy"), "camera=(), microphone=(), geolocation=()");
+});

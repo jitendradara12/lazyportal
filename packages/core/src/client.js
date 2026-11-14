@@ -110,8 +110,8 @@ export function createClient({
     }
   }
 
-  async function headers() {
-    const { encrypted } = await makeLocalName({ now: now() });
+  async function headers(ts = now()) {
+    const { encrypted } = await makeLocalName({ now: ts });
     return {
       "Content-Type": "application/json",
       Authorization: currentAuthorization(),
@@ -403,12 +403,15 @@ export function createClient({
       }), { ...opts, responseType: "pdf" });
     },
     post(endpoint, payloadObj, opts = {}) {
-      return dispatch(endpoint, async () => ({
-        method: "POST",
-        headers: await headers(),
-        body: await encrypt(JSON.stringify(payloadObj), { now: now() }),
-        ...(opts.signal ? { signal: opts.signal } : {}),
-      }), opts);
+      return dispatch(endpoint, async () => {
+        const ts = now();
+        return {
+          method: "POST",
+          headers: await headers(ts),
+          body: await encrypt(JSON.stringify(payloadObj), { now: ts }),
+          ...(opts.signal ? { signal: opts.signal } : {}),
+        };
+      }, opts);
     },
     /** Raw POST: same headers, plain JSON body (some endpoints take unencrypted JSON). */
     postRaw(endpoint, payloadObj, opts = {}) {

@@ -206,6 +206,7 @@ export default async function handler(req, res) {
   const method = String(req.method ?? "").toUpperCase();
   const incomingHeaders = req.headers ?? {};
   const origin = incomingHeaders.origin;
+  res.setHeader("X-Content-Type-Options", "nosniff");
   if (method === "OPTIONS") {
     // CORS preflight (native WebView only — see shared/cors.js).
     res.status(204);

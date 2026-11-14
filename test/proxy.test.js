@@ -510,3 +510,21 @@ test("invalid proxy paths return 400 without opening upstream", async (t) => {
     assert.deepEqual(JSON.parse(res.body), { message: "Invalid proxy path" });
   }
 });
+
+test("proxy adds X-Content-Type-Options: nosniff on upstream and early responses", async (t) => {
+  mockTransport(t);
+  const okRes = new Response();
+  await handler(request(), okRes);
+  assert.equal(okRes.statusCode, 200);
+  assert.equal(okRes.headers["x-content-type-options"], "nosniff");
+
+  const badRes = new Response();
+  await handler(request({ query: { path: "../secret" } }), badRes);
+  assert.equal(badRes.statusCode, 400);
+  assert.equal(badRes.headers["x-content-type-options"], "nosniff");
+
+  const optRes = new Response();
+  await handler(request({ method: "OPTIONS" }), optRes);
+  assert.equal(optRes.statusCode, 204);
+  assert.equal(optRes.headers["x-content-type-options"], "nosniff");
+});

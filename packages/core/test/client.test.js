@@ -49,6 +49,28 @@ describe("client", () => {
     assert.equal(body.userid, "u1");
   });
 
+  it("uses a single clock reading for LocalName and encrypted body across IST midnight", async () => {
+    const beforeMidnightIst = new Date("2026-09-28T18:29:59.999Z");
+    const afterMidnightIst = new Date("2026-09-28T18:30:00.001Z");
+    let nowCalls = 0;
+    let seen;
+    const client = createClient({
+      baseUrl: "https://x/StudentPortalAPI",
+      getToken: () => "tok123",
+      now: () => (++nowCalls === 1 ? beforeMidnightIst : afterMidnightIst),
+      fetchImpl: mockFetch(async (_url, init) => {
+        seen = init;
+        return ok({ status: { responseStatus: "Success" }, response: {} });
+      }),
+    });
+    await client.post("/clxuser/getmenulist", { userid: "u1" });
+    assert.equal(nowCalls, 1);
+    const localPlain = await decrypt(seen.headers.LocalName, { now: beforeMidnightIst });
+    assert.equal(localPlain.length, 16);
+    const body = JSON.parse(await decrypt(seen.body, { now: beforeMidnightIst }));
+    assert.equal(body.userid, "u1");
+  });
+
   it("postRaw sends plain JSON (unencrypted endpoints)", async () => {
     let seen;
     const client = createClient({
