@@ -3,6 +3,7 @@ package com.lazyportal.juet;
 import static org.junit.Assert.*;
 
 import android.content.Context;
+import android.os.Looper;
 import android.util.Base64;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.test.core.app.ActivityScenario;
@@ -105,7 +106,10 @@ public class PortalHttpPluginTest {
                     waiting.await();
                     assertEquals("ABORT_ERR", waiting.error);
                     assertNull(waiting.response);
+                    assertTrue(connection.disconnectedLatch.await(5, TimeUnit.SECONDS));
                     assertTrue(connection.disconnected);
+                    assertNotNull(connection.disconnectThread);
+                    assertNotSame(Looper.getMainLooper().getThread(), connection.disconnectThread);
                     assertTrue(connection.finished.await(5, TimeUnit.SECONDS));
                 }
             } finally {
@@ -115,11 +119,16 @@ public class PortalHttpPluginTest {
     }
 
     private static class FakeConnection extends HttpURLConnection {
-        final CountDownLatch started = new CountDownLatch(1), finished = new CountDownLatch(1);
+        final CountDownLatch started = new CountDownLatch(1), finished = new CountDownLatch(1), disconnectedLatch = new CountDownLatch(1);
         volatile boolean disconnected;
+        volatile Thread disconnectThread;
         FakeConnection(URL url) { super(url); }
         @Override public void connect() {}
-        @Override public void disconnect() { disconnected = true; }
+        @Override public void disconnect() {
+            disconnectThread = Thread.currentThread();
+            disconnected = true;
+            disconnectedLatch.countDown();
+        }
         @Override public boolean usingProxy() { return false; }
         @Override public int getResponseCode() throws IOException {
             started.countDown();
