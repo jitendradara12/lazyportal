@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createClient } from "../src/client.js";
 import { decrypt } from "../src/crypto.js";
 import { SessionExpiredError, PortalError } from "../src/errors.js";
@@ -778,5 +780,23 @@ describe("request deadlines", () => {
       client.getPublic("/stream-break"),
       (err) => err instanceof PortalError && err.code === "NETWORK_ERROR"
     );
+  });
+
+  it("keeps the Node event loop alive until requestTimeoutMs fires", async () => {
+    // Regression test for Node 22 node:test beforeExit failures when safeFetch
+    // unrefs its deadline timer while awaiting a promise-only transport.
+    const clientUrl = new URL("../src/client.js", import.meta.url).href;
+    const script = [
+      `import { createClient } from ${JSON.stringify(clientUrl)};`,
+      `process.exitCode = 1;`,
+      `const client = createClient({ baseUrl: "https://x", requestTimeoutMs: 15, fetchImpl: () => new Promise(() => {}) });`,
+      `try {`,
+      `  await client.getPublic("/hung");`,
+      `} catch (err) {`,
+      `  if (err?.code === "REQUEST_TIMEOUT") { process.exitCode = 0; console.log(err.code); }`,
+      `}`,
+    ].join("\n");
+    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script]);
+    assert.equal(stdout.trim(), "REQUEST_TIMEOUT");
   });
 });

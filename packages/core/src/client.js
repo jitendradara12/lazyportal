@@ -82,10 +82,11 @@ export function createClient({
     else init.signal?.addEventListener("abort", abort, { once: true });
     const timeoutMs = Number.isFinite(requestTimeoutMs)
       ? Math.max(0, requestTimeoutMs) : DEFAULT_REQUEST_TIMEOUT_MS;
+    // Keep the deadline timer ref'd while safeFetch awaits so Node waits for it;
+    // finally always clears it on response, abort, or timeout.
     const timer = setTimeout(() => controller.abort(new PortalError(
       "JUET's portal took too long to respond. Please retry.", { code: "REQUEST_TIMEOUT" },
     )), timeoutMs);
-    if (timer?.unref) timer.unref();
     let rejectAbort;
     const aborted = new Promise((_, reject) => {
       rejectAbort = () => reject(controller.signal.reason);
