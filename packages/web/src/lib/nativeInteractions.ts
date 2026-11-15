@@ -9,14 +9,45 @@ const nativeInteractions = registerPlugin<{
   haptic(): Promise<void>;
   hideKeyboard(): Promise<void>;
   getAppVersion(): Promise<{ version: string }>;
+  installUpdate(options: { tag: string; sha256?: string | null }): Promise<{ started?: boolean }>;
 }>("NativeInteractions");
 
 const available = () => Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("NativeInteractions");
+
+export type AppUpdateInstallResult = "started" | "unsupported" | "permission_denied" | "failed";
 
 export async function getInstalledAppVersion(): Promise<string | null> {
   if (!available()) return null;
   // Older APKs have this plugin but not this method.
   return nativeInteractions.getAppVersion().then(({ version }) => version).catch(() => null);
+}
+
+export async function installAppUpdate(
+  options: { tag: string; sha256?: string | null },
+): Promise<AppUpdateInstallResult> {
+  if (!available()) return "unsupported";
+  try {
+    await nativeInteractions.installUpdate({
+      tag: options.tag,
+      sha256: options.sha256 ?? null,
+    });
+    return "started";
+  } catch (err) {
+    const code = typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+    const message = err instanceof Error ? err.message
+      : typeof err === "object" && err !== null && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : String(err ?? "");
+    if (code === "UNIMPLEMENTED" || /not implemented|unimplemented/i.test(message)) {
+      return "unsupported";
+    }
+    if (code === "PERMISSION_DENIED" || (!code && /permission/i.test(message))) {
+      return "permission_denied";
+    }
+    return "failed";
+  }
 }
 
 let listening = false;

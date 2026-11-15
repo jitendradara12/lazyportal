@@ -28,12 +28,15 @@ export async function fetchLatestRelease(fetcher = fetch) {
   const release = await response.json();
   const version = release?.tag_name;
   const parsed = parseVersion(version);
-  if (release?.draft || release?.prerelease || !parsed || parsed.prerelease
-    || !release.assets?.some((asset) => asset.name === "app-release.apk" && asset.state === "uploaded")) {
+  const asset = release?.assets?.find((a) => a.name === "app-release.apk" && a.state === "uploaded");
+  if (release?.draft || release?.prerelease || !parsed || parsed.prerelease || !asset) {
     throw new Error("No stable APK available");
   }
+  const sha256 = /^sha256:([0-9a-f]{64})$/i.exec(asset.digest ?? "")?.[1]?.toLowerCase() ?? null;
   return {
+    tag: version,
     version: version.replace(/^v/, ""),
     url: `https://github.com/jitendradara12/lazyportal/releases/download/${encodeURIComponent(version)}/app-release.apk`,
+    sha256,
   };
 }

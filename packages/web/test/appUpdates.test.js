@@ -23,7 +23,33 @@ test("reads a public release and pins the download to the displayed version", as
     assert.equal(options.headers.Authorization, undefined);
     return { ok: true, json: async () => release };
   });
-  assert.deepEqual(result, { version: "1.0.4", url: "https://github.com/jitendradara12/lazyportal/releases/download/v1.0.4/app-release.apk" });
+  assert.deepEqual(result, {
+    tag: "v1.0.4",
+    version: "1.0.4",
+    url: "https://github.com/jitendradara12/lazyportal/releases/download/v1.0.4/app-release.apk",
+    sha256: null,
+  });
+});
+
+test("extracts a valid sha256 asset digest and ignores missing or malformed digests", async () => {
+  const upperHash = "A".repeat(64);
+  const withDigest = {
+    ...release,
+    assets: [{ name: "app-release.apk", state: "uploaded", digest: `sha256:${upperHash}` }],
+  };
+  const valid = await fetchLatestRelease(async () => ({ ok: true, json: async () => withDigest }));
+  assert.deepEqual(valid, {
+    tag: "v1.0.4",
+    version: "1.0.4",
+    url: "https://github.com/jitendradara12/lazyportal/releases/download/v1.0.4/app-release.apk",
+    sha256: "a".repeat(64),
+  });
+
+  for (const digest of [null, "", "sha256:short", "md5:" + "0".repeat(32)]) {
+    const malformed = { ...release, assets: [{ name: "app-release.apk", state: "uploaded", digest }] };
+    const result = await fetchLatestRelease(async () => ({ ok: true, json: async () => malformed }));
+    assert.equal(result.sha256, null);
+  }
 });
 
 test("rejects failed checks and releases without a usable stable APK", async () => {

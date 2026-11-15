@@ -95,19 +95,36 @@ test("browser users do not see an Android app update action", async ({ page }) =
   await expect(page.getByRole("link", { name: "Download latest APK", exact: true })).toHaveCount(0);
 });
 
-async function mockAppVersion(page, version) {
-  await page.addInitScript((version) => {
+async function mockAppVersion(page, version, { installUpdate = false } = {}) {
+  await page.addInitScript(({ version, installUpdate }) => {
     window.androidBridge = {};
+    const methods = [{ name: "getAppVersion", rtype: "promise" }];
+    if (installUpdate) {
+      methods.push({ name: "installUpdate", rtype: "promise" });
+      methods.push({ name: "haptic", rtype: "promise" });
+    }
+    window.__installUpdateCalls = [];
+    window.__haptics = 0;
     window.Capacitor = {
-      PluginHeaders: [{ name: "NativeInteractions", methods: [{ name: "getAppVersion", rtype: "promise" }] }],
-      async nativePromise(_plugin, method) {
+      PluginHeaders: [{ name: "NativeInteractions", methods }],
+      async nativePromise(_plugin, method, options) {
         if (method === "getAppVersion") {
           window.__appVersionChecks = (window.__appVersionChecks ?? 0) + 1;
           return { version };
         }
+        if (method === "haptic") {
+          window.__haptics++;
+          return;
+        }
+        if (method === "installUpdate") {
+          window.__installUpdateCalls.push(options);
+          const handler = window.__onInstallUpdate;
+          if (handler) return handler(options);
+          return { started: true };
+        }
       },
     };
-  }, version);
+  }, { version, installUpdate });
 }
 
 for (const [installed, label] of [["1.0.3", "Update 1.0.3 → 1.0.4"], ["1.0.4", "App up to date"], ["1.0.5", "App up to date"]]) {
@@ -142,4 +159,108 @@ test("a failed release check keeps the installed version and manual download", a
   const download = page.getByRole("link", { name: "Download latest APK", exact: true });
   await expect(download).toHaveAttribute("href", RELEASES_URL);
   await expect(download).toHaveAccessibleDescription("Version 1.0.3. Couldn't check for updates. Download manually.");
+});
+
+const V104_APK_URL = "https://github.com/jitendradara12/lazyportal/releases/download/v1.0.4/app-release.apk";
+const V104_SHA256 = "a".repeat(64);
+
+async function openUpdateRow(page, { installUpdate = true, sha256 = V104_SHA256 } = {}) {
+  await mockAppVersion(page, "1.0.3", { installUpdate });
+  await openApp(page, { dashboard: true });
+  await page.route("https://api.github.com/repos/jitendradara12/lazyportal/releases/latest", (route) => route.fulfill({
+    json: {
+      tag_name: "v1.0.4",
+      assets: [{ name: "app-release.apk", state: "uploaded", digest: sha256 ? `sha256:${sha256}` : null }],
+    },
+  }));
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More", exact: true }).click();
+  const update = page.getByRole("link", { name: "Update 1.0.3 → 1.0.4", exact: true });
+  await expect(update).toBeVisible();
+  return update;
+}
+
+test("in-app update downloads with tag and sha256, ignores duplicate taps while busy, and opens installer", async ({ page }) => {
+  const update = await openUpdateRow(page);
+  const hapticsBefore = await page.evaluate(() => window.__haptics);
+  await page.evaluate(() => {
+    window.__onInstallUpdate = () => new Promise((resolve) => { window.__resolveInstall = resolve; });
+  });
+
+  await update.click();
+  await expect(update).toHaveAttribute("aria-busy", "true");
+  await expect(update).toHaveAccessibleDescription("Downloading update…");
+  await update.click();
+  expect(await page.evaluate(() => window.__installUpdateCalls)).toEqual([{ tag: "v1.0.4", sha256: V104_SHA256 }]);
+  expect(await page.evaluate(() => window.__haptics)).toBe(hapticsBefore + 1);
+
+  await page.evaluate(() => window.__resolveInstall({ started: true }));
+  await expect(update).not.toHaveAttribute("aria-busy", "true");
+  await expect(update).toHaveAccessibleDescription("Approve the prompt to finish updating.");
+
+  await update.click();
+  await expect(update).toHaveAccessibleDescription("Downloading update…");
+  await page.evaluate(() => window.__resolveInstall({ started: true }));
+  await expect(update).toHaveAccessibleDescription("Approve the prompt to finish updating.");
+  expect(await page.evaluate(() => window.__installUpdateCalls.length)).toBe(2);
+});
+
+test("permission denied guides the user to Settings and retries installUpdate on next tap", async ({ page }) => {
+  const update = await openUpdateRow(page, { sha256: null });
+  await page.evaluate(() => {
+    let attempt = 0;
+    window.__onInstallUpdate = async () => {
+      attempt++;
+      if (attempt === 1) throw Object.assign(new Error("Install permission denied"), { code: "PERMISSION_DENIED" });
+      return { started: true };
+    };
+  });
+
+  await update.click();
+  await expect(update).toHaveAccessibleDescription("Allow installs from this app in Settings, then tap again.");
+  await update.click();
+  await expect(update).toHaveAccessibleDescription("Approve the prompt to finish updating.");
+  expect(await page.evaluate(() => window.__installUpdateCalls)).toEqual([
+    { tag: "v1.0.4", sha256: null },
+    { tag: "v1.0.4", sha256: null },
+  ]);
+});
+
+test("in-app download failure falls back to browser download on the next tap", async ({ page, context }) => {
+  await context.route(V104_APK_URL, (route) => route.fulfill({
+    contentType: "application/vnd.android.package-archive",
+    headers: { "content-disposition": 'attachment; filename="app-release.apk"' },
+    body: "mock APK",
+  }));
+  const update = await openUpdateRow(page);
+  await page.evaluate(() => {
+    window.__onInstallUpdate = async () => {
+      throw Object.assign(new Error("Download failed"), { code: "DOWNLOAD_FAILED" });
+    };
+  });
+
+  await update.click();
+  await expect(update).toHaveAccessibleDescription("Couldn't download in-app. Tap to download in browser.");
+
+  const downloading = context.waitForEvent("download");
+  await update.click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe("app-release.apk");
+  expect(await download.failure()).toBeNull();
+  expect(await page.evaluate(() => window.__installUpdateCalls.length)).toBe(1);
+});
+
+test("older APKs without installUpdate fall back to browser download on the first tap", async ({ page, context }) => {
+  await context.route(V104_APK_URL, (route) => route.fulfill({
+    contentType: "application/vnd.android.package-archive",
+    headers: { "content-disposition": 'attachment; filename="app-release.apk"' },
+    body: "mock APK",
+  }));
+  const update = await openUpdateRow(page, { installUpdate: false });
+
+  const downloading = context.waitForEvent("download");
+  await update.click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe("app-release.apk");
+  expect(await download.failure()).toBeNull();
+  await expect(update).toHaveAccessibleDescription("Open the downloaded APK to install the update.");
 });
