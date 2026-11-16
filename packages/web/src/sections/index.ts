@@ -17,8 +17,6 @@ const split = (id: string, factory: () => Promise<{ default: ComponentType<Secti
 const marks = split("marks", () => import("./marks").then((m) => ({ default: m.MarksSection })));
 const exams = split("exams", () => import("./exams").then((m) => ({ default: m.ExamsSection })));
 const calendar = split("calendar", () => import("../pages/AcademicCalendarPage").then((m) => ({ default: m.AcademicCalendarPage })));
-const grades = split("grades", () => import("./grades").then((m) => ({ default: m.GradesSection })));
-const cgpa = split("cgpa", () => import("./cgpa").then((m) => ({ default: m.CgpaSection })));
 const subjects = split("subjects", () => import("./subjects").then((m) => ({ default: m.SubjectsSection })));
 
 export interface SectionEntry {
@@ -38,7 +36,7 @@ export interface TabEntry extends SectionEntry {
  * Each tab is a full page that renders its own TopBar.
  */
 export const TABS: TabEntry[] = [
-  { id: "marks", label: "Marks", Component: marks.Component, Icon: MarksIcon },
+  { id: "marks", label: "Results", Component: marks.Component, Icon: MarksIcon },
   { id: "exams", label: "Exams", Component: exams.Component, Icon: ExamsIcon },
   { id: "calendar", label: "Calendar", Component: calendar.Component, Icon: CalendarIcon },
 ];
@@ -52,8 +50,6 @@ export const prefetchTabs = () => [marks, exams, calendar].forEach((tab) => tab.
  * Grades/CGPA are off: new portal returns 500/empty even officially. Flip on when fixed.
  */
 export const SECTIONS: SectionEntry[] = [
-  { id: "grades", label: "Grades", Component: grades.Component, enabled: false },
-  { id: "cgpa", label: "CGPA", Component: cgpa.Component, enabled: false },
   { id: "faculty", label: "Faculty", Component: FacultySection },
   { id: "subjects", label: "Subjects", Component: subjects.Component, enabled: false },
 ];

@@ -145,7 +145,7 @@ test("a partially supported attendance batch retains proxy quotas even if its ov
 
 test("marks JSON uses native networking while report recovery uses the proxy and its cooldown", async ({ page }) => {
   const hosted = await setup(page, { seededAttendance: true });
-  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Marks", exact: true }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Results", exact: true }).click();
   const reads = () => page.evaluate(() => window.__portalHttp.requests.filter((request) => request.path.endsWith("getstudent-exammarks")).length);
   await expect.poll(reads).toBe(1);
   const button = page.getByRole("button", { name: "Refresh marks", exact: true });

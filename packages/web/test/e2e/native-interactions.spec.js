@@ -68,7 +68,7 @@ for (const native of [false, true]) test(`Attendance navigation from a direct ta
 test("Attendance navigation still consumes the app's tab history after a reload", async ({ page }) => {
   await dashboard(page);
   const navigation = page.getByRole("navigation", { name: "Main" });
-  await navigation.getByRole("button", { name: "Marks", exact: true }).click();
+  await navigation.getByRole("button", { name: "Results", exact: true }).click();
   await navigation.getByRole("button", { name: "More", exact: true }).click();
   await page.reload();
   await navigation.getByRole("button", { name: /^Attendance/ }).click();
@@ -99,7 +99,7 @@ test("Android Back closes attendance, returns home, then releases system Back", 
   await back(page);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__native.enabled)).toBe(false);
-  await page.getByRole("navigation").getByRole("button", { name: "Marks", exact: true }).click();
+  await page.getByRole("navigation").getByRole("button", { name: "Results", exact: true }).click();
   await back(page);
   await expect(page.getByRole("navigation").getByRole("button", { name: "Attendance", exact: true })).toHaveAttribute("aria-current", "page");
   await expect.poll(() => page.evaluate(() => window.__native.enabled)).toBe(false);
@@ -109,7 +109,7 @@ test("hidden attendance sheets do not intercept Back from another tab", async ({
   await dashboard(page);
   await page.getByRole("button", { name: /Test Subject, .*attendance/i }).click();
   await page.evaluate(() => { window.location.hash = "marks"; });
-  await expect(page.getByRole("navigation").getByRole("button", { name: "Marks", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Results", exact: true })).toHaveAttribute("aria-current", "page");
   await back(page);
   await expect(page.getByRole("dialog")).toBeVisible();
   await back(page);

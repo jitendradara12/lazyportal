@@ -79,7 +79,7 @@ for (const failFirst of [false, true]) test(`an existing phone cache recovers al
     if (failFirst && reportReads++ === 0) return route.fulfill({ status: 503, body: "Unavailable" });
     return route.fulfill({ contentType: "application/pdf", path: fileURLToPath(new URL("../fixtures/marks-history.pdf", import.meta.url)) });
   });
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   const ai = page.locator(".score-card").filter({ hasText: "CS303" });
   if (failFirst) {
     await expect(page.getByRole("alert")).toContainText("Earlier exam marks could not be recovered");
@@ -103,7 +103,7 @@ async function refresh(page, label) {
 
 test("old caches survive navigation, focus, day rollover and reload without other-page reads", async ({ page }) => {
   const calls = await setup(page);
-  for (const name of ["Marks", "Exams", "More", "Attendance", "Marks"]) await navigate(page, name);
+  for (const name of ["Results", "Exams", "More", "Attendance", "Results"]) await navigate(page, name);
   await expect(page.getByText("Cached Subject", { exact: true })).toBeVisible();
   await page.evaluate(() => {
     window.dispatchEvent(new Event("focus"));
@@ -117,11 +117,11 @@ test("old caches survive navigation, focus, day rollover and reload without othe
 
 test("refresh is per page, cooldowns are independent, and More skips collapsed sections", async ({ page }) => {
   const calls = await setup(page);
-  for (const name of ["Marks", "Exams", "More", "Attendance"]) await navigate(page, name);
+  for (const name of ["Results", "Exams", "More", "Attendance"]) await navigate(page, name);
   await refresh(page, "Refresh attendance");
   expect(paths(calls)).toEqual(["getstudentattendancedetail"]);
   calls.length = 0;
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   await refresh(page, "Refresh marks");
   await expect(page.getByText("Updated Subject", { exact: true })).toBeVisible();
   expect(paths(calls)).toEqual(["getsemestercode-exammarks", "getstudent-exammarks", "marks-report"]);
@@ -144,7 +144,7 @@ test("refresh is per page, cooldowns are independent, and More skips collapsed s
 
 test("past marks refresh only the selected semester and failed refresh keeps cached content", async ({ page }) => {
   const calls = await setup(page);
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   await expect(page.getByText("Cached Subject", { exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "Select semester" }).selectOption("past");
   await expect(page.getByText("Past Subject", { exact: true })).toBeVisible();
@@ -176,7 +176,7 @@ for (const semester of ["current", "past"]) test(`${semester} marks refresh reta
       { ...t1, eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 },
     ] } },
   }));
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   if (semester === "past") await page.getByRole("combobox", { name: "Select semester" }).selectOption("past");
   await expect(page.locator(".score-header .score-value")).toHaveText("7/15");
   await refresh(page, "Refresh marks");
@@ -206,7 +206,7 @@ test("a new default semester does not inherit the previous semester's marks", as
       { registrationid: "new", registrationcode: "2027EVESEM" }, ...semesters,
     ] } },
   }));
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   await refresh(page, "Refresh marks");
   await page.getByRole("combobox", { name: "Select semester" }).selectOption("new");
   await expect(page.locator(".score-header .score-value")).toHaveText("8/10");
@@ -217,7 +217,7 @@ test("a new default semester does not inherit the previous semester's marks", as
 
 test("cooldown survives blocked storage, expires after 20s, and offline refresh does no work", async ({ page }) => {
   const calls = await setup(page);
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   await expect(page.getByText("Cached Subject", { exact: true })).toBeVisible();
   await page.clock.install();
   await page.evaluate(() => {
@@ -253,7 +253,7 @@ test("Retry revalidates a recent cached result after a failed refresh", async ({
       response: { viewmarksbystudent: [{ ...marksRow, subjectdesc: "Recovered subject" }] },
     } });
   });
-  await navigate(page, "Marks");
+  await navigate(page, "Results");
   await refresh(page, "Refresh marks");
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByText("Cached Subject", { exact: true })).toBeVisible();

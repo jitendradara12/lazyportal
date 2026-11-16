@@ -25,7 +25,7 @@ await cdp.send("Performance.enable");
 await page.goto(BASE + "/");
 await page.getByRole("heading", { name: "Attendance", exact: true }).waitFor();
 const nav = page.getByRole("navigation");
-const labels = ["Marks", "Exams", "Calendar", "More", "Attendance"];
+const labels = ["Results", "Exams", "Calendar", "More", "Attendance"];
 // Visit every tab once so lazily loaded code and first renders are excluded from the steady-state measure.
 for (const l of labels) { await nav.getByText(l, { exact: true }).first().click(); await page.waitForTimeout(400); }
 await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });

@@ -1,5 +1,8 @@
 import { usePageRefresh } from "../hooks/usePageRefresh";
-import { Fragment, useId, useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useState, type ReactNode } from "react";
+import { usePersistentState } from "../hooks/usePersistentState";
+import { selectionHaptic } from "../lib/nativeInteractions";
+import { CgpaPanel } from "./cgpa";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCached } from "../hooks/useFeature";
@@ -149,7 +152,39 @@ function CourseCard({
   );
 }
 
-export function MarksSection({ session }: SectionProps) {
+const MODES = [
+  { value: "marks", label: "Marks" },
+  { value: "cgpa", label: "CGPA" },
+] as const;
+
+/** Results tab: in-semester marks or SGPA/CGPA + grades, behind one toggle. */
+export function MarksSection(props: SectionProps) {
+  const [stored, setMode] = usePersistentState("results.mode", "marks");
+  const mode = stored === "cgpa" ? "cgpa" : "marks";
+  const toggle = (
+    <div className="segmented-pill-toggle results-toggle" role="radiogroup" aria-label="Results view">
+      {MODES.map((m) => (
+        <button
+          key={m.value}
+          type="button"
+          role="radio"
+          aria-checked={mode === m.value}
+          className={`segmented-pill ${mode === m.value ? "active" : ""}`}
+          onClick={() => {
+            if (mode === m.value) return;
+            selectionHaptic();
+            setMode(m.value);
+          }}
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
+  );
+  return mode === "cgpa" ? <CgpaPanel {...props} modeToggle={toggle} /> : <MarksPanel {...props} modeToggle={toggle} />;
+}
+
+function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactNode }) {
   const latestKey = sessionCacheKey("marks.latest", session);
   const lov = useFeature<MarksLatest>({
     run: async () => {
@@ -206,13 +241,14 @@ export function MarksSection({ session }: SectionProps) {
 
   return (
     <div className="page">
-      <TopBar title="Marks" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh marks" />
+      <TopBar title="Results" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh marks" />
       <div className="page-body">
-        {semesters.length > 1 && (
-          <div className="page-toolbar">
+        <div className="page-toolbar">
+          {modeToggle}
+          {semesters.length > 1 && (
             <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading} format={formatSemester} />
-          </div>
-        )}
+          )}
+        </div>
         {loading && rawRows.length === 0 && <ListSkeleton rows={4} label="Loading…" />}
         {courses.length > 0 && (
           <ul className="score-list" aria-label="Marks by course">
