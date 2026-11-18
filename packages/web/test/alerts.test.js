@@ -100,7 +100,7 @@ test("alerts prompt dismissal persists across reads", () => {
 
 test("getAlertsStatus returns unsupported cleanly outside Android native shell", async () => {
   const status = await alerts.getAlertsStatus();
-  assert.deepEqual(status, { supported: false, enabled: false, permission: "prompt" });
+  assert.deepEqual(status, { supported: false, muted: false, enabled: false, permission: "prompt" });
 });
 
 test("resolveTabRefreshKey respects active results.mode when mode is omitted", () => {

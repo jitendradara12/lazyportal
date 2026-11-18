@@ -7,6 +7,7 @@ import { SectionError, ListSkeleton, formatSemester, formatLastSync } from "../c
 import { SubjectDetailSheet } from "../lazy";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
+import { AppUpdatePromptBanner } from "../components/AppUpdatePromptBanner";
 import { useTabRefresh } from "../hooks/useAlerts";
 import {
   isCurrentPortalDay,
@@ -41,11 +42,13 @@ export function AttendancePage({
   session,
   isExpired,
   onLogout,
+  onOpenMore,
 }: {
   session: Session;
   isExpired?: boolean;
   isRecovering?: boolean;
   onLogout: () => void;
+  onOpenMore?: () => void;
 }) {
   const shell = useShell();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -511,6 +514,7 @@ export function AttendancePage({
       />
 
       <div className="page-body">
+        <AppUpdatePromptBanner onOpenMore={onOpenMore} />
         {(rows.length > 0 || semesters.length > 1) && (
           <div className="page-toolbar">
             {rows.length > 0 && <TargetFab />}

@@ -39,7 +39,7 @@ public class AlertsPlugin extends Plugin {
     static final String TOPIC_ALERTS = "alerts";
     static final String CHANNEL_ID = "alerts";
     static final String PREFS_NAME = "juet_alerts_prefs";
-    static final String KEY_SUBSCRIBED = "subscribed";
+    static final String KEY_MUTED = "muted";
     static final String KEY_PERMANENTLY_DENIED = "permanently_denied";
 
     static final String EXTRA_TAB = "tab";
@@ -59,6 +59,9 @@ public class AlertsPlugin extends Plugin {
     public void load() {
         Context context = getContext();
         ensureNotificationChannel(context);
+        if (isFirebaseConfigured(context) && !isMuted(context) && hasPostNotificationsPermission(context)) {
+            FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS);
+        }
         Activity activity = getActivity();
         if (activity != null) {
             captureNotificationIntent(activity.getIntent(), false);
@@ -76,27 +79,29 @@ public class AlertsPlugin extends Plugin {
         Context context = getContext();
         boolean configured = isFirebaseConfigured(context);
         String permission = resolvePermissionStatus();
-        boolean subscribed = isSubscribed(context);
-        boolean enabled = configured && subscribed && "granted".equals(permission);
-        call.resolve(buildStatus(configured, enabled, permission));
+        boolean muted = isMuted(context);
+        if (configured && !muted && "granted".equals(permission)) {
+            FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS);
+        }
+        call.resolve(buildStatus(configured, muted, permission));
     }
 
     @PluginMethod
-    public void setEnabled(PluginCall call) {
+    public void setMuted(PluginCall call) {
         Context context = getContext();
         if (!isFirebaseConfigured(context)) {
             call.reject("Notifications are not configured in this build", "UNAVAILABLE");
             return;
         }
-        boolean wantEnabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
-        if (!wantEnabled) {
+        boolean wantMuted = Boolean.TRUE.equals(call.getBoolean("muted", false));
+        if (wantMuted) {
             FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC_ALERTS).addOnCompleteListener(task -> {
                 if (!task.isSuccessful()) {
-                    call.reject("Could not turn off alerts. Please try again.");
+                    call.reject("Could not mute alerts. Please try again.");
                     return;
                 }
-                setSubscribed(context, false);
-                call.resolve(buildStatus(true, false, resolvePermissionStatus()));
+                setMutedPref(context, true);
+                call.resolve(buildStatus(true, true, resolvePermissionStatus()));
             });
             return;
         }
@@ -107,13 +112,13 @@ public class AlertsPlugin extends Plugin {
                         != PackageManager.PERMISSION_GRANTED) {
                     requestPermissionForAlias("notifications", call, "onNotificationPermissionResult");
                 } else {
-                    setSubscribed(context, false);
+                    setMutedPref(context, false);
                     call.resolve(buildStatus(true, false, "denied"));
                 }
                 return;
             }
         } else if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-            setSubscribed(context, false);
+            setMutedPref(context, false);
             call.resolve(buildStatus(true, false, "denied"));
             return;
         }
@@ -135,8 +140,7 @@ public class AlertsPlugin extends Plugin {
             && activity != null
             && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS);
         setPermanentlyDenied(context, permanentlyDenied);
-        setSubscribed(context, false);
-        call.resolve(buildStatus(true, false, resolvePermissionStatus()));
+        call.resolve(buildStatus(true, isMuted(context), resolvePermissionStatus()));
     }
 
     @PluginMethod
@@ -178,11 +182,11 @@ public class AlertsPlugin extends Plugin {
         ensureNotificationChannel(context);
         FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS).addOnCompleteListener(task -> {
             if (!task.isSuccessful()) {
-                call.reject("Could not turn on alerts. Check your connection and try again.");
+                call.reject("Could not resume alerts. Check your connection and try again.");
                 return;
             }
-            setSubscribed(context, true);
-            call.resolve(buildStatus(true, true, "granted"));
+            setMutedPref(context, false);
+            call.resolve(buildStatus(true, false, "granted"));
         });
     }
 
@@ -230,9 +234,11 @@ public class AlertsPlugin extends Plugin {
             == PackageManager.PERMISSION_GRANTED;
     }
 
-    private static JSObject buildStatus(boolean supported, boolean enabled, String permission) {
+    private static JSObject buildStatus(boolean supported, boolean muted, String permission) {
+        boolean enabled = supported && !muted && "granted".equals(permission);
         return new JSObject()
             .put("supported", supported)
+            .put("muted", muted)
             .put("enabled", enabled)
             .put("permission", permission);
     }
@@ -257,16 +263,16 @@ public class AlertsPlugin extends Plugin {
         manager.createNotificationChannel(channel);
     }
 
-    static boolean isSubscribed(Context context) {
+    static boolean isMuted(Context context) {
         if (context == null) return false;
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_SUBSCRIBED, false);
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_MUTED, false);
     }
 
-    static void setSubscribed(Context context, boolean subscribed) {
+    static void setMutedPref(Context context, boolean muted) {
         if (context == null) return;
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean(KEY_SUBSCRIBED, subscribed)
+            .putBoolean(KEY_MUTED, muted)
             .apply();
     }
 

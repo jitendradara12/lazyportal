@@ -166,7 +166,7 @@ export function DashboardPage({
         <main className="dash">
           <div className="tab-panel" hidden={tab !== HOME}>
             <BackScope.Provider value={tab === HOME}>
-              <HomePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} />
+              <HomePage session={session} isExpired={isExpired} isRecovering={isRecovering} onLogout={onLogout} onOpenMore={() => select("more")} />
             </BackScope.Provider>
           </div>
           {tabs.map(({ id, Component }) =>

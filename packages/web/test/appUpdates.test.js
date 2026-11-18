@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isNewerVersion, fetchLatestRelease, LATEST_RELEASE_URL } from "../src/lib/appUpdates.ts";
+import {
+  isNewerVersion,
+  fetchLatestRelease,
+  LATEST_RELEASE_URL,
+  getSharedAppUpdateCheck,
+  resetSharedAppUpdateCheck,
+  isUpdatePromptDismissed,
+  dismissUpdatePrompt,
+} from "../src/lib/appUpdates.ts";
 
 test("compares numeric release versions without suggesting downgrades", () => {
   for (const [installed, latest, expected] of [
@@ -60,4 +68,37 @@ test("rejects failed checks and releases without a usable stable APK", async () 
     { ...release, assets: [] }, { ...release, assets: [{ name: "app-release.apk", state: "new" }] }]) {
     await assert.rejects(fetchLatestRelease(async () => ({ ok: true, json: async () => value })));
   }
+});
+
+test("shared update check caches installed version across retries and dismisses per target version", async () => {
+  resetSharedAppUpdateCheck();
+  let versionCalls = 0;
+  let releaseCalls = 0;
+  const readVersion = async () => { versionCalls++; return "1.0.3"; };
+
+  const first = await getSharedAppUpdateCheck(readVersion, async () => {
+    releaseCalls++;
+    return { ok: false, status: 503 };
+  });
+  assert.equal(first[0], "1.0.3");
+  assert.equal(first[1], null);
+
+  const second = await getSharedAppUpdateCheck(readVersion, async () => {
+    releaseCalls++;
+    return { ok: true, json: async () => release };
+  });
+  assert.equal(second[0], "1.0.3");
+  assert.equal(second[1]?.version, "1.0.4");
+  assert.equal(versionCalls, 1);
+  assert.equal(releaseCalls, 2);
+
+  const storage = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => storage.get(k) ?? null,
+    setItem: (k, v) => storage.set(k, String(v)),
+  };
+  assert.equal(isUpdatePromptDismissed("1.0.4"), false);
+  dismissUpdatePrompt("1.0.4");
+  assert.equal(isUpdatePromptDismissed("1.0.4"), true);
+  assert.equal(isUpdatePromptDismissed("1.0.5"), false);
 });

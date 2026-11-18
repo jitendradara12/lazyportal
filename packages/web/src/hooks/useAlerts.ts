@@ -5,7 +5,7 @@ import {
   getCachedAlertsStatus,
   onTabRefresh,
   openAlertSettings,
-  setAlertsEnabled,
+  setAlertsMuted,
   subscribeAlertsStatus,
   type AlertsStatus,
 } from "../lib/alerts";
@@ -41,13 +41,13 @@ export function useAlerts() {
     };
   }, []);
 
-  const setEnabled = useCallback(async (enabled: boolean): Promise<AlertsStatus | null> => {
+  const setMuted = useCallback(async (muted: boolean): Promise<AlertsStatus | null> => {
     if (busyRef.current) return null;
     busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      const next = await setAlertsEnabled(enabled);
+      const next = await setAlertsMuted(muted);
       if (mounted.current) setStatus(next);
       return next;
     } catch (e) {
@@ -66,7 +66,7 @@ export function useAlerts() {
     return openAlertSettings();
   }, []);
 
-  return { status, busy, error, setEnabled, openSettings };
+  return { status, busy, error, setMuted, openSettings };
 }
 
 export function useTabRefresh(key: string, onRefresh: () => void): void {

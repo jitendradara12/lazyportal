@@ -26,6 +26,41 @@ export interface ReleaseInfo {
   sha256: string | null;
 }
 
+export type AppUpdateCheck = [string | null, ReleaseInfo | null];
+
+const UPDATE_DISMISSED_KEY = "juet.portal.update_prompt_dismissed_version";
+let sharedInstalledVersion: Promise<string | null> | undefined;
+let sharedUpdateCheck: Promise<AppUpdateCheck> | undefined;
+
+export function getSharedAppUpdateCheck(readVersion: () => Promise<string | null>, fetcher: typeof fetch = fetch): Promise<AppUpdateCheck> {
+  sharedInstalledVersion ??= readVersion().catch(() => null);
+  sharedUpdateCheck ??= Promise.all([sharedInstalledVersion, fetchLatestRelease(fetcher).catch(() => null)])
+    .then((res) => {
+      if (!res[1]) sharedUpdateCheck = undefined;
+      return res;
+    });
+  return sharedUpdateCheck;
+}
+
+export function resetSharedAppUpdateCheck(): void {
+  sharedInstalledVersion = undefined;
+  sharedUpdateCheck = undefined;
+}
+
+export function isUpdatePromptDismissed(version: string): boolean {
+  try {
+    return globalThis.localStorage?.getItem(UPDATE_DISMISSED_KEY) === version;
+  } catch {
+    return false;
+  }
+}
+
+export function dismissUpdatePrompt(version: string): void {
+  try {
+    globalThis.localStorage?.setItem(UPDATE_DISMISSED_KEY, version);
+  } catch {}
+}
+
 export async function fetchLatestRelease(fetcher: typeof fetch = fetch): Promise<ReleaseInfo> {
   const response = await fetcher(LATEST_RELEASE_URL, {
     headers: { Accept: "application/vnd.github+json" },

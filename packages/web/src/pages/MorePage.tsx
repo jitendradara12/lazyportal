@@ -201,24 +201,28 @@ export function MorePage({
           </section>
 
           {alerts.status.supported && (
-            <section className="more-preference is-alerts" aria-label="Campus alerts">
+            <section className="more-preference is-alerts" aria-label="Mute alerts">
               <div className="more-preference-head">
                 <span className="m3-leading-icon-circle more-preference-icon" aria-hidden="true">
                   <BellIcon />
                 </span>
                 <div className="more-preference-copy">
-                  <h2>Alerts</h2>
+                  <h2>Mute alerts</h2>
                   <p className="more-preference-sub">
                     {alerts.error
                       ? alerts.error
-                      : alerts.status.permission === "denied" && !alerts.status.enabled
-                        ? "Blocked in Android settings"
-                        : "Marks, SGPA & exam updates"}
+                      : !alerts.status.muted && alerts.status.permission === "denied"
+                        ? "Blocked in settings"
+                        : !alerts.status.muted && alerts.status.permission === "prompt"
+                          ? "Permission needed"
+                          : alerts.status.muted
+                            ? "Paused"
+                            : "Marks & exams"}
                   </p>
                 </div>
               </div>
               <div className="more-preference-control">
-                {alerts.status.permission === "denied" && !alerts.status.enabled && (
+                {!alerts.status.muted && alerts.status.permission === "denied" && (
                   <button
                     type="button"
                     className="more-preference-link"
@@ -230,17 +234,30 @@ export function MorePage({
                     Settings
                   </button>
                 )}
+                {!alerts.status.muted && alerts.status.permission === "prompt" && (
+                  <button
+                    type="button"
+                    className="more-preference-link"
+                    disabled={alerts.busy}
+                    onClick={() => {
+                      selectionHaptic();
+                      void alerts.setMuted(false);
+                    }}
+                  >
+                    Allow
+                  </button>
+                )}
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={alerts.status.enabled}
-                  aria-label="Campus alerts"
+                  aria-checked={alerts.status.muted}
+                  aria-label="Mute alerts"
                   aria-busy={alerts.busy || undefined}
                   disabled={alerts.busy}
                   className="m3-switch"
                   onClick={() => {
                     selectionHaptic();
-                    void alerts.setEnabled(!alerts.status.enabled);
+                    void alerts.setMuted(!alerts.status.muted);
                   }}
                 >
                   <span className="discreet-switch-track" aria-hidden="true">

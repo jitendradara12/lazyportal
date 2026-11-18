@@ -1,16 +1,12 @@
 import { type MouseEvent, useEffect, useRef, useState } from "react";
-import { fetchLatestRelease, isNewerVersion } from "../lib/appUpdates";
+import { getSharedAppUpdateCheck, isNewerVersion, type AppUpdateCheck } from "../lib/appUpdates";
 import { APK_DOWNLOAD_URL } from "../lib/installPrompt";
 import { getInstalledAppVersion, installAppUpdate, selectionHaptic, type AppUpdateInstallResult } from "../lib/nativeInteractions";
 
-type UpdateCheck = [string | null, Awaited<ReturnType<typeof fetchLatestRelease>> | null];
 type InstallState = "idle" | "downloading" | AppUpdateInstallResult;
 
-// Both versions stay fixed until reload; share the check across visits to More.
-let updateCheck: Promise<UpdateCheck> | undefined;
-
 export function AppUpdateAction() {
-  const [result, setResult] = useState<UpdateCheck | null>(null);
+  const [result, setResult] = useState<AppUpdateCheck | null>(null);
   const [installState, setInstallState] = useState<InstallState>("idle");
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
@@ -18,12 +14,7 @@ export function AppUpdateAction() {
   useEffect(() => {
     mountedRef.current = true;
     let active = true;
-    updateCheck ??= Promise.all([getInstalledAppVersion(), fetchLatestRelease().catch(() => null)])
-      .then((res) => {
-        if (!res[1]) updateCheck = undefined;
-        return res;
-      });
-    void updateCheck.then((res) => {
+    void getSharedAppUpdateCheck(getInstalledAppVersion).then((res) => {
       if (active) setResult(res);
     });
     return () => {
@@ -98,9 +89,10 @@ export function AppUpdateAction() {
   ].filter(Boolean).join(" ");
 
   return newer === false ? (
-    <div className="more-action" role="status">{content}</div>
+    <div id="app-update-action" className="more-action" role="status">{content}</div>
   ) : (
     <a
+      id="app-update-action"
       href={canAttemptInApp && latest ? latest.url : APK_DOWNLOAD_URL}
       target="_blank"
       rel="noopener noreferrer"

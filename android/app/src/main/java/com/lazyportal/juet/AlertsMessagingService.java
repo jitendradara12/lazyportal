@@ -19,7 +19,7 @@ public class AlertsMessagingService extends FirebaseMessagingService {
     @Override
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
-        if (AlertsPlugin.isSubscribed(this) && AlertsPlugin.isFirebaseConfigured(this)) {
+        if (!AlertsPlugin.isMuted(this) && AlertsPlugin.isFirebaseConfigured(this)) {
             FirebaseMessaging.getInstance().subscribeToTopic(AlertsPlugin.TOPIC_ALERTS);
         }
     }

@@ -7,6 +7,7 @@ export type AlertPermission = "granted" | "denied" | "prompt";
 
 export interface AlertsStatus {
   supported: boolean;
+  muted: boolean;
   enabled: boolean;
   permission: AlertPermission;
 }
@@ -19,7 +20,7 @@ export interface NotificationAction {
 
 interface AlertsPluginApi {
   getStatus(): Promise<Partial<AlertsStatus>>;
-  setEnabled(options: { enabled: boolean }): Promise<Partial<AlertsStatus>>;
+  setMuted(options: { muted: boolean }): Promise<Partial<AlertsStatus>>;
   openSettings(): Promise<{ opened?: boolean }>;
   consumePendingAction(): Promise<{ action?: unknown }>;
   addListener(event: "notificationAction", callback: (data: unknown) => void): Promise<PluginListenerHandle>;
@@ -30,7 +31,7 @@ const alertsPlugin = registerPlugin<AlertsPluginApi>("Alerts");
 const VALID_TABS = new Set<AlertTab>(["attendance", "marks", "exams", "calendar", "more"]);
 const VALID_MODES = new Set<AlertMode>(["marks", "cgpa"]);
 const PROMPT_DISMISSED_KEY = "juet.portal.alerts_prompt_dismissed";
-const DEFAULT_STATUS: AlertsStatus = { supported: false, enabled: false, permission: "prompt" };
+const DEFAULT_STATUS: AlertsStatus = { supported: false, muted: false, enabled: false, permission: "prompt" };
 
 let currentStatus: AlertsStatus = DEFAULT_STATUS;
 const statusListeners = new Set<(status: AlertsStatus) => void>();
@@ -48,9 +49,11 @@ function normalizeStatus(raw: Partial<AlertsStatus> | null | undefined): AlertsS
     raw.permission === "granted" || raw.permission === "denied" || raw.permission === "prompt"
       ? raw.permission
       : "prompt";
+  const muted = Boolean(raw.muted);
   return {
     supported: true,
-    enabled: Boolean(raw.enabled) && permission === "granted",
+    muted,
+    enabled: !muted && permission === "granted",
     permission,
   };
 }
@@ -81,9 +84,9 @@ export async function getAlertsStatus(): Promise<AlertsStatus> {
   }
 }
 
-export async function setAlertsEnabled(enabled: boolean): Promise<AlertsStatus> {
+export async function setAlertsMuted(muted: boolean): Promise<AlertsStatus> {
   if (!isAvailable()) return setCachedStatus(DEFAULT_STATUS);
-  const raw = await alertsPlugin.setEnabled({ enabled });
+  const raw = await alertsPlugin.setMuted({ muted });
   return setCachedStatus(normalizeStatus(raw));
 }
 
