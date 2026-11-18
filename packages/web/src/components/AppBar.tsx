@@ -1,6 +1,6 @@
 /** App shell context + top app bar shared by every tab. */
-import { createContext, useContext, type ReactNode } from "react";
-import { RefreshIcon } from "./icons";
+import { createContext, useContext, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { ChevronDown, RefreshIcon } from "./icons";
 import { SLOW_PORTAL_MESSAGE, useSlowRequest } from "../hooks/useSlowRequest";
 
 export interface Shell {
@@ -79,6 +79,20 @@ export function TopBar({
   );
 }
 
+/** Native select styled as a pill with a centered custom chevron. */
+export function SelectPill({
+  className,
+  children,
+  ...props
+}: ComponentPropsWithoutRef<"select">) {
+  return (
+    <span className={className ? `sem-picker ${className}` : "sem-picker"}>
+      <select {...props}>{children}</select>
+      <ChevronDown className="sem-picker-caret" />
+    </span>
+  );
+}
+
 /** Semester dropdown styled as an M3 filter chip. */
 export function SemesterPicker({
   semesters,
@@ -95,12 +109,12 @@ export function SemesterPicker({
 }) {
   if (semesters.length < 2) return null;
   return (
-    <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="sem-picker" aria-label="Select semester">
+    <SelectPill value={value ?? ""} onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label="Select semester">
       {semesters.map((s) => (
         <option key={String(s.registrationid)} value={String(s.registrationid)}>
           {format(s.registrationcode ?? s.registrationdesc)}
         </option>
       ))}
-    </select>
+    </SelectPill>
   );
 }

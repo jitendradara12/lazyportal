@@ -13,6 +13,7 @@ import {
   titleCase,
   formatSemester,
 } from "../components/DataViews";
+import { SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
 
 export interface FacultyRow {
@@ -175,21 +176,7 @@ export function FacultySection({ session, onRegisterRefresh }: SectionProps) {
                 Total credits: <strong>{totalCredits}</strong>
               </span>
             ) : <span />}
-            {semesters.length > 1 && (
-              <select
-                value={semId ?? ""}
-                onChange={(e) => setSemId(e.target.value)}
-                disabled={loading}
-                className="sem-picker"
-                aria-label="Select semester"
-              >
-                {semesters.map((s) => (
-                  <option key={String(s.registrationid)} value={String(s.registrationid)}>
-                    {formatSemester(s.registrationcode ?? s.registrationdesc)}
-                  </option>
-                ))}
-              </select>
-            )}
+            <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading} format={formatSemester} />
           </div>
         ) : undefined
       }

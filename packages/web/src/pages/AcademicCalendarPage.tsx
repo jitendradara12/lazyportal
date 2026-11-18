@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { TopBar } from "../components/AppBar";
 import { CalendarButton } from "../components/CalendarButton";
-import { CalendarAddIcon, CloseIcon, GitHubIcon, SearchIcon } from "../components/icons";
+import { CalendarAddIcon, ChevronDown, CloseIcon, GitHubIcon, SearchIcon } from "../components/icons";
 import { MonthGrid } from "../components/MonthGrid";
 import { Timeline, TimelineStop, TimelineGroup } from "../components/Timeline";
 import { SectionError } from "../components/DataViews";
@@ -119,7 +119,7 @@ export function AcademicCalendarPage() {
         }}>
           {years.map((entry) => <option key={entry.academicYear} value={entry.academicYear}>{entry.academicYear}</option>)}
         </select>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        <ChevronDown />
       </span> : `JUET · ${year.academicYear}`} noRefresh
       actions={<>
         {!searchOpen && <button ref={searchButton} type="button" className="exam-calendar-button academic-search-toggle" aria-label="Search calendar" title="Search calendar" aria-expanded={false} aria-controls="academic-search" onClick={() => setSearchOpen(true)}><SearchIcon /></button>}
