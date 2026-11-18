@@ -18,9 +18,7 @@ The official portal forgets you on every visit and forces you to type your passw
 - **Android**: [Download latest APK](https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk)
 - **iOS/Desktop**: [Open LazyPortal](https://lazyportal-tan.vercel.app)
 
-Share [lazyportal-tan.vercel.app/download](https://lazyportal-tan.vercel.app/download) for a short Android download link.
-
-## Development
+> Share [lazyportal-tan.vercel.app/download](https://lazyportal-tan.vercel.app/download) for a short Android download link.
 
 ## Development
 
@@ -31,14 +29,8 @@ npm --workspace @juet/web run dev # local Vite proxy /api -> portal (http://loca
 npm run android:apk               # build web, sync Capacitor policies, compile debug APK
 ```
 
-See [AGENTS.md](./AGENTS.md) for architecture and file map, and [docs/ANDROID.md](./docs/ANDROID.md) for Android signing and routing.
-
-```
-
 ## Notes & Disclaimer
 
-- You're totally anonymous to us. your credentials are saved on your device.
+- Users are totally anonymous to us. your credentials are saved on your device.
 - MIT. Nothing to do with JUET or JIL.
 - I slopped it for me and myself only; expect nothing.
-
-```
