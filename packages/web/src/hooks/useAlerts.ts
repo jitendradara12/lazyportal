@@ -6,6 +6,7 @@ import {
   onTabRefresh,
   openAlertSettings,
   setAlertsMuted,
+  setOptimisticAlertsStatus,
   subscribeAlertsStatus,
   type AlertsStatus,
 } from "../lib/alerts";
@@ -14,6 +15,9 @@ export function useAlerts() {
   const [status, setStatus] = useState<AlertsStatus>(getCachedAlertsStatus);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const seqRef = useRef(0);
+  const statusRef = useRef(status);
+  statusRef.current = status;
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
 
@@ -42,22 +46,43 @@ export function useAlerts() {
   }, []);
 
   const setMuted = useCallback(async (muted: boolean): Promise<AlertsStatus | null> => {
-    if (busyRef.current) return null;
-    busyRef.current = true;
-    setBusy(true);
+    const prev = statusRef.current;
+    const needsPrompt = !muted && prev.permission === "prompt";
+    if (needsPrompt && busyRef.current) return null;
+
+    const seq = ++seqRef.current;
+    if (needsPrompt) {
+      busyRef.current = true;
+      setBusy(true);
+    } else {
+      const optimistic: AlertsStatus = {
+        ...prev,
+        muted,
+        enabled: prev.supported && !muted && prev.permission === "granted",
+      };
+      statusRef.current = optimistic;
+      setOptimisticAlertsStatus(optimistic);
+    }
     setError(null);
     try {
       const next = await setAlertsMuted(muted);
-      if (mounted.current) setStatus(next);
+      if (mounted.current && seq === seqRef.current) {
+        statusRef.current = next;
+        setStatus(next);
+      }
       return next;
     } catch (e) {
-      if (mounted.current) {
+      if (mounted.current && seq === seqRef.current) {
+        statusRef.current = prev;
+        setOptimisticAlertsStatus(prev);
         setError(e instanceof Error ? e.message : "Could not update alert preference.");
       }
       return null;
     } finally {
-      busyRef.current = false;
-      if (mounted.current) setBusy(false);
+      if (needsPrompt) {
+        busyRef.current = false;
+        if (mounted.current) setBusy(false);
+      }
     }
   }, []);
 

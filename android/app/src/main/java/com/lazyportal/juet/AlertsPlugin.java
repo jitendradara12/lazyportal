@@ -95,14 +95,9 @@ public class AlertsPlugin extends Plugin {
         }
         boolean wantMuted = Boolean.TRUE.equals(call.getBoolean("muted", false));
         if (wantMuted) {
-            FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC_ALERTS).addOnCompleteListener(task -> {
-                if (!task.isSuccessful()) {
-                    call.reject("Could not mute alerts. Please try again.");
-                    return;
-                }
-                setMutedPref(context, true);
-                call.resolve(buildStatus(true, true, resolvePermissionStatus()));
-            });
+            setMutedPref(context, true);
+            FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC_ALERTS);
+            call.resolve(buildStatus(true, true, resolvePermissionStatus()));
             return;
         }
 
@@ -180,14 +175,9 @@ public class AlertsPlugin extends Plugin {
     private void subscribeToAlerts(PluginCall call) {
         Context context = getContext();
         ensureNotificationChannel(context);
-        FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS).addOnCompleteListener(task -> {
-            if (!task.isSuccessful()) {
-                call.reject("Could not resume alerts. Check your connection and try again.");
-                return;
-            }
-            setMutedPref(context, false);
-            call.resolve(buildStatus(true, false, "granted"));
-        });
+        setMutedPref(context, false);
+        FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS);
+        call.resolve(buildStatus(true, false, "granted"));
     }
 
     private void captureNotificationIntent(Intent intent, boolean notify) {

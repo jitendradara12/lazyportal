@@ -34,6 +34,7 @@ const PROMPT_DISMISSED_KEY = "juet.portal.alerts_prompt_dismissed";
 const DEFAULT_STATUS: AlertsStatus = { supported: false, muted: false, enabled: false, permission: "prompt" };
 
 let currentStatus: AlertsStatus = DEFAULT_STATUS;
+let statusSeq = 0;
 const statusListeners = new Set<(status: AlertsStatus) => void>();
 const pendingTabRefreshes = new Set<string>();
 
@@ -77,17 +78,26 @@ export function subscribeAlertsStatus(listener: (status: AlertsStatus) => void):
 
 export async function getAlertsStatus(): Promise<AlertsStatus> {
   if (!isAvailable()) return setCachedStatus(DEFAULT_STATUS);
+  const seq = ++statusSeq;
   try {
-    return setCachedStatus(normalizeStatus(await alertsPlugin.getStatus()));
+    const next = normalizeStatus(await alertsPlugin.getStatus());
+    return seq === statusSeq ? setCachedStatus(next) : currentStatus;
   } catch {
-    return setCachedStatus(DEFAULT_STATUS);
+    return seq === statusSeq ? setCachedStatus(DEFAULT_STATUS) : currentStatus;
   }
 }
 
 export async function setAlertsMuted(muted: boolean): Promise<AlertsStatus> {
   if (!isAvailable()) return setCachedStatus(DEFAULT_STATUS);
+  const seq = ++statusSeq;
   const raw = await alertsPlugin.setMuted({ muted });
-  return setCachedStatus(normalizeStatus(raw));
+  const next = normalizeStatus(raw);
+  return seq === statusSeq ? setCachedStatus(next) : currentStatus;
+}
+
+export function setOptimisticAlertsStatus(next: AlertsStatus): void {
+  statusSeq++;
+  setCachedStatus(next);
 }
 
 export async function openAlertSettings(): Promise<boolean> {
