@@ -37,6 +37,9 @@ import {
 } from "../lib/cgpa";
 import { SectionError, ListSkeleton, formatSemester } from "../components/DataViews";
 import { TopBar, SemesterPicker } from "../components/AppBar";
+import { AlertsPromptBanner } from "../components/AlertsPromptBanner";
+import { ChevronDown } from "../components/icons";
+import { useTabRefresh } from "../hooks/useAlerts";
 import type { SectionProps, Semester } from "../types";
 
 type Row = Record<string, unknown>;
@@ -575,9 +578,7 @@ function ForecastWorkbench({
                           </option>
                         ))}
                       </select>
-                      <svg className="planner-grade-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                      <ChevronDown className="planner-grade-caret" size={12} />
                     </div>
                   </td>
                   <PointsCell course={cg} />
@@ -739,19 +740,25 @@ export function CgpaPanel({ session, modeToggle }: SectionProps & { modeToggle: 
   const loadingLov = lov.data == null && !lov.error;
   const loadingCard = useCard && card.data == null && !card.error;
   const busy = lov.loading || detail.loading || card.loading || cardDetail.loading || lov.refreshing || detail.refreshing || card.refreshing || cardDetail.refreshing;
+  const refreshAll = () => Promise.allSettled([
+    lov.refresh(),
+    ...(hasTerms && detailSty != null && Boolean(studentid) ? [detail.refresh()] : []),
+    ...(useCard ? [
+      card.refresh(),
+      ...(reg !== null && !isDefaultReg && Boolean(card.data?.info) ? [cardDetail.refresh()] : []),
+    ] : []),
+  ]);
+
   const pageRefresh = usePageRefresh(
     "marks",
     session,
     busy,
-    () => Promise.allSettled([
-      lov.refresh(),
-      ...(hasTerms && detailSty != null && Boolean(studentid) ? [detail.refresh()] : []),
-      ...(useCard ? [
-        card.refresh(),
-        ...(reg !== null && !isDefaultReg && Boolean(card.data?.info) ? [cardDetail.refresh()] : []),
-      ] : []),
-    ]),
+    refreshAll,
   );
+
+  useTabRefresh("cgpa", () => {
+    void refreshAll();
+  });
 
   const activeIdx = projectedTerms.findIndex((t) => t.sty === selected);
   const prevTerm = activeIdx > 0 ? projectedTerms[activeIdx - 1] : null;
@@ -827,6 +834,7 @@ export function CgpaPanel({ session, modeToggle }: SectionProps & { modeToggle: 
             <SemesterPicker semesters={cardSemesters} value={regId} onChange={setRegId} disabled={cardDetail.loading} format={formatSemester} />
           )}
         </div>
+        <AlertsPromptBanner />
 
         {lov.error && <SectionError label="CGPA" error={lov.error} retry={lov.retry} />}
         {(loadingLov || loadingCard) && <ListSkeleton rows={3} label="Loading…" />}

@@ -21,7 +21,9 @@ import {
 } from "../lib/marks.ts";
 import { SectionError, ListSkeleton, titleCase, formatSemester } from "../components/DataViews";
 import { TopBar, SemesterPicker } from "../components/AppBar";
+import { AlertsPromptBanner } from "../components/AlertsPromptBanner";
 import { ChevronRight } from "../components/icons";
+import { useTabRefresh } from "../hooks/useAlerts";
 import type { SectionProps, Semester } from "../types";
 
 export type { MarkRow };
@@ -243,6 +245,13 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     () => (semId === null || isDefault ? lov.refresh() : detail.refresh()),
   );
 
+  useTabRefresh("marks", () => {
+    void Promise.allSettled([
+      lov.refresh(),
+      ...(!isDefault && semId !== null ? [detail.refresh()] : []),
+    ]);
+  });
+
   return (
     <div className="page">
       <TopBar title="Results" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh marks" />
@@ -253,6 +262,7 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
             <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading} format={formatSemester} />
           )}
         </div>
+        <AlertsPromptBanner />
         {loading && rawRows.length === 0 && <ListSkeleton rows={4} label="Loading…" />}
         {courses.length > 0 && (
           <ul className="score-list" aria-label="Marks by course">

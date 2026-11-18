@@ -7,6 +7,7 @@ import { SectionError, ListSkeleton, formatSemester, formatLastSync } from "../c
 import { SubjectDetailSheet } from "../lazy";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
+import { useTabRefresh } from "../hooks/useAlerts";
 import {
   isCurrentPortalDay,
   doesSubjectNeedDeepFetch,
@@ -152,6 +153,10 @@ export function AttendancePage({
     window.addEventListener("juet:refresh-attendance", onRefreshAttendance);
     return () => window.removeEventListener("juet:refresh-attendance", onRefreshAttendance);
   }, [att.retry]);
+
+  useTabRefresh("attendance", () => {
+    att.retry();
+  });
 
   const detail = useFeature<{ rows: AttRow[] }>({
     run: (signal) =>

@@ -1,0 +1,76 @@
+name: Send Alert
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: Notification title
+        required: true
+        type: string
+      body:
+        description: Notification body text
+        required: true
+        type: string
+      target:
+        description: Screen to open when tapped
+        required: true
+        default: marks
+        type: choice
+        options:
+          - marks
+          - cgpa
+          - exams
+          - attendance
+          - calendar
+          - more
+          - none
+      refresh:
+        description: Force refresh the target screen on tap
+        required: false
+        default: true
+        type: boolean
+      topic:
+        description: FCM topic name (ignored if device token is set)
+        required: false
+        default: alerts
+        type: string
+      token:
+        description: Optional single device FCM token for testing
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: Validate payload without sending
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    name: Send FCM Broadcast
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/send-alert.mjs
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Send broadcast notification
+        env:
+          ALERT_TITLE: ${{ inputs.title }}
+          ALERT_BODY: ${{ inputs.body }}
+          ALERT_TARGET: ${{ inputs.target }}
+          ALERT_REFRESH: ${{ inputs.refresh }}
+          ALERT_TOPIC: ${{ inputs.topic }}
+          ALERT_TOKEN: ${{ inputs.token }}
+          ALERT_DRY_RUN: ${{ inputs.dry_run }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/send-alert.mjs

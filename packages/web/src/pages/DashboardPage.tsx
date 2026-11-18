@@ -9,7 +9,15 @@ import { AttendanceIcon, MoreIcon } from "../components/icons";
 import type { Session } from "../types";
 import { BackScope, useAppBack } from "../hooks/useAppBack";
 import { selectionHaptic } from "../lib/nativeInteractions";
-import { usePersistentState } from "../hooks/usePersistentState";
+import { usePersistentState, writePersistentValue } from "../hooks/usePersistentState";
+import {
+  consumePendingNotificationAction,
+  parseNotificationSearch,
+  requestTabRefresh,
+  subscribeNotificationAction,
+  type AlertTab,
+  type NotificationAction,
+} from "../lib/alerts";
 
 const HOME = "attendance";
 // Hidden tabs stay mounted; memo keeps them from re-rendering on every tab switch or badge update.
@@ -61,6 +69,9 @@ export function DashboardPage({
   const ids = navItems.map((n) => n.id);
 
   const [tab, setTab] = useState(() => tabFromHash(ids));
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const idsKey = ids.join();
   // Tabs mount on first visit and stay alive, so switching back is instant.
   const [visited, setVisited] = useState(() => new Set([HOME, tab]));
   const scrollByTab = useRef<Record<string, number>>({});
@@ -70,7 +81,46 @@ export function DashboardPage({
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ids.join()]);
+  }, [idsKey]);
+
+  useEffect(() => {
+    const applyAction = (action: NotificationAction) => {
+      if (action.mode) {
+        writePersistentValue("results.mode", action.mode);
+      }
+      const currentTab = tabRef.current;
+      const targetTab = action.tab && ids.includes(action.tab) ? action.tab : undefined;
+      if (targetTab && targetTab !== currentTab) {
+        scrollByTab.current[currentTab] = window.scrollY;
+        if (targetTab === HOME) {
+          history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+          setTab(HOME);
+        } else if (currentTab === HOME) {
+          window.location.hash = targetTab;
+          history.replaceState({ juetTab: true }, "");
+          setTab(targetTab);
+        } else {
+          history.replaceState(history.state, "", `#${targetTab}`);
+          setTab(targetTab);
+        }
+      }
+      if (action.refresh && (!action.tab || targetTab)) {
+        requestTabRefresh(targetTab ?? (currentTab as AlertTab), action.mode);
+      }
+    };
+
+    const searchAction = typeof window !== "undefined" ? parseNotificationSearch(window.location.search) : null;
+    if (searchAction) {
+      const cleanUrl = `${window.location.pathname}${window.location.hash}`;
+      window.history.replaceState(window.history.state, "", cleanUrl);
+      applyAction(searchAction);
+    }
+    void consumePendingNotificationAction().then((pending) => {
+      if (pending) applyAction(pending);
+    });
+    return subscribeNotificationAction(applyAction);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
 
   useEffect(prefetchIdle, []);
 

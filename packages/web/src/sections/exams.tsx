@@ -10,6 +10,7 @@ import { FEATURE_TTL } from "../lib/portalSchedule";
 import { SectionError, ListSkeleton, countdown, titleCase, formatSemester } from "../components/DataViews";
 import { TopBar, SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
+import { useTabRefresh } from "../hooks/useAlerts";
 import { examTimes, groupExams, formatExamRoom, cleanExamSubject, type ExamRow } from "../lib/exams";
 import { CalendarButton } from "../components/CalendarButton";
 import { CalendarAddIcon } from "../components/icons";
@@ -79,16 +80,22 @@ export function ExamsSection({ session }: SectionProps) {
   const exportable = upcoming.filter((row) => examCalendarEvent(row) !== null);
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
+  const refreshAll = () => Promise.allSettled([
+    examSems.refresh(),
+    ...(examSem !== null ? [examEvents.refresh()] : []),
+    ...(examSem !== null && activeEventId !== null ? [examRows.refresh()] : []),
+  ]);
+
   const pageRefresh = usePageRefresh(
     "exams",
     session,
     loading || examSems.refreshing || examEvents.refreshing || examRows.refreshing,
-    () => Promise.allSettled([
-      examSems.refresh(),
-      ...(examSem !== null ? [examEvents.refresh()] : []),
-      ...(examSem !== null && activeEventId !== null ? [examRows.refresh()] : []),
-    ]),
+    refreshAll,
   );
+
+  useTabRefresh("exams", () => {
+    void refreshAll();
+  });
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   async function exportUpcoming() {

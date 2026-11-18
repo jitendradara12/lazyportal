@@ -4,12 +4,13 @@ import { usePageRefresh } from "../hooks/usePageRefresh";
 import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { THEME_OPTIONS, useThemePreference } from "../hooks/useThemePreference";
 import { SECTIONS } from "../sections";
-import { TopBar } from "../components/AppBar";
+import { SelectPill, TopBar } from "../components/AppBar";
 import { titleCase } from "../components/DataViews";
-import { GitHubIcon } from "../components/icons";
+import { BellIcon, GitHubIcon } from "../components/icons";
 import { OfficialPortalEntry } from "../components/OfficialPortalEntry";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { AppUpdateAction } from "../components/AppUpdateAction";
+import { useAlerts } from "../hooks/useAlerts";
 import type { Session } from "../types";
 
 interface InstituteOption {
@@ -47,6 +48,7 @@ export function MorePage({
   );
   const [defaultTarget, setDefaultTarget] = useDefaultAttendanceTarget();
   const [theme, setTheme] = useThemePreference();
+  const alerts = useAlerts();
 
   return (
     <div className="page">
@@ -59,16 +61,16 @@ export function MorePage({
             {discreet ? <span className="profile-sub">Identity hidden</span> :
               session.enrollmentno && <span className="profile-sub">{session.enrollmentno}</span>}
             {institutes.length > 1 ? (
-              <select
+              <SelectPill
                 value={String(session.instituteid ?? "")}
                 onChange={(e) => onSelectInstitute(e.target.value)}
-                className="sem-picker profile-institute"
+                className="profile-institute"
                 aria-label="Select institute"
               >
                 {institutes.map((o) => (
                   <option key={String(o.value)} value={String(o.value)}>{String(o.label ?? o.value)}</option>
                 ))}
-              </select>
+              </SelectPill>
             ) : session.institutename ? (
               <span className="profile-sub">{titleCase(session.institutename)}</span>
             ) : null}
@@ -197,6 +199,61 @@ export function MorePage({
               ))}
             </div>
           </section>
+
+          {alerts.status.supported && (
+            <section className="more-preference is-alerts" aria-label="Campus alerts">
+              <div className="more-preference-head">
+                <span className="m3-leading-icon-circle more-preference-icon" aria-hidden="true">
+                  <BellIcon />
+                </span>
+                <div className="more-preference-copy">
+                  <h2>Alerts</h2>
+                  <p className="more-preference-sub">
+                    {alerts.error
+                      ? alerts.error
+                      : alerts.status.permission === "denied" && !alerts.status.enabled
+                        ? "Blocked in Android settings"
+                        : "Marks, SGPA & exam updates"}
+                  </p>
+                </div>
+              </div>
+              <div className="more-preference-control">
+                {alerts.status.permission === "denied" && !alerts.status.enabled && (
+                  <button
+                    type="button"
+                    className="more-preference-link"
+                    onClick={() => {
+                      selectionHaptic();
+                      void alerts.openSettings();
+                    }}
+                  >
+                    Settings
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={alerts.status.enabled}
+                  aria-label="Campus alerts"
+                  aria-busy={alerts.busy || undefined}
+                  disabled={alerts.busy}
+                  className="m3-switch"
+                  onClick={() => {
+                    selectionHaptic();
+                    void alerts.setEnabled(!alerts.status.enabled);
+                  }}
+                >
+                  <span className="discreet-switch-track" aria-hidden="true">
+                    <span className="discreet-switch-thumb">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m5 12 4 4L19 6" />
+                      </svg>
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </section>
+          )}
         </div>
 
         <div className="more-actions">
