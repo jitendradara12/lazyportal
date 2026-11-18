@@ -108,7 +108,7 @@ test.describe("attendance target control", () => {
     await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
   });
 
-  test("reserves space for choices beside filters and the semester picker", async ({ page }) => {
+  test("reserves space for choices beside filters without showing a semester picker", async ({ page }) => {
     await page.evaluate((session) => {
       const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
       const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
@@ -118,12 +118,13 @@ test.describe("attendance target control", () => {
       window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
     }, SESSION);
     await expect(page.getByRole("tablist", { name: "Filter subjects" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Select semester" })).toHaveCount(0);
     await page.getByRole("button", { name: "Attendance target 70%. Change", exact: true }).click();
     for (const width of [320, 393, 1000]) {
       await page.setViewportSize({ width, height: 900 });
       await expect.poll(() => page.locator(".page-toolbar").evaluate((el) => {
         const choices = el.querySelector(".target-fab-options").getBoundingClientRect();
-        return [...el.querySelectorAll(".att-filter, .sem-picker")].every((control) => {
+        return [...el.querySelectorAll(".att-filter")].every((control) => {
           const box = control.getBoundingClientRect();
           return choices.right <= box.left || choices.left >= box.right || choices.bottom <= box.top || choices.top >= box.bottom;
         }) && document.documentElement.scrollWidth <= window.innerWidth;

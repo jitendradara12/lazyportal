@@ -897,12 +897,16 @@ test("releasing a sheet twice cannot break the next sheet's pause", async (t) =>
 
 test("attendance rows show bunk/attend margin and move the subject code into SubjectDetailSheet", () => {
   const row = { subjectid: "s1", subjectcode: "COMPUTER NETWORKS(CS109)", Psubjectcomponentid: "p1", Ppercentage: 50 };
-  cache("att.initial", { header: null, semesters: [semester], rows: [row] });
+  cache("att.initial", {
+    header: null,
+    semesters: [semester, { registrationid: "sem0", registrationcode: "2025EVENSEM", registrationdesc: "Even 2025" }],
+    rows: [row],
+  });
   cache("att.subject", { P: { student_attdsummarylist: [{ present: "Y" }, { present: "N" }] } }, "sem1", "s1");
-  selectSemester("attendance");
   const listHtml = render(AttendancePage);
   assert.match(listHtml, /1\/2 classes/);
   assert.match(listHtml, /Need 2 classes/);
+  assert.doesNotMatch(listHtml, /Select semester|sem-picker/, "attendance page does not render a semester selector");
   assert.doesNotMatch(listHtml, /CS109/, "raw subject code is hidden from main list row when class counts exist");
 
   const sheetHtml = renderToStaticMarkup(createElement(SubjectDetailSheet, {

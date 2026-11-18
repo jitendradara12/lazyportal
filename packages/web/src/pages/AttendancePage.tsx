@@ -1,12 +1,10 @@
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { features } from "@juet/core";
 import { client, getRefreshThrottleMs, getSessionStatus } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
-import { useSemester } from "../hooks/useSemester";
-import { SectionError, ListSkeleton, formatSemester, formatLastSync } from "../components/DataViews";
+import { SectionError, ListSkeleton, formatLastSync } from "../components/DataViews";
 import { SubjectDetailSheet } from "../lazy";
 import { selectionHaptic } from "../lib/nativeInteractions";
-import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
+import { TopBar, useShell } from "../components/AppBar";
 import { AppUpdatePromptBanner } from "../components/AppUpdatePromptBanner";
 import { useTabRefresh } from "../hooks/useAlerts";
 import {
@@ -16,7 +14,6 @@ import {
   shouldThrottleRefresh,
   recordRefreshAttempt,
   REFRESH_THROTTLE_MS,
-  FEATURE_TTL,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
 import {
@@ -127,9 +124,8 @@ export function AttendancePage({
     isFresh: isCurrentPortalDay,
   });
   const initial = att.data;
-  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
-  const activeSemester = useRef(semId);
-  activeSemester.current = semId;
+  const sem = initial?.semesters?.[0] ?? null;
+  const semId = sem?.registrationid != null ? String(sem.registrationid) : null;
   useEffect(() => {
     setIsRefreshing(false);
     setRefreshError(null);
@@ -140,8 +136,10 @@ export function AttendancePage({
       manualController.current?.abort();
       manualController.current = null;
     };
-  }, [refreshKey, semId]);
-  const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
+  }, [refreshKey]);
+  useEffect(() => {
+    detailUpdatedAtRef.current = {};
+  }, [semId]);
   const lastSemRef = useRef(`${session.username}:${session.instituteid ?? "default"}:${semId}`);
 
   const attUpdatedAtRef = useRef(att.updatedAt);
@@ -161,25 +159,11 @@ export function AttendancePage({
     att.retry();
   });
 
-  const detail = useFeature<{ rows: AttRow[] }>({
-    run: (signal) =>
-      features.getAttendanceDetail(client, session, {
-        stynumber: initial?.header?.stynumber,
-        registrationid: sem?.registrationid,
-        registrationcode: sem?.registrationcode,
-      }, { signal }),
-    deps: [session, semId],
-    enabled: sem !== null && !isDefault,
-    cacheKey: semId ? sessionCacheKey("att.detail", session, semId) : undefined,
-    staleTimeMs: FEATURE_TTL.pastDetail,
-  });
-
-  const rows = isDefault ? (initial?.rows ?? []) : (detail.data?.rows ?? []);
+  const rows = initial?.rows ?? [];
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
-  const semesters = initial?.semesters ?? [];
 
-  const loading = att.loading || detail.loading;
+  const loading = att.loading;
 
   // Cache-backed map of subject details for accurate L+T aggregation
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
@@ -272,7 +256,7 @@ export function AttendancePage({
   // Wait for today's overview before fetching logs, otherwise the old row
   // checksum can launch a second wave of identical reads when it is replaced.
   useEffect(() => {
-    if (!rows.length || isExpired || !isDefault || isRefreshing || manualController.current ||
+    if (!rows.length || isExpired || isRefreshing || manualController.current ||
       att.refreshing || !isCurrentPortalDay(att.updatedAt) || refreshError) {
       if (!manualController.current) setSyncState((previous) => previous.phase === "idle" ? previous : idleAttendanceSync());
       return;
@@ -346,7 +330,7 @@ export function AttendancePage({
   const resumeRef = useRef<() => void>(() => {});
   resumeRef.current = () => {
     if (!pageIsLive.current) return;
-    if (!isDefault || isExpired || isSyncing || manualController.current) return;
+    if (isExpired || isSyncing || manualController.current) return;
     if (getSessionStatus() === "expired") return;
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
@@ -425,15 +409,11 @@ export function AttendancePage({
 
   const handleRefresh = async () => {
     if (manualController.current || isSyncing || isExpired || shell.isRecovering || navigator.onLine === false) return;
-    if (!isDefault) {
-      showNotice("Only current semester updates", 2000);
-      return;
-    }
 
     const controller = new AbortController();
     manualController.current = controller;
     const requestGeneration = getCacheGeneration();
-    const current = () => !controller.signal.aborted && pageIsLive.current && activeRefreshKey.current === refreshKey && activeSemester.current === semId && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
+    const current = () => !controller.signal.aborted && pageIsLive.current && activeRefreshKey.current === refreshKey && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     try {
       const cooldownMs = await getRefreshThrottleMs("attendance");
       if (pageIsLive.current) setThrottleMs(cooldownMs);
@@ -481,9 +461,9 @@ export function AttendancePage({
     }
   };
 
-  const error = refreshError ?? att.error ?? detail.error ?? (isDefault ? detailSyncError : null);
+  const error = refreshError ?? att.error ?? detailSyncError;
   const retry = refreshError ? () => handleRefresh() : att.error ? triggerAttRetry
-    : detail.error ? detail.retry : () => setDetailSyncAttempt((attempt) => attempt + 1);
+    : () => setDetailSyncAttempt((attempt) => attempt + 1);
 
   const status = isSyncing ? (
     <span className="att-sync-pill is-syncing" role="status" aria-live="polite">
@@ -515,10 +495,10 @@ export function AttendancePage({
 
       <div className="page-body">
         <AppUpdatePromptBanner onOpenMore={onOpenMore} />
-        {(rows.length > 0 || semesters.length > 1) && (
+        {rows.length > 0 && (
           <div className="page-toolbar">
-            {rows.length > 0 && <TargetFab />}
-            {shortsCount > 0 && rows.length > 0 && (
+            <TargetFab />
+            {shortsCount > 0 && (
               <div className="segmented-pill-toggle att-filter" role="tablist" aria-label="Filter subjects">
                 <button type="button" role="tab" aria-selected={filter === "all"} className={`segmented-pill ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>
                   All {rows.length}
@@ -528,7 +508,6 @@ export function AttendancePage({
                 </button>
               </div>
             )}
-            <SemesterPicker semesters={semesters} value={semId} onChange={setSemId} disabled={loading || isSyncing} format={formatSemester} />
           </div>
         )}
 

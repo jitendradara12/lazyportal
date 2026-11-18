@@ -781,3 +781,66 @@ test("5. Silent token renewal (juet:renewed) updates session.token and does NOT 
     await mounted.unmount();
   }
 });
+
+test("6. AttendancePage never renders a semester selector and completes manual refresh across latest-semester rollover", async () => {
+  const session = makeSession({ username: "rollover-user" });
+  const oldRow = { subjectid: "s-old", subjectcode: "Old Subject(OS100)", Lsubjectcomponentid: "l-old", Lpercentage: 100 };
+  const newRow = { subjectid: "s-new", subjectcode: "New Subject(NS200)", Lsubjectcomponentid: "l-new", Lpercentage: 100 };
+  seedOverview(session, [oldRow]);
+  // Pre-seed oldRow's detail so initial mount is idle, and expire att.lov so manual refresh re-reads LOV.
+  setCached(getSubjectCacheKey(session.username, "sem1", oldRow, session.instituteid), { L: logs(2, 2) }, {
+    checksum: (await server.ssrLoadModule("/src/lib/portalSchedule.ts")).computeSubjectRowChecksum(oldRow),
+  });
+  storage.delete(`juet.cache.${sessionCacheKey("att.lov", session)}`);
+
+  let rolledOver = false;
+  client.postRaw = async () => ({
+    response: {
+      headerlist: [{ stynumber: "4" }],
+      semlist: rolledOver
+        ? [
+            { registrationid: "sem2", registrationcode: "2027EVENSEM", registrationdesc: "Even 2027" },
+            { registrationid: "sem1", registrationcode: "2026ODDSEM", registrationdesc: "Odd 2026" },
+          ]
+        : [
+            { registrationid: "sem1", registrationcode: "2026ODDSEM", registrationdesc: "Odd 2026" },
+            { registrationid: "sem0", registrationcode: "2026EVENSEM", registrationdesc: "Even 2026" },
+          ],
+    },
+  });
+  client.post = async (endpoint, payload) => {
+    if (endpoint.includes("getstudentattendancedetail")) {
+      return {
+        response: {
+          studentattendancelist: payload.registrationid === "sem2" ? [newRow] : [oldRow],
+        },
+      };
+    }
+    return { response: logs(3, 3) };
+  };
+
+  const mounted = await mount(createElement(AttendancePage, { session, onLogout() {} }));
+  try {
+    await flush();
+    assert.match(mounted.container.textContent, /Old Subject/);
+    assert.equal(mounted.container.findAll((el) => el.tagName === "SELECT").length, 0);
+
+    rolledOver = true;
+    const refreshBtn = mounted.container.findAll(
+      (el) => el.tagName === "BUTTON" && el.getAttribute("aria-label") === "Refresh attendance",
+    )[0];
+    await act(async () => {
+      refreshBtn.click();
+    });
+    await flush();
+
+    assert.match(mounted.container.textContent, /New Subject/);
+    assert.match(mounted.container.textContent, /3\/3 classes/);
+    assert.doesNotMatch(mounted.container.textContent, /Old Subject/);
+    assert.equal(mounted.container.findAll((el) => el.tagName === "SELECT").length, 0);
+  } finally {
+    client.post = originalPost;
+    client.postRaw = originalPostRaw;
+    await mounted.unmount();
+  }
+});
