@@ -2163,6 +2163,14 @@ body:has(.nav-bar) .install-banner { bottom: calc(var(--nav-h) + env(safe-area-i
 .att-pct-sign { font-size: 0.55em; font-weight: 600; margin-left: 1px; opacity: 0.7; }
 
 /* Marks */
+.score-group { display: flex; flex-direction: column; gap: 8px; }
+.score-group + .score-group { margin-top: 8px; }
+.score-group-title {
+  margin: 4px 4px 0;
+  font-size: var(--fs-m);
+  font-weight: 600;
+  color: var(--onSurfaceVariant);
+}
 .score-list, .exam-list { display: flex; flex-direction: column; gap: var(--gap-list-rows); margin: 0; padding: 0; list-style: none; }
 .score-card {
   --score-radius: var(--r-xs);

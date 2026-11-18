@@ -145,6 +145,10 @@ const course = (page, code) => page.locator(".score-card").filter({ has: page.lo
 
 test("course totals expand independently into ordered exam marks while single-exam courses stay static", async ({ page }) => {
   const requests = await setup(page);
+  await expect(page.getByRole("heading", { name: "Courses" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Labs" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Courses" }).locator(".att-code")).toHaveText(["CS109", "CS110", "MA106", "PH304", "HS301"]);
+  await expect(page.getByRole("list", { name: "Labs" }).locator(".att-code")).toHaveText(["CS212"]);
   const networks = course(page, "CS109");
   const theory = course(page, "CS110");
   const toggle = networks.locator("button.score-header");
@@ -179,6 +183,8 @@ test("switching semesters replaces course totals and resets expansion", async ({
   await course(page, "CS109").locator("button.score-header").click();
   await page.getByRole("combobox", { name: "Select semester" }).selectOption("past");
   await expect(page.locator(".score-card")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Courses" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Labs" })).toHaveCount(0);
   await expect(page.locator(".score-header .score-value")).toHaveText("25/40");
   await expect(page.locator("button.score-header")).toHaveAttribute("aria-expanded", "false");
   await page.getByRole("combobox", { name: "Select semester" }).selectOption("current");

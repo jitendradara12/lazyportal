@@ -16,6 +16,7 @@ import {
   groupSubjectMarks,
   markRowKey,
   mergeMarkRows,
+  partitionSubjectMarks,
   type MarkRow,
   type SubjectMarks,
 } from "../lib/marks.ts";
@@ -154,6 +155,40 @@ function CourseCard({
   );
 }
 
+function ScoreGroup({
+  title,
+  headingId,
+  items,
+  semId,
+  updatedSet,
+}: {
+  title?: string;
+  headingId?: string;
+  items: SubjectMarks[];
+  semId: string | null;
+  updatedSet: ReadonlySet<string>;
+}) {
+  const list = (
+    <ul
+      className="score-list"
+      role="list"
+      aria-labelledby={title ? headingId : undefined}
+      aria-label={title ? undefined : "Marks by course"}
+    >
+      {items.map((course, i) => (
+        <CourseCard key={`${semId}:${course.subjectcode || course.subjectdesc || i}`} course={course} updatedSet={updatedSet} />
+      ))}
+    </ul>
+  );
+  if (!title) return list;
+  return (
+    <div className="score-group">
+      <h2 className="score-group-title" id={headingId}>{title}</h2>
+      {list}
+    </div>
+  );
+}
+
 const MODES = [
   { value: "marks", label: "Marks" },
   { value: "cgpa", label: "CGPA" },
@@ -187,6 +222,7 @@ export function MarksSection(props: SectionProps) {
 }
 
 function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactNode }) {
+  const headingBaseId = useId();
   const latestKey = sessionCacheKey("marks.latest", session);
   const [discovered, setDiscovered] = useState<{ key: string; semesters: Semester[] } | null>(null);
   const lov = useFeature<MarksLatest>({
@@ -252,7 +288,11 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     ? (lov.loading || (!error && (lov.data === null || (semesters.length > 0 && sem === null))))
     : (detail.loading || (!error && (sem === null || detail.data === null)));
   const retry = showDefault ? lov.retry : detail.retry;
-  const courses = useMemo(() => groupSubjectMarks(rawRows), [rawRows]);
+  const { courses, labs } = useMemo(
+    () => partitionSubjectMarks(groupSubjectMarks(rawRows)),
+    [rawRows],
+  );
+  const hasBothGroups = courses.length > 0 && labs.length > 0;
 
   const pageRefresh = usePageRefresh(
     "marks",
@@ -281,11 +321,22 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
         <AlertsPromptBanner />
         {loading && rawRows.length === 0 && <ListSkeleton rows={4} label="Loading…" />}
         {courses.length > 0 && (
-          <ul className="score-list" aria-label="Marks by course">
-            {courses.map((course, i) => (
-              <CourseCard key={`${semId}:${course.subjectcode || course.subjectdesc || i}`} course={course} updatedSet={updatedSet} />
-            ))}
-          </ul>
+          <ScoreGroup
+            title={hasBothGroups ? "Courses" : undefined}
+            headingId={`${headingBaseId}-courses`}
+            items={courses}
+            semId={semId}
+            updatedSet={updatedSet}
+          />
+        )}
+        {labs.length > 0 && (
+          <ScoreGroup
+            title="Labs"
+            headingId={`${headingBaseId}-labs`}
+            items={labs}
+            semId={semId}
+            updatedSet={updatedSet}
+          />
         )}
         {(showDefault ? lov.data : detail.data) && rawRows.length === 0 && !error && !loading && (
           <p className="muted page-note">No marks records found for {semLabel || "this semester"}. They show up here once faculty upload them.</p>

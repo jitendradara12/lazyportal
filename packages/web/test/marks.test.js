@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { diffMarkRows, formatEventCode, getScoreBand, groupSubjectMarks, markRowKey, mergeMarkRows } = await import("../src/lib/marks.ts");
+const { diffMarkRows, formatEventCode, getScoreBand, groupSubjectMarks, isLabSubject, markRowKey, mergeMarkRows, partitionSubjectMarks } = await import("../src/lib/marks.ts");
 
 test("partial refreshes keep earlier exams and replace corrected scores without double counting", () => {
   const t1 = Object.freeze({ subjectcode: "CS303", eventcode: "TEST-1", obtainedmarks: 7, fullmarks: 15 });
@@ -184,4 +184,19 @@ test("getScoreBand maps score percentages to good, neutral, warning and low tier
   assert.equal(getScoreBand({ obtainedmarks: 7.5, fullmarks: 15 }), "warning");
   assert.equal(getScoreBand({ obtainedmarks: 5, fullmarks: 15 }), "low");
   assert.equal(getScoreBand({ obtainedmarks: "AB", fullmarks: 15 }), "neutral");
+});
+
+test("isLabSubject and partitionSubjectMarks separate labs from courses while preserving order", () => {
+  const subjects = groupSubjectMarks([
+    { subjectcode: "CS105", subjectdesc: "SOFTWARE ENGINEERING", eventcode: "TEST-1", obtainedmarks: 10, fullmarks: 15 },
+    { subjectcode: "CS207", subjectdesc: "ALGORITHMS LAB", eventcode: "P-1", obtainedmarks: 12, fullmarks: 15 },
+    { subjectcode: "ME201", subjectdesc: "WORKSHOP PRACTICES", eventcode: "P-1", obtainedmarks: 14, fullmarks: 15 },
+    { subjectcode: "CS208", subjectdesc: "COA LABORATORY", eventcode: "MID-SEM", obtainedmarks: 10, fullmarks: 15 },
+    { subjectcode: "HS304", subjectdesc: "CONCEPTS OF DIGITAL MARKETING", eventcode: "TEST-1", obtainedmarks: 13, fullmarks: 15 },
+    { subjectcode: "CS201", subjectdesc: "DATA STRUCTURES AND ALGORITHMS", eventcode: "TEST-1", obtainedmarks: 11, fullmarks: 15 },
+  ]);
+  assert.deepEqual(subjects.map((s) => isLabSubject(s)), [false, true, true, true, false, false]);
+  const { courses, labs } = partitionSubjectMarks(subjects);
+  assert.deepEqual(courses.map((c) => c.subjectcode), ["CS105", "HS304", "CS201"]);
+  assert.deepEqual(labs.map((l) => l.subjectcode), ["CS207", "ME201", "CS208"]);
 });

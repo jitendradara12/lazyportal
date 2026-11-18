@@ -99,10 +99,22 @@ test("marks opening and semester-selection gaps show loading rather than No mark
   assert.doesNotMatch(marksHtml, /Filter marks by test|role="tablist"|score-progress/);
   assert.equal((marksHtml.match(/class="score-card"/g) ?? []).length, 2);
   assert.equal((marksHtml.match(/aria-expanded="false"/g) ?? []).length, 1);
+  assert.match(marksHtml, /<h2 class="score-group-title"[^>]*>Courses<\/h2>[\s\S]*Database Systems[\s\S]*<h2 class="score-group-title"[^>]*>Labs<\/h2>[\s\S]*Database Systems Lab/);
   assert.match(marksHtml, /Database Systems exam marks/);
   assert.doesNotMatch(marksHtml, /Database Systems Lab exam marks/);
   assert.match(marksHtml, /<strong>22<\/strong><span class="score-total">\/40<\/span>/);
   assert.match(marksHtml, /<strong>10<\/strong><span class="score-total">\/15<\/span>/);
+
+  // Courses-only semester omits redundant group headings.
+  cache("marks.latest", {
+    semesters: [semester],
+    rows: [
+      { subjectcode: "CS104", subjectdesc: "DATABASE SYSTEMS", eventcode: "TEST-1", obtainedmarks: 9, fullmarks: 15 },
+    ],
+  });
+  const coursesOnlyHtml = render(MarksSection);
+  assert.doesNotMatch(coursesOnlyHtml, /score-group-title/);
+  assert.match(coursesOnlyHtml, /aria-label="Marks by course"/);
 });
 
 test("exams stay loading through the semester/events/schedule chain", () => {

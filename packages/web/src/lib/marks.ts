@@ -19,6 +19,31 @@ export interface SubjectMarks extends MarkRow {
   exams: MarkRow[];
 }
 
+const THEORY_EVENT_RE = /^T\d+$/;
+const PRACTICAL_EVENT_RE = /^P\d+$/;
+const LAB_DESC_RE = /\blab(?:oratory)?s?\b/i;
+
+/** Identify lab/practical subjects from practical-only exam codes or lab titles. */
+export function isLabSubject(subject: Pick<SubjectMarks, "subjectdesc" | "exams">): boolean {
+  const codes = subject.exams.map((exam) => formatEventCode(exam.eventcode));
+  if (codes.some((code) => THEORY_EVENT_RE.test(code))) return false;
+  if (codes.some((code) => PRACTICAL_EVENT_RE.test(code))) return true;
+  return LAB_DESC_RE.test(subject.subjectdesc ?? "");
+}
+
+/** Partition grouped subject marks into theory courses and labs while preserving order. */
+export function partitionSubjectMarks(subjects: SubjectMarks[]): {
+  courses: SubjectMarks[];
+  labs: SubjectMarks[];
+} {
+  const courses: SubjectMarks[] = [];
+  const labs: SubjectMarks[] = [];
+  for (const subject of subjects) {
+    (isLabSubject(subject) ? labs : courses).push(subject);
+  }
+  return { courses, labs };
+}
+
 export type ScoreBand = "good" | "neutral" | "warning" | "low";
 
 const num = (v: unknown): number | null =>
