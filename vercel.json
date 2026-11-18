@@ -24,7 +24,8 @@
     {
       "source": "/",
       "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "https://localhost" }
+        { "key": "Access-Control-Allow-Origin", "value": "https://localhost" },
+        { "key": "Cache-Control", "value": "no-cache" }
       ]
     },
     {

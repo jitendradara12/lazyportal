@@ -16,7 +16,9 @@ export function lazyImport<T>(factory: () => Promise<T>, id: string): () => Prom
         if (online && !sessionStorage.getItem(RELOADED)) {
           sessionStorage.setItem(RELOADED, id);
           location.reload();
-          return new Promise<never>(() => {});
+          return new Promise<never>((_, reject) => {
+            setTimeout(() => reject(error), 4000);
+          });
         }
       } catch {}
       throw error;

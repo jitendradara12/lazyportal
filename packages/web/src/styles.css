@@ -161,6 +161,24 @@ button, input, select, textarea { font-family: inherit; }
   background: var(--surface);
 }
 
+.boot-fallback {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+}
+
+.boot-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--outlineVariant);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 ::view-transition-old(root) { animation: 0.18s var(--motion-standard) both pageFadeOut; }
 ::view-transition-new(root) { animation: 0.24s var(--motion-standard) both pageFadeIn; }
 

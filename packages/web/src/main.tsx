@@ -17,7 +17,17 @@ function App() {
   useEffect(() => { if (session) hideKeyboard(); }, [Boolean(session)]);
   return (
     <>
-      {!session ? <Suspense fallback={null}><LoginPage onDone={save} /></Suspense> : (
+      {!session ? (
+        <Suspense
+          fallback={
+            <div className="boot-fallback" role="status" aria-label="Loading">
+              <div className="boot-spinner" aria-hidden="true" />
+            </div>
+          }
+        >
+          <LoginPage onDone={save} />
+        </Suspense>
+      ) : (
         <DashboardPage
           session={session}
           isExpired={isExpired}
@@ -70,7 +80,12 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator && import.meta
       ?.isNativePlatform === "function"
       ? (globalThis as unknown as { Capacitor: { isNativePlatform: () => boolean } }).Capacitor.isNativePlatform()
       : false;
-  if (!isNative) {
+  if (isNative) {
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+      .catch(() => {});
+  } else {
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     });
