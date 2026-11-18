@@ -15,9 +15,11 @@ concurrency:
 
 jobs:
   verify:
-    name: Unit tests, build, and mobile browsers
+    name: Unit tests and build
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
+    outputs:
+      playwright_version: ${{ steps.playwright.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,11 +28,38 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm --workspace @juet/web run build
-      - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit
+      - id: playwright
+        name: Resolve Playwright container version
+        run: |
+          node -e '
+            const lock = JSON.parse(require("fs").readFileSync("package-lock.json", "utf8"));
+            const pkg = lock.packages["node_modules/@playwright/test"] ?? lock.packages["packages/web/node_modules/@playwright/test"];
+            if (!pkg?.version) throw new Error("Unable to resolve @playwright/test version from package-lock.json");
+            process.stdout.write(`version=${pkg.version}\n`);
+          ' >> "$GITHUB_OUTPUT"
+
+  browser:
+    name: Mobile browsers
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Official Playwright image bakes in Chromium, WebKit, and all Ubuntu deps,
+    # avoiding flaky/throttled Ubuntu apt mirrors in `playwright install --with-deps`.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.verify.outputs.playwright_version }}-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
       - name: Test Android and iOS install flows
         run: npm --workspace @juet/web run test:e2e
       - name: Upload browser failure diagnostics
