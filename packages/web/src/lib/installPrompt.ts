@@ -3,15 +3,20 @@ export const INSTALL_DISMISSAL_KEY = "juet.portal.install.dismissedAt.v1";
 export const INSTALL_DISMISSAL_MS = 14 * 24 * 60 * 60 * 1000;
 export const APK_DOWNLOAD_URL = "https://github.com/jitendradara12/lazyportal/releases/latest/download/app-release.apk";
 
-/** @typedef {"android" | "ios-safari" | "ios-other"} InstallPlatform */
-/** @typedef {{ mode: InstallPlatform | "native" | null, isInstalling: boolean, error: string | null }} InstallSnapshot */
-/** @typedef {Event & { prompt: () => Promise<unknown>, userChoice: Promise<{ outcome: "accepted" | "dismissed" }> }} InstallEvent */
+export type InstallPlatform = "android" | "ios-safari" | "ios-other";
+export interface InstallSnapshot {
+  mode: InstallPlatform | "native" | null;
+  isInstalling: boolean;
+  error: string | null;
+}
+export type InstallEvent = Event & {
+  prompt: () => Promise<unknown>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
 
-/** @type {InstallSnapshot} */
-const HIDDEN = Object.freeze({ mode: null, isInstalling: false, error: null });
+const HIDDEN: InstallSnapshot = Object.freeze({ mode: null, isInstalling: false, error: null });
 
-/** @returns {InstallPlatform | null} */
-function detectPlatform(navigator) {
+function detectPlatform(navigator: Navigator): InstallPlatform | null {
   const ua = navigator.userAgent ?? "";
   // iPadOS requests desktop sites by default and identifies itself as a Mac.
   const isIOS = /iPad|iPhone|iPod/i.test(ua)
@@ -24,38 +29,39 @@ function detectPlatform(navigator) {
   return /Android/i.test(ua) ? "android" : null;
 }
 
-function dismissalExpiry(raw, now) {
+function dismissalExpiry(raw: string | null, now: number): number {
   const dismissedAt = Number(raw);
   // Corrupt/future timestamps must not hide the banner indefinitely.
   if (!Number.isSafeInteger(dismissedAt) || dismissedAt <= 0 || dismissedAt > now) return 0;
   return dismissedAt + INSTALL_DISMISSAL_MS;
 }
 
+type BrowserWindow = Window & {
+  navigator: Navigator & { standalone?: boolean };
+  Capacitor?: { isNativePlatform?: () => boolean };
+};
+
 /**
  * One controller lives above the login/dashboard lifecycle. The browser and
  * clock are injected in tests; creating a controller is inert until start().
  */
-export function createInstallPrompt({ now = Date.now } = {}) {
-  /** @type {Window | null} */
-  let win = null;
-  let displayMode = null;
-  /** @type {InstallPlatform | null} */
-  let platform = null;
-  /** @type {InstallEvent | null} */
-  let pendingPrompt = null;
+export function createInstallPrompt({ now = Date.now }: { now?: () => number } = {}) {
+  let win: BrowserWindow | null = null;
+  let displayMode: MediaQueryList | null = null;
+  let platform: InstallPlatform | null = null;
+  let pendingPrompt: InstallEvent | null = null;
   let installed = false;
   let dismissedUntil = 0;
   let localOnlyDismissal = false;
   let isInstalling = false;
-  let error = null;
-  let expiryTimer;
+  let error: string | null = null;
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let generation = 0;
-  /** @type {InstallSnapshot} */
-  let snapshot = HIDDEN;
-  const listeners = new Set();
-  const cleanups = [];
+  let snapshot: InstallSnapshot = HIDDEN;
+  const listeners = new Set<() => void>();
+  const cleanups: (() => void)[] = [];
 
-  function isStandalone() {
+  function isStandalone(): boolean {
     return Boolean(
       displayMode?.matches ||
       win?.navigator.standalone ||
@@ -65,8 +71,7 @@ export function createInstallPrompt({ now = Date.now } = {}) {
 
   function publish() {
     const hidden = !win || !platform || installed || isStandalone() || dismissedUntil > now();
-    /** @type {InstallSnapshot} */
-    const next = hidden ? HIDDEN : {
+    const next: InstallSnapshot = hidden ? HIDDEN : {
       mode: pendingPrompt || isInstalling ? "native" : platform,
       isInstalling,
       error,
@@ -147,13 +152,14 @@ export function createInstallPrompt({ now = Date.now } = {}) {
     }
   }
 
-  function onBeforeInstallPrompt(event) {
-    if (!platform || installed || isStandalone() || typeof event.prompt !== "function") return;
+  function onBeforeInstallPrompt(event: Event) {
+    const installEvent = event as Partial<InstallEvent>;
+    if (!platform || installed || isStandalone() || typeof installEvent.prompt !== "function") return;
     // Also intercept during a remembered dismissal, so Chrome doesn't show
     // its own automatic install UI after the user has told us "not now".
     event.preventDefault();
     if (isInstalling) return;
-    pendingPrompt = event;
+    pendingPrompt = installEvent as InstallEvent;
     error = null;
     refresh();
   }
@@ -165,10 +171,10 @@ export function createInstallPrompt({ now = Date.now } = {}) {
     refresh();
   }
 
-  function onStorage(event) {
+  function onStorage(event: StorageEvent) {
     if (event.key !== null && event.key !== INSTALL_DISMISSAL_KEY) return;
     try {
-      if (event.storageArea && event.storageArea !== win.localStorage) return;
+      if (event.storageArea && event.storageArea !== win?.localStorage) return;
     } catch {
       return;
     }
@@ -177,23 +183,23 @@ export function createInstallPrompt({ now = Date.now } = {}) {
   }
 
   function onVisibilityChange() {
-    if (win.document.visibilityState === "visible") refresh();
+    if (win?.document.visibilityState === "visible") refresh();
   }
 
-  function listen(target, name, listener) {
+  function listen(target: { addEventListener: (name: string, fn: EventListener) => void; removeEventListener: (name: string, fn: EventListener) => void }, name: string, listener: EventListener) {
     target.addEventListener(name, listener);
     cleanups.push(() => target.removeEventListener(name, listener));
   }
 
-  function start(browserWindow) {
+  function start(browserWindow: Window) {
     if (win) return;
-    win = browserWindow;
+    win = browserWindow as BrowserWindow;
     generation++;
     platform = detectPlatform(win.navigator);
     displayMode = win.matchMedia?.("(display-mode: standalone)") ?? null;
     listen(win, "beforeinstallprompt", onBeforeInstallPrompt);
     listen(win, "appinstalled", onInstalled);
-    listen(win, "storage", onStorage);
+    listen(win, "storage", onStorage as EventListener);
     listen(win, "focus", refresh);
     listen(win.document, "visibilitychange", onVisibilityChange);
     if (displayMode?.addEventListener) {
@@ -201,7 +207,7 @@ export function createInstallPrompt({ now = Date.now } = {}) {
     } else if (displayMode?.addListener) {
       // Older iOS Safari supports only the legacy MediaQueryList API.
       displayMode.addListener(refresh);
-      cleanups.push(() => displayMode.removeListener(refresh));
+      cleanups.push(() => displayMode?.removeListener(refresh));
     }
     refresh();
   }
@@ -229,7 +235,7 @@ export function createInstallPrompt({ now = Date.now } = {}) {
     install,
     getSnapshot: () => snapshot,
     getServerSnapshot: () => HIDDEN,
-    subscribe(listener) {
+    subscribe(listener: () => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -240,4 +246,6 @@ export const installPrompt = createInstallPrompt();
 // Register before React mounts so early browser events and page transitions
 // cannot drop the deferred prompt. Guarded for Node tests/server rendering.
 if (typeof window !== "undefined") installPrompt.start(window);
-if (import.meta.hot) import.meta.hot.dispose(() => installPrompt.stop());
+if ((import.meta as { hot?: { dispose: (fn: () => void) => void } }).hot) {
+  (import.meta as { hot?: { dispose: (fn: () => void) => void } }).hot!.dispose(() => installPrompt.stop());
+}

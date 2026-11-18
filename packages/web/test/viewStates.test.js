@@ -35,7 +35,7 @@ globalThis.window = {
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
 let server, MarksSection, ExamsSection, FacultySection, groupCoursesAndFaculty, MorePage, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS;
-let invalidateCacheGeneration, pauseAttendanceSync, readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getManualRefreshQuota, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
+let invalidateCacheGeneration, pauseAttendanceSync, readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
 
 before(async () => {
   server = await createServer({
@@ -52,10 +52,15 @@ before(async () => {
   ({ sessionCacheKey } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ client } = await server.ssrLoadModule("/src/lib/portal.ts"));
   ({ fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
-  ({ pauseAttendanceSync, syncAttendanceDetails, runManualAttendanceRefresh } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
-  ({ getManualRefreshQuota, computeSubjectRowChecksum } = await server.ssrLoadModule("/src/lib/portalSchedule.ts"));
+  ({
+    pauseAttendanceSync,
+    syncAttendanceDetails,
+    runManualAttendanceRefresh,
+    refreshSubjectDetail,
+    readAttendanceOverview,
+  } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
+  ({ computeSubjectRowChecksum } = await server.ssrLoadModule("/src/lib/portalSchedule.ts"));
   ({ getCached, invalidateCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
-  ({ refreshSubjectDetail, readAttendanceOverview } = await server.ssrLoadModule("/src/sections/attendance.tsx"));
 });
 after(async () => { await server?.close(); });
 beforeEach(() => values.clear());
@@ -305,7 +310,6 @@ test("unchanged count-verified subjects cause no history requests across seven d
     assert.equal((await syncAttendanceDetails({ session, rows, base })).complete, true);
   }
   assert.equal(post.mock.callCount(), 0);
-  assert.equal(getManualRefreshQuota(session).used, 0);
 });
 
 test("background sync fetches only changed, missing, or incomplete subject history", async (t) => {
@@ -337,8 +341,6 @@ test("manual refresh skips unchanged count-verified history across days", async 
   const result = await runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => { reads++; return overview(rows); } });
   assert.equal(reads, 1);
   assert.equal(result.changed, false);
-  assert.equal(result.quota.used, 0);
-  assert.equal(result.quota.unchanged, 1);
   assert.equal(post.mock.callCount(), 0);
 });
 
@@ -353,11 +355,10 @@ test("manual refresh fetches only the subjects changed in the fresh overview", a
   });
   const result = await runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => overview(freshRows) });
   assert.equal(result.changed, true);
-  assert.equal(result.quota.used, 1);
   assert.deepEqual(calls, ["changed"]);
 });
 
-test("a partial failure spends no quota; retry reuses successful siblings and commits once", async (t) => {
+test("a partial failure preserves completed siblings and records sync time once retry finishes", async (t) => {
   const rows = [auditRow("p1", 80), auditRow("p2", 80)];
   const calls = { p1: 0, p2: 0 };
   let fail = true;
@@ -366,46 +367,18 @@ test("a partial failure spends no quota; retry reuses successful siblings and co
     if (payload.subjectid === "p2" && fail) { const error = new Error("detail failed"); error.status = 500; throw error; }
     return { response: auditLogs(5, 4) };
   });
-  const checkpoint = {};
-  const run = () => runManualAttendanceRefresh({ session, checkpoint, baselineRows: rows, readOverview: async () => overview(rows) });
+  const run = () => runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => overview(rows) });
   await assert.rejects(run(), /detail failed/);
-  assert.equal(getManualRefreshQuota(session).used, 0);
-  assert.equal(getManualRefreshQuota(session).unchanged, 0);
-  assert.equal(getManualRefreshQuota(session).canRefresh, true);
   assert.equal(values.get("juet.portal.last_sync"), undefined);
   fail = false;
   const result = await run();
-  assert.equal(result.quota.used, 1);
+  assert.equal(result.changed, true);
   assert.ok(Number(values.get("juet.portal.last_sync")) > 0);
   assert.deepEqual(calls, { p1: 1, p2: 2 });
 });
 
-test("manual retry remembers completed changes from a successful sibling", async (t) => {
-  const rows = [auditRow("p1"), auditRow("p2")];
-  for (const row of rows) cacheHistory({ ...row, Ppercentage: 80 }, 7, 6);
-  const checkpoint = {};
-  const calls = { p1: 0, p2: 0 };
-  let fail = true;
-  t.mock.method(client, "post", async (_path, payload) => {
-    calls[payload.subjectid]++;
-    if (payload.subjectid === "p2" && fail) throw new Error("Try again");
-    return { response: auditLogs(payload.subjectid === "p1" ? 8 : 7) };
-  });
-  const run = () => runManualAttendanceRefresh({ session, checkpoint, baselineRows: rows, readOverview: async () => overview(rows) });
-  await assert.rejects(run(), /Try again/);
-  assert.equal(getManualRefreshQuota(session).used, 0);
-  fail = false;
-  const result = await run();
-  assert.equal(result.changed, true);
-  assert.equal(result.quota.used, 1);
-  assert.equal(result.quota.unchanged, 0);
-  assert.deepEqual(calls, { p1: 1, p2: 2 });
-  assert.equal(checkpoint.changed, false);
-});
-
 test("manual retry rechecks a successful sibling if its overview changed", async (t) => {
   let rows = [auditRow("p1"), auditRow("p2")];
-  const checkpoint = {};
   const calls = { p1: 0, p2: 0 };
   let fail = true;
   t.mock.method(client, "post", async (_path, payload) => {
@@ -413,17 +386,16 @@ test("manual retry rechecks a successful sibling if its overview changed", async
     if (payload.subjectid === "p2" && fail) throw new Error("Try again");
     return { response: auditLogs(5, !fail && payload.subjectid === "p1" ? 4 : 5) };
   });
-  const run = () => runManualAttendanceRefresh({ session, checkpoint, baselineRows: rows, readOverview: async () => overview(rows) });
+  const run = () => runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => overview(rows) });
   await assert.rejects(run(), /Try again/);
   rows = [{ ...rows[0], Ppercentage: 80 }, rows[1]];
   fail = false;
-  assert.equal((await run()).quota.used, 1);
+  assert.equal((await run()).changed, true);
   assert.deepEqual(calls, { p1: 2, p2: 2 });
 });
 
-test("a new portal day resets the checkpoint but preserves matching subject caches", async (t) => {
+test("a new portal day preserves matching count-covered subject caches across retries", async (t) => {
   const rows = [{ ...auditRow("p1"), Ptotalclass: 8, Ptotalpresent: 8 }, auditRow("p2")];
-  const checkpoint = {};
   const calls = { p1: 0, p2: 0 };
   let fail = true;
   t.mock.method(client, "post", async (_path, payload) => {
@@ -431,27 +403,25 @@ test("a new portal day resets the checkpoint but preserves matching subject cach
     if (payload.subjectid === "p2" && fail) throw new Error("Try again");
     return { response: auditLogs(8) };
   });
-  const run = () => runManualAttendanceRefresh({ session, checkpoint, baselineRows: rows, readOverview: async () => overview(rows) });
+  const run = () => runManualAttendanceRefresh({ session, baselineRows: rows, readOverview: async () => overview(rows) });
   await assert.rejects(run(), /Try again/);
   const tomorrow = Date.now() + 86400000;
   t.mock.method(Date, "now", () => tomorrow);
   fail = false;
-  assert.equal((await run()).quota.used, 1);
+  await run();
   assert.deepEqual(calls, { p1: 1, p2: 2 });
 });
 
-test("a completed unchanged refresh counts only as an unchanged check", async (t) => {
+test("an unchanged completed refresh reports changed: false", async (t) => {
   const row = auditRow("p1");
   const key = sessionCacheKey("att.subject", session, "sem1", "p1");
   values.set(`juet.cache.${key}`, JSON.stringify({ data: { P: auditLogs(8) }, updatedAt: Date.now() - 86400000 }));
   t.mock.method(client, "post", async () => ({ response: auditLogs(8) }));
   const result = await runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) });
   assert.equal(result.changed, false);
-  assert.equal(result.quota.used, 0);
-  assert.equal(result.quota.unchanged, 1);
 });
 
-test("cancelling a refresh retains completed reads but does not deduct quota", async (t) => {
+test("cancelling a refresh retains completed reads", async (t) => {
   let finish, started;
   const ready = new Promise((resolve) => { started = resolve; });
   let current = true;
@@ -462,15 +432,13 @@ test("cancelling a refresh retains completed reads but does not deduct quota", a
   current = false;
   finish({ response: auditLogs(8) });
   assert.equal(await run, null);
-  assert.equal(getManualRefreshQuota(session).used, 0);
   assert.ok(getCached(sessionCacheKey("att.subject", session, "sem1", "p1")).data);
 });
 
-test("malformed component responses never spend refresh quota", async (t) => {
+test("malformed component responses reject without overwriting valid state", async (t) => {
   t.mock.method(client, "post", async () => ({ response: null }));
   const row = auditRow("p1");
   await assert.rejects(runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) }), /incomplete class records/);
-  assert.equal(getManualRefreshQuota(session).used, 0);
 });
 
 test("a queued subject loaded by expansion is not fetched again when its worker becomes free", async (t) => {
@@ -543,7 +511,7 @@ test("a full browser store does not refetch successful subject history on the ne
   assert.equal(post.mock.callCount(), 1);
 });
 
-test("malformed object responses preserve the old history and spend no quota", async (t) => {
+test("malformed object responses preserve the old history", async (t) => {
   const row = auditRow("malformed-object", 80);
   const key = cacheHistory({ ...row, Ppercentage: 100 }, 7);
   let response;
@@ -552,11 +520,9 @@ test("malformed object responses preserve the old history and spend no quota", a
     await assert.rejects(runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) }), /incomplete class records/);
     assert.equal(getCached(key).data.P.student_attdsummarylist.length, 7);
   }
-  assert.equal(getManualRefreshQuota(session).used, 0);
-  assert.equal(getManualRefreshQuota(session).unchanged, 0);
 });
 
-test("background detail retry reuses successful subjects and spends no quota", async (t) => {
+test("background detail retry reuses successful subjects", async (t) => {
   const rows = [auditRow("retry1"), auditRow("retry2")];
   const calls = [];
   let fail = true;
@@ -569,8 +535,6 @@ test("background detail retry reuses successful subjects and spends no quota", a
   fail = false;
   assert.equal((await syncAttendanceDetails({ session, rows, base })).complete, true);
   assert.deepEqual(calls.sort(), ["retry1", "retry2", "retry2"]);
-  assert.equal(getManualRefreshQuota(session).used, 0);
-  assert.equal(getManualRefreshQuota(session).unchanged, 0);
 });
 
 test("an open sheet pauses queued subjects and resume reuses its completed read", async (t) => {
@@ -601,10 +565,9 @@ test("an open sheet pauses queued subjects and resume reuses its completed read"
   }
   assert.equal((await batch).complete, true);
   assert.deepEqual(calls, ["pause1", "pause2", "pause3", "pause4", "pause5", "pause6", "pause7"]);
-  assert.equal(getManualRefreshQuota(session).used, 0);
 });
 
-test("a timed-out manual refresh keeps cache and quota, releases both shared maps, and retries once", async (t) => {
+test("a timed-out manual refresh keeps cache, releases both shared maps, and retries once", async (t) => {
   const { createClient } = await import("../../core/src/client.js");
   const row = auditRow("timeout", 80);
   cacheHistory({ ...row, Ppercentage: 100 }, 7);
@@ -624,16 +587,14 @@ test("a timed-out manual refresh keeps cache and quota, releases both shared map
   await assert.rejects(run, (error) => error.code === "REQUEST_TIMEOUT");
   assert.equal(signal.aborted, true);
   assert.deepEqual(getCached(key), before);
-  assert.equal(getManualRefreshQuota(session).used, 0);
   assert.equal(values.get("juet.portal.last_sync"), undefined);
   fail = false;
   const result = await run();
   assert.equal(result.changed, true);
-  assert.equal(getManualRefreshQuota(session).used, 1);
   assert.equal(calls, 2);
 });
 
-test("a manual refresh cannot commit quota using a shared read from an older overview", async (t) => {
+test("a manual refresh cannot settle using a shared read from an older overview", async (t) => {
   const oldRow = auditRow("overview-race", 100);
   const row = { ...oldRow, Ppercentage: 80 };
   let resolveOld, startedOld, resolveNew, startedNew;
@@ -655,12 +616,11 @@ test("a manual refresh cannot commit quota using a shared read from an older ove
   resolveOld({ response: auditLogs(8) });
   await expanded;
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(getManualRefreshQuota(session).used, 0, "old checksum is not a completed refresh");
   assert.equal(calls, 2, "read again using the newer overview");
   await newStarted;
   resolveNew({ response: auditLogs(10, 8) });
-  await manual;
-  assert.equal(getManualRefreshQuota(session).used, 1);
+  const result = await manual;
+  assert.equal(result.changed, true);
 });
 
 test("changed overview rows retain labeled saved counts alongside the latest percentage", () => {
@@ -710,7 +670,7 @@ test("adding a tutorial retains saved lecture counts and the sheet calculator", 
   assert.match(html, /What-if calculator/);
 });
 
-test("partial component retries reuse a completed lecture and spend quota only after the tutorial succeeds", async (t) => {
+test("partial component retries reuse a completed lecture", async (t) => {
   const row = { subjectid: "partial-components", subjectcode: "Test(PC1)",
     Lsubjectcomponentid: "lecture", Tsubjectcomponentid: "tutorial", LTpercentage: 100 };
   const key = sessionCacheKey("att.subject", session, "sem1", row.subjectid);
@@ -729,11 +689,9 @@ test("partial component retries reuse a completed lecture and spend quota only a
   const run = () => runManualAttendanceRefresh({ session, baselineRows: [row], readOverview: async () => overview([row]) });
   await assert.rejects(run, /Tutorial unavailable/);
   assert.deepEqual(getCached(key), before);
-  assert.equal(getManualRefreshQuota(session).used, 0);
   failTutorial = false;
   await run();
   assert.deepEqual(calls, ["lecture", "tutorial", "tutorial"]);
-  assert.equal(getManualRefreshQuota(session).used, 1);
 });
 
 for (const change of ["overview", "component", "semester", "account", "institute", "portal day"]) {
@@ -982,7 +940,7 @@ test("FacultySection unifies course metadata and faculty assignments into one gr
       { subjectcode: "CS109", employeename: "DR. AMIT KUMAR", subjectcomponentcode: "L", credits: 4 },
     ],
   }, "sem1");
-  cache("subjects.latest", {
+  cache("att.initial", {
     semesters: [semester],
     rows: [{ subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", subjecttypedesc: "CORE" }],
   });
@@ -992,22 +950,6 @@ test("FacultySection unifies course metadata and faculty assignments into one gr
   assert.match(html, /Dr\. Amit Kumar/);
   assert.match(html, /Core/);
   assert.match(html, /4 cr/);
-});
-
-test("faculty courses do not inherit registered subjects from another semester", () => {
-  values.set("juet.portal.card.faculty", "1");
-  selectSemester("faculty");
-  cache("faculty.lov", [semester]);
-  cache("faculty.detail", { rows: [{ subjectcode: "CS109", subjectdesc: "CURRENT COURSE" }] }, "sem1");
-  for (const registrationid of ["sem1", "previous-semester"]) {
-    cache("subjects.latest", {
-      semesters: [{ registrationid }],
-      rows: [{ subjectcode: "CS001", subjectdesc: "REGISTERED COURSE" }],
-    });
-    const html = render(FacultySection);
-    assert.match(html, /Current Course/);
-    assert.equal(html.includes("Registered Course"), registrationid === "sem1");
-  }
 });
 
 test("MorePage renders Appearance theme selector alongside Default attendance target", () => {

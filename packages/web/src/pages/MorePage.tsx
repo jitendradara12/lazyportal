@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import { usePageRefresh } from "../hooks/usePageRefresh";
 import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
@@ -34,7 +34,17 @@ export function MorePage({
   const name = discreet ? "Student" : titleCase(session.name ?? session.enrollmentno ?? "Student");
   const initial = name.trim().charAt(0) || "S";
 
-  const pageRefresh = usePageRefresh("more", session, false);
+  const refreshers = useRef(new Set<() => Promise<unknown>>());
+  const registerRefresh = useCallback((fn: () => Promise<unknown>) => {
+    refreshers.current.add(fn);
+    return () => { refreshers.current.delete(fn); };
+  }, []);
+  const pageRefresh = usePageRefresh(
+    "more",
+    session,
+    false,
+    () => Promise.allSettled([...refreshers.current].map((fn) => fn())),
+  );
   const [defaultTarget, setDefaultTarget] = useDefaultAttendanceTarget();
   const [theme, setTheme] = useThemePreference();
 
@@ -92,7 +102,7 @@ export function MorePage({
         <div className="m3-stacked-sections" role="list">
           <Suspense fallback={null}>
             {SECTIONS.filter((s) => s.enabled !== false).map(({ id, Component }) => (
-              <Component key={`${id}:${String(session.instituteid ?? "")}`} session={session} onLogout={onLogout} />
+              <Component key={`${id}:${String(session.instituteid ?? "")}`} session={session} onLogout={onLogout} onRegisterRefresh={registerRefresh} />
             ))}
           </Suspense>
         </div>

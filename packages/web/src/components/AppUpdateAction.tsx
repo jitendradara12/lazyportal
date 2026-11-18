@@ -1,6 +1,6 @@
 import { type MouseEvent, useEffect, useRef, useState } from "react";
-import { fetchLatestRelease, isNewerVersion } from "../lib/appUpdates.js";
-import { APK_DOWNLOAD_URL } from "../lib/installPrompt.js";
+import { fetchLatestRelease, isNewerVersion } from "../lib/appUpdates";
+import { APK_DOWNLOAD_URL } from "../lib/installPrompt";
 import { getInstalledAppVersion, installAppUpdate, selectionHaptic, type AppUpdateInstallResult } from "../lib/nativeInteractions";
 
 type UpdateCheck = [string | null, Awaited<ReturnType<typeof fetchLatestRelease>> | null];

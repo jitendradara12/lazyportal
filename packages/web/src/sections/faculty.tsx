@@ -1,18 +1,18 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCached } from "../hooks/useFeature";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { useSemester } from "../hooks/useSemester";
 import { FEATURE_TTL } from "../lib/portalSchedule";
+import { subjectName } from "../lib/attendanceCalc";
 import {
   CollapsibleCard,
   ListSkeleton,
   SectionError,
-  useCardState,
   titleCase,
   formatSemester,
 } from "../components/DataViews";
-import { subjectName } from "./attendance";
 import type { SectionProps, Semester } from "../types";
 
 export interface FacultyRow {
@@ -37,15 +37,14 @@ export interface GroupedCourseFaculty {
 export function groupCoursesAndFaculty(
   rows: FacultyRow[],
   catalog?: ReadonlyMap<string, { name?: string; type?: string }>,
-  extraSubjects?: FacultyRow[],
 ): GroupedCourseFaculty[] {
   const byKey = new Map<string, GroupedCourseFaculty>();
-  const ensure = (r: FacultyRow, fallbackKey: string): GroupedCourseFaculty => {
+  rows.forEach((r, i) => {
     const parsed = subjectName(r.subjectcode);
     const rawCode = String(r.subjectcode ?? "").trim();
     const code = parsed.badge || rawCode;
     const normCode = code.toUpperCase();
-    const key = normCode || fallbackKey;
+    const key = normCode || `row-${i}`;
     const cat = normCode ? catalog?.get(normCode) : undefined;
     const explicitDesc = r.subjectdesc ? titleCase(r.subjectdesc) : "";
     const parsedDesc = parsed.badge ? parsed.name : "";
@@ -53,9 +52,9 @@ export function groupCoursesAndFaculty(
     const courseType = (r.subjecttypedesc ? titleCase(r.subjecttypedesc) : "") || cat?.type || "";
     const credits = r.credits != null && String(r.credits).trim() !== "" ? String(r.credits).trim() : "";
 
-    let existing = byKey.get(key);
-    if (!existing) {
-      existing = {
+    let entry = byKey.get(key);
+    if (!entry) {
+      entry = {
         key,
         code,
         courseName,
@@ -63,17 +62,13 @@ export function groupCoursesAndFaculty(
         credits,
         instructors: [],
       };
-      byKey.set(key, existing);
+      byKey.set(key, entry);
     } else {
-      if (!existing.courseName && courseName) existing.courseName = courseName;
-      if (!existing.courseType && courseType) existing.courseType = courseType;
-      if (!existing.credits && credits) existing.credits = credits;
+      if (!entry.courseName && courseName) entry.courseName = courseName;
+      if (!entry.courseType && courseType) entry.courseType = courseType;
+      if (!entry.credits && credits) entry.credits = credits;
     }
-    return existing;
-  };
 
-  rows.forEach((r, i) => {
-    const entry = ensure(r, `row-${i}`);
     const emp = r.employeename ? titleCase(r.employeename) : "";
     const comp = r.subjectcomponentcode ? String(r.subjectcomponentcode).trim().toUpperCase() : "";
     if (emp) {
@@ -86,38 +81,44 @@ export function groupCoursesAndFaculty(
     }
   });
 
-  if (extraSubjects?.length) {
-    extraSubjects.forEach((r, i) => {
-      ensure(r, `sub-${i}`);
-    });
-  }
-
   return [...byKey.values()];
 }
 
-export function FacultySection({ session }: SectionProps) {
-  const card = useCardState("faculty", false);
+export function FacultySection({ session, onRegisterRefresh }: SectionProps) {
+  const [open, setOpen] = usePersistentState("card.faculty", "0");
+  const isOpen = open !== "0";
+  const [opened, setOpened] = useState(isOpen);
+  const toggle = () => {
+    const next = isOpen ? "0" : "1";
+    if (next === "1") setOpened(true);
+    setOpen(next);
+  };
+
   const lov = useFeature<Semester[]>({
     run: () => features.getFacultyRegistrations(client, session),
     deps: [session],
-    enabled: card.hasExpanded,
+    enabled: opened,
     cacheKey: sessionCacheKey("faculty.lov", session),
     staleTimeMs: FEATURE_TTL.faculty,
-    manualRefreshEnabled: card.isOpen,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "faculty"), lov.data);
   const detail = useFeature<{ rows: FacultyRow[]; totalcreditpoints?: unknown }>({
     run: () => features.getFaculties(client, session, { registrationid: sem?.registrationid }),
     deps: [session, semId],
-    enabled: card.hasExpanded && sem !== null,
+    enabled: opened && sem !== null,
     cacheKey: semId ? sessionCacheKey("faculty.detail", session, semId) : undefined,
     staleTimeMs: FEATURE_TTL.faculty,
-    manualRefreshEnabled: card.isOpen,
   });
+
+  const refreshRef = useRef<() => Promise<unknown>>();
+  refreshRef.current = () => Promise.all([
+    lov.refresh(),
+    ...(sem !== null ? [detail.refresh()] : []),
+  ]);
+  useEffect(() => onRegisterRefresh?.(() => refreshRef.current!()), [onRegisterRefresh]);
 
   const rows = detail.data?.rows ?? [];
   const semesters = lov.data ?? [];
-  const isDefault = semId != null && semId === String(semesters[0]?.registrationid);
 
   const courses = useMemo(() => {
     const catalog = new Map<string, { name?: string; type?: string }>();
@@ -134,24 +135,21 @@ export function FacultySection({ session }: SectionProps) {
       });
     };
 
-    const subjects = getCached<{ semesters?: Semester[]; rows?: FacultyRow[] }>(sessionCacheKey("subjects.latest", session)).data;
-    const cachedSubjects = subjects?.rows ?? [];
     const cachedAttInitial = getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("att.initial", session)).data?.rows ?? [];
     const cachedAttDetail = semId ? (getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("att.detail", session, semId)).data?.rows ?? []) : [];
     const cachedMarksLatest = getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("marks.latest", session)).data?.rows ?? [];
     const cachedMarksDetail = semId ? (getCached<{ rows?: FacultyRow[] }>(sessionCacheKey("marks.detail", session, semId)).data?.rows ?? []) : [];
 
-    for (const r of [...cachedSubjects, ...cachedAttInitial, ...cachedAttDetail, ...cachedMarksLatest, ...cachedMarksDetail]) {
+    for (const r of [...cachedAttInitial, ...cachedAttDetail, ...cachedMarksLatest, ...cachedMarksDetail]) {
       addCatalogRow(r);
     }
 
-    const subjectsMatchSemester = semId != null && String(subjects?.semesters?.[0]?.registrationid) === semId;
-    return groupCoursesAndFaculty(rows, catalog, isDefault && subjectsMatchSemester && rows.length > 0 ? cachedSubjects : undefined);
-  }, [rows, session, semId, isDefault]);
+    return groupCoursesAndFaculty(rows, catalog);
+  }, [rows, session, semId]);
 
   const semLabel = formatSemester(sem?.registrationcode ?? sem?.registrationdesc);
   const error = lov.error ?? detail.error;
-  const loading = lov.loading || detail.loading || (!error && card.hasExpanded && (
+  const loading = lov.loading || detail.loading || (!error && opened && (
     lov.data === null || (semesters.length > 0 && sem === null) || (sem !== null && detail.data === null)
   ));
   const retry = lov.error ? lov.retry : detail.retry;
@@ -167,8 +165,8 @@ export function FacultySection({ session }: SectionProps) {
       title="Faculty & courses"
       badge={badgeText}
       defaultOpen={false}
-      isOpen={card.isOpen}
-      onToggle={card.toggle}
+      isOpen={isOpen}
+      onToggle={toggle}
       action={
         hasAction ? (
           <div className="more-card-toolbar">

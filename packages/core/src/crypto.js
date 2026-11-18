@@ -1,5 +1,3 @@
-// Deep module: campusCrypto.
-// Small interface, all AES/date quirks hidden here.
 // Isomorphic: WebCrypto Subtle only — no node:crypto, no Buffer — so the
 // same file bundles for browser (Vite) and runs in Node tests.
 
@@ -148,8 +146,6 @@ export async function makeLocalName({ now = new Date(), random = Math.random } =
   const pick = () => ALPHABET[Math.floor(random() * ALPHABET.length)];
   const h = Array.from({ length: 4 }, pick).join("");
   const m = Array.from({ length: 5 }, pick).join("");
-  const { day, month, yy, dow } = getIstParts(now);
-  const me = `${day[0]}${month[0]}${yy[0]}${dow}${day[1]}${month[1]}${yy[1]}`;
-  const plain = `${h}${me}${m}`;
+  const plain = `${h}${generateValue(now).slice(4, 11)}${m}`;
   return { plain, encrypted: await encrypt(plain, { now }) };
 }

@@ -2,8 +2,11 @@
 import { useState, useEffect, useRef } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { isCurrentPortalDay } from "../lib/portalSchedule";
+import { titleCase } from "../lib/attendanceCalc";
 import { dateFormatter } from "../lib/dateFormat";
 import { useShell } from "./AppBar";
+
+export { titleCase };
 
 /** Tonal M3 skeleton rows for uncached loading states. */
 export function ListSkeleton({
@@ -31,28 +34,6 @@ export function ListSkeleton({
   );
 }
 
-/** Humanize a backend key for table headers: camelCase/snake_case -> words. */
-export function prettyKey(k: string): string {
-  return k
-    .replace(/_/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^./, (c) => c.toUpperCase());
-}
-
-/** Title-case a string: "COMPUTER NETWORKS" -> "Computer Networks" */
-export function titleCase(s: unknown): string {
-  if (s == null) return "";
-  const str = String(s);
-  if (!str) return "";
-  return str
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .replace(/\b(And|Or|Of|The|In|For|To|A|An)\b/g, (w) => w.toLowerCase())
-    .replace(/^./, (c) => c.toUpperCase());
-}
-
 /** Humanize semester codes: "2026ODDSEM" -> "Odd 2026", "2026EVESEM" -> "Even 2026" */
 export function formatSemester(code: string | undefined | null): string {
   if (!code) return "";
@@ -70,37 +51,6 @@ export function formatLastSync(ts: number | null): string {
   if (isCurrentPortalDay(ts)) return "Synced today";
   const d = new Date(ts);
   return `Synced ${syncDate(d)}`;
-}
-
-export {
-  REFRESH_THROTTLE_MS,
-  shouldThrottleRefresh,
-  recordRefreshAttempt,
-} from "../lib/portalSchedule";
-
-/** Fallback table for responses whose columns we haven't mapped yet. */
-export function AutoTable({ rows }: { rows: Record<string, unknown>[] }) {
-  if (rows.length === 0) return null;
-  const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-  const cell = (v: unknown): string => {
-    if (v === null || v === undefined) return "";
-    if (typeof v === "object") return JSON.stringify(v);
-    return String(v);
-  };
-  return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>{cols.map((c) => <th key={c}>{prettyKey(c)}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>{cols.map((c) => <td key={c}>{cell(r[c])}</td>)}</tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 const AUTH_OR_CLIENT_ERROR_RE =
@@ -244,11 +194,6 @@ export function parseIndianDateTime(dt?: string): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** Parse an exam datetime; null when missing/unparseable. */
-export function examTime(v?: string): number | null {
-  return parseIndianDateTime(v);
-}
-
 export function countdown(ms: number): string {
   const days = Math.floor(ms / 86400000);
   if (days > 1) return `in ${days} days`;
@@ -285,13 +230,6 @@ function getSectionIcon(id?: string) {
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
       );
-    case "subjects":
-      return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-        </svg>
-      );
     default:
       return (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -301,25 +239,6 @@ function getSectionIcon(id?: string) {
         </svg>
       );
   }
-}
-
-/** Hook managing collapsible card open/toggle state and expansion tracking for lazy fetching. */
-export function useCardState(id?: string, defaultOpen = false) {
-  const [open, setOpen] = usePersistentState(id ? `card.${id}` : "card.temp", defaultOpen ? "1" : "0");
-  const isOpen = open !== "0";
-  const [expanded, setExpanded] = useState(isOpen);
-
-  const toggle = () => {
-    const next = isOpen ? "0" : "1";
-    if (next === "1") setExpanded(true);
-    setOpen(next);
-  };
-
-  return {
-    isOpen,
-    toggle,
-    hasExpanded: expanded || isOpen,
-  };
 }
 
 /** Collapsible card section with persisted open/closed state in Material 3 Expressive style. */
@@ -356,8 +275,8 @@ export function CollapsibleCard({
   }, [isOpen]);
 
   return (
-    <section className={`card m3-card ${isOpen ? "open" : "collapsed"}`} id={id}>
-      <div className="card-header m3-card-header">
+    <section className={`m3-card ${isOpen ? "open" : "collapsed"}`} id={id}>
+      <div className="m3-card-header">
         <button
           type="button"
           className="m3-list-item m3-card-toggle-btn"
@@ -389,7 +308,7 @@ export function CollapsibleCard({
         aria-hidden={!isOpen}
       >
         <div className="m3-accordion-inner">
-          <div className="card-body m3-card-body">
+          <div className="m3-card-body">
             {action && (
               <div className="m3-expanded-action-bar">
                 {action}

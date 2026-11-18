@@ -19,13 +19,11 @@ describe("session", () => {
     assert.equal(isExpired("opaque"), false);
   });
 
-  it("store roundtrips and loadValid respects expiry", () => {
+  it("store roundtrips", () => {
     const store = createStore(memoryAdapter());
     assert.equal(store.load(), null);
     store.save({ token: jwt(2_000_000), userid: "u1" });
     assert.equal(store.load().userid, "u1");
-    assert.equal(store.loadValid({ nowSec: 1_000_000 }).userid, "u1");
-    assert.equal(store.loadValid({ nowSec: 3_000_000 }), null);
     store.clear();
     assert.equal(store.load(), null);
   });

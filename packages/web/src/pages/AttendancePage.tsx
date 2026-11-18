@@ -1,37 +1,40 @@
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { features } from "@juet/core";
-import { client, getRefreshPolicy, getSessionStatus } from "../lib/portal";
-import { useRefreshPolicy } from "../hooks/useRefreshPolicy";
+import { client, getRefreshThrottleMs, getSessionStatus } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { SectionError, ListSkeleton, formatSemester, formatLastSync, shouldThrottleRefresh, recordRefreshAttempt } from "../components/DataViews";
+import { SectionError, ListSkeleton, formatSemester, formatLastSync } from "../components/DataViews";
 import { SubjectDetailSheet } from "../lazy";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { TopBar, SemesterPicker, useShell } from "../components/AppBar";
 import {
   isCurrentPortalDay,
   doesSubjectNeedDeepFetch,
-  getManualRefreshQuota,
-  getRefreshQuotaNotice,
   subscribePortalDayRollover,
+  shouldThrottleRefresh,
+  recordRefreshAttempt,
+  REFRESH_THROTTLE_MS,
   FEATURE_TTL,
-  type RefreshQuotaState,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
 import {
+  type AttData,
   type AttRow,
-  subjectName,
+  combinedAttendance,
+  isSubjectDetailComplete,
   rowSubId,
-  subjectRowId,
-  getSubjectCacheKey,
-  getCachedSubjectDetail,
-  getCachedSubjectDetailEntry,
-  useAttendanceInitial,
-} from "../sections/attendance";
-import { combinedAttendance, isSubjectDetailComplete } from "../lib/attendanceCalc";
+  subjectName,
+} from "../lib/attendanceCalc";
 import { TargetFab } from "../components/TargetFab";
 import { useDefaultAttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
-import { idleAttendanceSync, runManualAttendanceRefresh, syncAttendanceDetails, type ManualAttendanceRefreshCheckpoint } from "../lib/attendanceSync";
+import {
+  getCachedSubjectDetailEntry,
+  getSubjectCacheKey,
+  idleAttendanceSync,
+  readAttendanceOverview,
+  runManualAttendanceRefresh,
+  syncAttendanceDetails,
+} from "../lib/attendanceSync";
 
 export function AttendancePage({
   session,
@@ -45,21 +48,20 @@ export function AttendancePage({
 }) {
   const shell = useShell();
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [refreshFeedback, setRefreshFeedback] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [detailSyncError, setDetailSyncError] = useState<string | null>(null);
   const [detailSyncAttempt, setDetailSyncAttempt] = useState(0);
   const [manualRefreshSeq, setManualRefreshSeq] = useState(0);
-  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const detailUpdatedAtRef = useRef<Record<string, number>>({});
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showNotice = (msg: string, ms: number) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    setQuotaNotice(msg);
+    setNotice(msg);
     noticeTimer.current = setTimeout(() => {
-      if (pageIsLive.current) setQuotaNotice(null);
+      if (pageIsLive.current) setNotice(null);
     }, ms);
   };
   const manualController = useRef<AbortController | null>(null);
@@ -67,18 +69,26 @@ export function AttendancePage({
   const refreshKey = sessionCacheKey("refresh.attendance", session);
   const activeRefreshKey = useRef(refreshKey);
   activeRefreshKey.current = refreshKey;
-  const manualCheckpoint = useRef<ManualAttendanceRefreshCheckpoint>({});
   const pageIsLive = useRef(true);
   const [syncState, setSyncState] = useState(idleAttendanceSync);
   const syncingHistory = syncState.phase === "running" || syncState.phase === "paused";
   const [selectedSubject, setSelectedSubject] = useState<(AttRow & Record<string, unknown>) | null>(null);
   const [filter, setFilter] = useState<"all" | "short">("all");
   const [defaultTarget] = useDefaultAttendanceTarget();
+  const [throttleMs, setThrottleMs] = useState<number>(REFRESH_THROTTLE_MS);
 
   useEffect(() => {
     pageIsLive.current = true;
+    let active = true;
+    void getRefreshThrottleMs("attendance").then((ms) => {
+      if (active) setThrottleMs(ms);
+    });
+    const unsubscribeRollover = subscribePortalDayRollover(() => {});
     return () => {
+      active = false;
       pageIsLive.current = false;
+      unsubscribeRollover();
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
   }, []);
 
@@ -106,26 +116,12 @@ export function AttendancePage({
     };
   }, []);
 
-  const refreshPolicy = useRefreshPolicy("attendance");
-  const [refreshQuota, setRefreshQuota] = useState<RefreshQuotaState>(() => getManualRefreshQuota(session));
-
-  useEffect(() => {
-    const updateQuota = () => {
-      setRefreshQuota(getManualRefreshQuota(session, undefined, refreshPolicy));
-    };
-    updateQuota();
-    window.addEventListener("juet:quota-changed", updateQuota);
-    window.addEventListener("storage", updateQuota);
-    const unsubscribeRollover = subscribePortalDayRollover(updateQuota);
-    return () => {
-      window.removeEventListener("juet:quota-changed", updateQuota);
-      window.removeEventListener("storage", updateQuota);
-      unsubscribeRollover();
-      if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    };
-  }, [session, refreshPolicy]);
-
-  const att = useAttendanceInitial(session);
+  const att = useFeature<AttData>({
+    run: (signal) => readAttendanceOverview(session, signal),
+    deps: [session],
+    cacheKey: sessionCacheKey("att.initial", session),
+    isFresh: isCurrentPortalDay,
+  });
   const initial = att.data;
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "attendance"), initial?.semesters);
   const activeSemester = useRef(semId);
@@ -135,7 +131,6 @@ export function AttendancePage({
     setRefreshError(null);
     setDetailSyncError(null);
     setSyncState(idleAttendanceSync());
-    manualCheckpoint.current = {};
     detailUpdatedAtRef.current = {};
     return () => {
       manualController.current?.abort();
@@ -145,8 +140,21 @@ export function AttendancePage({
   const isDefault = semId === String(initial?.semesters?.[0]?.registrationid);
   const lastSemRef = useRef(`${session.username}:${session.instituteid ?? "default"}:${semId}`);
 
+  const attUpdatedAtRef = useRef(att.updatedAt);
+  attUpdatedAtRef.current = att.updatedAt;
+  useEffect(() => {
+    const onRefreshAttendance = (event: Event) => {
+      const force = (event as CustomEvent<{ force?: boolean }>).detail?.force === true;
+      if (force || !isCurrentPortalDay(attUpdatedAtRef.current)) {
+        att.retry();
+      }
+    };
+    window.addEventListener("juet:refresh-attendance", onRefreshAttendance);
+    return () => window.removeEventListener("juet:refresh-attendance", onRefreshAttendance);
+  }, [att.retry]);
+
   const detail = useFeature<{ rows: AttRow[] }>({
-    run: signal =>
+    run: (signal) =>
       features.getAttendanceDetail(client, session, {
         stynumber: initial?.header?.stynumber,
         registrationid: sem?.registrationid,
@@ -169,10 +177,9 @@ export function AttendancePage({
   const [detailsMap, setDetailsMap] = useState<Record<string, Record<string, unknown>>>(() => {
     const map: Record<string, Record<string, unknown>> = {};
     for (const r of rows) {
-      const cached = getCachedSubjectDetail(session.username, semId, r, session.instituteid);
+      const cached = getCachedSubjectDetailEntry(session.username ?? "", semId, r, session.instituteid).data;
       if (cached) {
-        const subId = rowSubId(r);
-        map[subId] = cached;
+        map[rowSubId(r)] = cached;
       }
     }
     return map;
@@ -188,7 +195,7 @@ export function AttendancePage({
     }> = {};
     for (const row of rows) {
       const id = rowSubId(row);
-      const entry = getCachedSubjectDetailEntry(session.username, semId, row, session.instituteid);
+      const entry = getCachedSubjectDetailEntry(session.username ?? "", semId, row, session.instituteid);
       const saved = Boolean(entry.data) && (entry.provisional || doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional));
       states[id] = { data: entry.data, saved, attendance: combinedAttendance(row, entry.data, defaultTarget / 100, saved) };
     }
@@ -197,18 +204,18 @@ export function AttendancePage({
 
   const activeSelectedSubject = useMemo(() => {
     if (!selectedSubject) return null;
-    const subId = subjectRowId(selectedSubject);
-    const found = rows.find((r) => subjectRowId(r) === subId);
+    const subId = rowSubId(selectedSubject);
+    const found = rows.find((r) => rowSubId(r) === subId);
     return (found as (AttRow & Record<string, unknown>) | undefined) ?? selectedSubject;
   }, [selectedSubject, rows]);
 
   const handleDetailLoaded = useCallback(
     (subId: string, data: Record<string, Record<string, unknown>>, loadedUpdatedAt?: number | null) => {
       const entry = getCachedSubjectDetailEntry(
-        session.username,
+        session.username ?? "",
         semId,
         subId,
-        session.instituteid
+        session.instituteid,
       );
       if (entry.updatedAt && loadedUpdatedAt && entry.updatedAt > loadedUpdatedAt && entry.data !== data) {
         return;
@@ -218,7 +225,7 @@ export function AttendancePage({
       }
       setDetailsMap((prev) => (prev[subId] === data ? prev : { ...prev, [subId]: data }));
     },
-    [session.username, semId, session.instituteid]
+    [session.username, semId, session.instituteid],
   );
 
   // Sync detailsMap if a subject read finishes after SubjectDetailSheet closes.
@@ -232,11 +239,11 @@ export function AttendancePage({
       if (typeof key !== "string" || !key.startsWith(prefix)) return;
       const currentSession = sessionRef.current;
       const matched = rowsRef.current.find(
-        (r) => getSubjectCacheKey(currentSession.username, activeRegId, r, currentSession.instituteid) === key
+        (r) => getSubjectCacheKey(currentSession.username ?? "", activeRegId, r, currentSession.instituteid) === key,
       );
       if (!matched) return;
       const subId = rowSubId(matched);
-      const entry = getCachedSubjectDetailEntry(currentSession.username, activeRegId, matched, currentSession.instituteid);
+      const entry = getCachedSubjectDetailEntry(currentSession.username ?? "", activeRegId, matched, currentSession.instituteid);
       if (!entry.data) return;
       const prevUpdatedAt = detailUpdatedAtRef.current[subId] ?? 0;
       if (entry.updatedAt && prevUpdatedAt && entry.updatedAt < prevUpdatedAt) return;
@@ -259,7 +266,7 @@ export function AttendancePage({
   useEffect(() => {
     if (!rows.length || isExpired || !isDefault || isRefreshing || manualController.current ||
       att.refreshing || !isCurrentPortalDay(att.updatedAt) || refreshError) {
-      if (!manualController.current) setSyncState(previous => previous.phase === "idle" ? previous : idleAttendanceSync());
+      if (!manualController.current) setSyncState((previous) => previous.phase === "idle" ? previous : idleAttendanceSync());
       return;
     }
     const currentSession = sessionRef.current;
@@ -270,7 +277,7 @@ export function AttendancePage({
     const current = () => active && pageIsLive.current && isCacheGenerationCurrent(generation) && getSessionStatus() !== "expired";
     const currentMap: Record<string, Record<string, unknown>> = {};
     for (const row of rows) {
-      const entry = getCachedSubjectDetailEntry(currentSession.username, semId, row, currentSession.instituteid);
+      const entry = getCachedSubjectDetailEntry(currentSession.username ?? "", semId, row, currentSession.instituteid);
       if (entry.data) currentMap[rowSubId(row)] = entry.data;
     }
     const key = `${currentSession.username}:${currentSession.instituteid ?? "default"}:${semId}`;
@@ -279,7 +286,8 @@ export function AttendancePage({
     setDetailsMap((prev) => changedSemester ? currentMap : { ...prev, ...currentMap });
 
     void syncAttendanceDetails({
-      session: currentSession, rows,
+      session: currentSession,
+      rows,
       overviewUpdatedAt: att.updatedAt,
       base: { registrationid: sem?.registrationid, registrationcode: sem?.registrationcode },
       isCurrent: current,
@@ -345,7 +353,7 @@ export function AttendancePage({
 
     const currentSession = sessionRef.current;
     const needsDeepFetch = rows.some((row) => {
-      const entry = getCachedSubjectDetailEntry(currentSession.username, semId, row, currentSession.instituteid);
+      const entry = getCachedSubjectDetailEntry(currentSession.username ?? "", semId, row, currentSession.instituteid);
       return doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
     });
     if (detailSyncError || needsDeepFetch) {
@@ -408,7 +416,7 @@ export function AttendancePage({
   useEffect(() => setShorts(shortsCount), [shortsCount, setShorts]);
 
   const handleRefresh = async () => {
-    if (manualController.current || isSyncing || refreshFeedback || isExpired || shell.isRecovering || navigator.onLine === false) return;
+    if (manualController.current || isSyncing || isExpired || shell.isRecovering || navigator.onLine === false) return;
     if (!isDefault) {
       showNotice("Only current semester updates", 2000);
       return;
@@ -419,17 +427,11 @@ export function AttendancePage({
     const requestGeneration = getCacheGeneration();
     const current = () => !controller.signal.aborted && pageIsLive.current && activeRefreshKey.current === refreshKey && activeSemester.current === semId && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     try {
-      const policy = await getRefreshPolicy("attendance");
+      const cooldownMs = await getRefreshThrottleMs("attendance");
+      if (pageIsLive.current) setThrottleMs(cooldownMs);
       if (!current()) return;
-      const quota = getManualRefreshQuota(session, undefined, policy);
-      setRefreshQuota(quota);
-      if (!quota.canRefresh) {
-        setRefreshFeedback(true);
-        showNotice(getRefreshQuotaNotice(quota), 3500);
-        return;
-      }
-      if (shouldThrottleRefresh(refreshKey, policy.throttleMs) ||
-          (lastRefreshAttempt.current.key === refreshKey && Date.now() - lastRefreshAttempt.current.at < policy.throttleMs)) {
+      if (shouldThrottleRefresh(refreshKey, cooldownMs) ||
+          (lastRefreshAttempt.current.key === refreshKey && Date.now() - lastRefreshAttempt.current.at < cooldownMs)) {
         showNotice("Please wait a few seconds to refresh", 2000);
         return;
       }
@@ -439,7 +441,7 @@ export function AttendancePage({
       lastRefreshAttempt.current = { key: refreshKey, at: Date.now() };
       setRefreshError(null);
       setDetailSyncError(null);
-      setQuotaNotice(null);
+      setNotice(null);
       setIsRefreshing(true);
       setSyncState(idleAttendanceSync());
       const baselineRows = rows;
@@ -447,14 +449,15 @@ export function AttendancePage({
       // Joins an automatic overview read if one is already pending. All callers
       // share its cache write, so a late older response cannot replace this one.
       const result = await runManualAttendanceRefresh({
-        session, baselineRows, readOverview: att.refresh, isCurrent: current, policy,
+        session,
+        baselineRows,
+        readOverview: att.refresh,
+        isCurrent: current,
         signal: controller.signal,
-        checkpoint: manualCheckpoint.current,
         onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
         onProgress: setSyncState,
       });
       if (!result) return;
-      setRefreshQuota(result.quota);
       if (!result.changed && !result.provisional) showNotice("Up to date with portal", 2500);
     } catch (err: unknown) {
       if (current()) setRefreshError(err instanceof Error ? err.message : String(err));
@@ -471,7 +474,6 @@ export function AttendancePage({
   };
 
   const error = refreshError ?? att.error ?? detail.error ?? (isDefault ? detailSyncError : null);
-  const isHardBlocked = isDefault && !refreshQuota.canRefresh && !error;
   const retry = refreshError ? () => handleRefresh() : att.error ? triggerAttRetry
     : detail.error ? detail.retry : () => setDetailSyncAttempt((attempt) => attempt + 1);
 
@@ -480,8 +482,8 @@ export function AttendancePage({
       <span className="att-sync-dot" aria-hidden="true" />
       <span>{syncState.total > 0 ? `Refreshing ${syncState.done}/${syncState.total}…` : "Refreshing…"}</span>
     </span>
-  ) : quotaNotice ? (
-    <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">{quotaNotice}</span>
+  ) : notice ? (
+    <span className="att-sync-pill att-sync-notice" role="status" aria-live="polite">{notice}</span>
   ) : lastSync ? (
     <span className="att-sync-pill">{formatLastSync(lastSync)}</span>
   ) : null;
@@ -493,15 +495,11 @@ export function AttendancePage({
         subtitle={status}
         busy={isSyncing}
         onRefresh={() => void handleRefresh()}
-        feedback={refreshFeedback}
-        onFeedbackEnd={() => setRefreshFeedback(false)}
         refreshLabel="Refresh attendance"
         refreshTitle={
           isSyncing
             ? "Refreshing attendance…"
-            : isHardBlocked
-            ? getRefreshQuotaNotice(refreshQuota)
-            : shouldThrottleRefresh(refreshKey, refreshPolicy.throttleMs) && lastSync
+            : shouldThrottleRefresh(refreshKey, throttleMs) && lastSync
             ? formatLastSync(lastSync)
             : "Refresh attendance"
         }
@@ -613,7 +611,7 @@ export function AttendancePage({
             registrationid={sem?.registrationid}
             registrationcode={sem?.registrationcode}
             session={session}
-            cachedDetail={subjectStates[subjectRowId(activeSelectedSubject)]?.data ?? undefined}
+            cachedDetail={subjectStates[rowSubId(activeSelectedSubject)]?.data ?? undefined}
             onDetailLoaded={handleDetailLoaded}
             onClose={() => setSelectedSubject(null)}
             onLogout={onLogout}

@@ -3,7 +3,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { auth, createClient, createPortalTransport, credentials, errors, features, session } from "@juet/core";
 import { resolveApiBase } from "./apiBase";
 import { preserveSelectedInstitute } from "./sessionSelection";
-import { selectRefreshPolicy } from "./refreshPolicy";
+import { NATIVE_REFRESH_THROTTLE_MS, REFRESH_THROTTLE_MS } from "./portalSchedule";
 import type { Session } from "../types";
 
 const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
@@ -29,12 +29,12 @@ const transport = createPortalTransport({
 
 export type RefreshPage = keyof typeof features.featurePostEndpoints;
 
-export async function getRefreshPolicy(page: RefreshPage) {
-  // Unknown/unavailable native capabilities keep the conservative proxy policy.
+export async function getRefreshThrottleMs(page: RefreshPage): Promise<number> {
+  // Unknown/unavailable native capabilities keep the conservative proxy cooldown.
   const paths = Object.values(features.featurePostEndpoints[page]);
   const usesProxy = await transport.usesProxyFor("POST", paths).catch(() => true) ||
     (page === "marks" && await transport.usesProxyFor("GET", Object.values(features.marksReportEndpoints)).catch(() => true));
-  return selectRefreshPolicy(usesProxy, env.VITE_ATTENDANCE_QUOTA);
+  return usesProxy ? REFRESH_THROTTLE_MS : NATIVE_REFRESH_THROTTLE_MS;
 }
 
 export const MAX_AUTOSOLVE_ATTEMPTS = 8;

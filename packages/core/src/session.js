@@ -1,15 +1,9 @@
-// Deep module: session.
-// Hides JWT parsing, key namespacing, expiry policy.
-// Isomorphic: no Buffer, no import-time localStorage access.
-
 const PREFIX = "juet.portal.";
 
 function b64urlToJson(b64url) {
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
   const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-  const bin = atob(padded);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
@@ -67,7 +61,16 @@ export function markSessionExpired() {
 export function consumeSessionExpired() {
   const inMemory = memoryExpired;
   memoryExpired = false;
-  const inStorage = consumeKey(EXPIRED_KEY);
+  let inStorage = false;
+  try {
+    const s = safeStorage();
+    if (s?.getItem(PREFIX + EXPIRED_KEY) === "1") {
+      s.removeItem(PREFIX + EXPIRED_KEY);
+      inStorage = true;
+    }
+  } catch {
+    /* storage blocked */
+  }
   return inMemory || inStorage;
 }
 
@@ -79,19 +82,6 @@ export function clearSessionExpired() {
   } catch {
     /* storage blocked */
   }
-}
-
-function consumeKey(key) {
-  try {
-    const s = safeStorage();
-    if (s?.getItem(PREFIX + key) === "1") {
-      s.removeItem(PREFIX + key);
-      return true;
-    }
-  } catch {
-    /* storage blocked */
-  }
-  return false;
 }
 
 /**
@@ -138,7 +128,7 @@ export function browserLocalAdapter(fallback = memoryAdapter()) {
 
 const SESSION_KEY = "session.v1";
 
-/** Store owns serialization. Interface: load/save/clear/loadValid. */
+/** Store owns serialization. Interface: load/save/clear. */
 export function createStore(adapter = memoryAdapter()) {
   let cachedRaw = null;
   let cachedSession = null;
@@ -196,11 +186,6 @@ export function createStore(adapter = memoryAdapter()) {
       try {
         adapter.remove(SESSION_KEY);
       } catch {}
-    },
-    loadValid(opts) {
-      const s = this.load();
-      if (!s?.token) return null;
-      return isExpired(s.token, opts) ? null : s;
     },
   };
 }

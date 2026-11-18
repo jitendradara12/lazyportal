@@ -25,4 +25,5 @@ export interface Semester {
 export interface SectionProps {
   session: Session;
   onLogout?: () => void;
+  onRegisterRefresh?: (refresh: () => Promise<unknown>) => () => void;
 }

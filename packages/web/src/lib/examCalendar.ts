@@ -1,4 +1,4 @@
-import { googleCalendarUrl, calendarFile, downloadCalendar } from "./calendar.ts";
+import { googleCalendarUrl, calendarFile } from "./calendar.ts";
 import { examTimes, formatExamRoom, cleanExamSubject, type ExamRow } from "./exams.ts";
 
 export function examCalendarEvent(row: ExamRow) {
@@ -27,8 +27,4 @@ export function googleExamUrl(row: ExamRow): string | null {
 
 export function examsCalendar(rows: ExamRow[], now = Date.now()): string | null {
   return calendarFile(rows.map(examCalendarEvent).filter((event) => event !== null), now);
-}
-
-export function downloadExamsCalendar(rows: ExamRow[]) {
-  downloadCalendar(rows.map(examCalendarEvent).filter((event) => event !== null), "exams.ics");
 }

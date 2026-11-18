@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { installPrompt } from "../lib/installPrompt.js";
+import { installPrompt } from "../lib/installPrompt";
 
 export function useInstallPrompt() {
   const snapshot = useSyncExternalStore(

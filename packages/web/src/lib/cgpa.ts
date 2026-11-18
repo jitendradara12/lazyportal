@@ -466,3 +466,134 @@ export function requiredSgpaForTargets(
     })
     .sort((a, b) => a.targetCgpa - b.targetCgpa);
 }
+
+export const CGPA_SLOTS = 8;
+const CREDIT_CYCLE = [4, 3, 2, 1.5, 1] as const;
+
+const DEFAULT_COURSE_TEMPLATE: ReadonlyArray<{ name: string; credits: number }> = [
+  { name: "Theory Course 1", credits: 4 },
+  { name: "Theory Course 2", credits: 4 },
+  { name: "Theory Course 3", credits: 4 },
+  { name: "Theory Course 4", credits: 3 },
+  { name: "Theory Course 5", credits: 3 },
+  { name: "Lab 1", credits: 1 },
+  { name: "Lab 2", credits: 1 },
+  { name: "Lab 3", credits: 1 },
+];
+
+export function nextCredit(current: number): number {
+  const idx = CREDIT_CYCLE.findIndex((c) => Math.abs(c - current) < 0.01);
+  return CREDIT_CYCLE[(idx + 1) % CREDIT_CYCLE.length];
+}
+
+export function nearestLetterGrade(sgpa: number): LetterGrade {
+  let best: LetterGrade = "A";
+  let bestDiff = Infinity;
+  for (const entry of GRADE_SCALE) {
+    if (entry.gp === 0) continue;
+    const diff = Math.abs(entry.gp - sgpa);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = entry.grade;
+    }
+  }
+  return best;
+}
+
+export function parseForecasts(raw: string | null): Record<number, ForecastInput> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const validGrades = new Set<string>(GRADE_SCALE.map((g) => g.grade));
+    const out: Record<number, ForecastInput> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const sty = Number(k);
+      if (!Number.isInteger(sty) || sty <= 0 || !v || typeof v !== "object") continue;
+      const item = v as Record<string, unknown>;
+      const sgpa = typeof item.sgpa === "number" && Number.isFinite(item.sgpa) ? item.sgpa : 8.0;
+      const credits =
+        typeof item.credits === "number" && Number.isFinite(item.credits) && item.credits > 0
+          ? item.credits
+          : undefined;
+      const useCourses = typeof item.useCourses === "boolean" ? item.useCourses : undefined;
+      const courses = Array.isArray(item.courses)
+        ? item.courses
+            .filter((c): c is Record<string, unknown> => Boolean(c && typeof c === "object"))
+            .map((c, idx) => ({
+              id: typeof c.id === "string" && c.id ? c.id : `c-${sty}-${idx}`,
+              name: typeof c.name === "string" && c.name.trim() ? c.name : `Course ${idx + 1}`,
+              credits: typeof c.credits === "number" && Number.isFinite(c.credits) && c.credits >= 0 ? c.credits : 3,
+              grade: (typeof c.grade === "string" && validGrades.has(c.grade) ? c.grade : "A") as LetterGrade,
+            }))
+        : undefined;
+      out[sty] = { sgpa, credits, useCourses, courses };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function seedCoursesFromRows(cachedRows: Row[], sty: number, defaultSgpa: number): ForecastCourse[] {
+  const grade = nearestLetterGrade(defaultSgpa);
+  if (cachedRows.length > 0) {
+    const seen = new Map<string, { name: string; credits: number | null; lab: boolean }>();
+    for (const row of cachedRows) {
+      const rawSubjectCode = String(row.subjectcode ?? "").trim();
+      const parenMatch = rawSubjectCode.match(/^(.+?)\(([^)]+)\)$/);
+      const rawCode = (parenMatch ? parenMatch[2] : rawSubjectCode).trim().toUpperCase();
+      const rawName = String(row.subjectdesc ?? row.subjectname ?? row.subject ?? (parenMatch ? parenMatch[1] : rawSubjectCode)).trim();
+      if (!rawCode && !rawName) continue;
+      const formatted = formatSubjectName(rawName || rawCode);
+      const key = rawCode || formatted.toUpperCase();
+      const cr = toNumber(row.credits ?? row.coursecredit ?? row.coursecreditpoint ?? row.credit);
+      const hasPracticalOnly = Boolean(row.Psubjectcomponentid) && !row.Lsubjectcomponentid && !row.Tsubjectcomponentid;
+      const prev = seen.get(key);
+      if (!prev) {
+        seen.set(key, { name: formatted, credits: cr != null && cr > 0 ? cr : null, lab: hasPracticalOnly });
+      } else {
+        if (!prev.name && formatted) prev.name = formatted;
+        if (prev.credits == null && cr != null && cr > 0) prev.credits = cr;
+        if (hasPracticalOnly) prev.lab = true;
+      }
+    }
+    if (seen.size > 0) {
+      let idx = 0;
+      return [...seen.values()].map((entry) => {
+        const isLab = entry.lab || /\blab\b/i.test(entry.name);
+        const credits = entry.credits ?? (isLab ? 1 : idx < 3 ? 4 : 3);
+        const item: ForecastCourse = {
+          id: `c-${sty}-${idx}`,
+          name: entry.name,
+          credits,
+          grade,
+        };
+        idx += 1;
+        return item;
+      });
+    }
+  }
+
+  return DEFAULT_COURSE_TEMPLATE.map((t, idx) => ({
+    id: `c-${sty}-${idx}`,
+    name: t.name,
+    credits: t.credits,
+    grade,
+  }));
+}
+
+/** Smooth curve through points (Catmull-Rom as cubic Beziers) in a 0-100 box. */
+export function smoothPath(points: [number, number][]): string {
+  if (points.length < 2) return "";
+  let d = `M${points[0][0]},${points[0][1]}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x0, y0] = points[i - 1] ?? points[i];
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[i + 1];
+    const [x3, y3] = points[i + 2] ?? points[i + 1];
+    const t = 6;
+    d += ` C${x1 + (x2 - x0) / t},${y1 + (y2 - y0) / t} ${x2 - (x3 - x1) / t},${y2 - (y3 - y1) / t} ${x2},${y2}`;
+  }
+  return d;
+}

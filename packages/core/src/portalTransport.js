@@ -6,7 +6,6 @@ import { featurePostEndpoints, isMarksReportPath, marksReportEndpoints } from ".
 // Separate APK policy: the isolated official view must never gain login access.
 export const portalApiPolicy = Object.freeze({
   ...officialPortalPolicy,
-  version: 1,
   post: [...new Set([...officialPortalPolicy.post, ...Object.values(featurePostEndpoints).flatMap(Object.values), ...authEndpoints.post])],
   get: [...new Set([...officialPortalPolicy.get, ...authEndpoints.get])],
   timeoutMs: 55_000,

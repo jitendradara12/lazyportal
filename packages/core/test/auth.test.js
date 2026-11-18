@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { login, loginWithPassword, fetchCaptcha, refreshSession } from "../src/auth.js";
+import { login, fetchCaptcha, refreshSession } from "../src/auth.js";
 
 const NOW = new Date(2026, 8, 28);
 const ok = (obj) => ({ ok: true, status: 200, text: async () => JSON.stringify(obj) });
@@ -267,33 +267,6 @@ describe("auth", () => {
       captcha: { hidden: "h", image: "i" },
     });
     assert.equal(session.tokendate, "2026-10-21 18:00:00");
-  });
-
-  it("loginWithPassword is exported as an alias of login", async () => {
-    assert.equal(loginWithPassword, login);
-    const fakeClient = {
-      async post(endpoint) {
-        if (endpoint === "/token/pretoken-check") {
-          return { response: { random: "R1", otppwd: "PWD" } };
-        }
-        return {
-          response: {
-            regdata: {
-              token: "T",
-              institutelist: [{ value: "i1", label: "L" }],
-              tokendate: "2026-10-21 19:00:00",
-            },
-          },
-        };
-      },
-    };
-    const session = await loginWithPassword(fakeClient, {
-      username: "221B001",
-      password: "p",
-      captchaText: "c",
-      captcha: { hidden: "h", image: "i" },
-    });
-    assert.equal(session.tokendate, "2026-10-21 19:00:00");
   });
 
   it("login falls back to fresh Date string when regdata does not provide tokendate", async () => {

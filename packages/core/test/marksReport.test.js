@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMarksReport } from "../src/marksReport.js";
+import { parseMarksReport } from "../src/marks.js";
 import { getMarks, getMarksReport } from "../src/features.js";
 
 const item = (text, x, y, width = 20) => ({ text, x, y, width });

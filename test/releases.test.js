@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { APK_DOWNLOAD_URL } from "../packages/web/src/lib/installPrompt.js";
+import { APK_DOWNLOAD_URL } from "../packages/web/src/lib/installPrompt.ts";
 
 const workflow = readFileSync(new URL("../.github/workflows/build-apk.yml", import.meta.url), "utf8");
 const publishScript = workflow.split("      - name: Create or update the GitHub Release\n")[1]

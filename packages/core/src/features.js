@@ -3,8 +3,7 @@
 // encrypts, client.postRaw sends plain JSON (see client.js header for which).
 
 import { PortalError } from "./errors.js";
-import { mergeMarkRows } from "./marks.js";
-import { parseMarksReport } from "./marksReport.js";
+import { mergeMarkRows, parseMarksReport } from "./marks.js";
 
 export const marksReportEndpoints = Object.freeze({
   standard: "/studentsexamview/printstudent-exammarks",
@@ -32,8 +31,6 @@ export const featurePostEndpoints = Object.freeze({
   more: Object.freeze({
     facultyRegistrations: "/reqsubfaculty/getregistrationList",
     faculties: "/reqsubfaculty/getfaculties",
-    choiceSemesters: "/studentchoiceprint/getsemestercodelist",
-    choiceSubjects: "/studentchoiceprint/getsubjectpreference",
     gradeInfo: "/studentgradecard/getstudentinfo",
     gradeRegistrations: "/studentgradecard/getregistrationList",
     grades: "/studentgradecard/showstudentgradecard",
@@ -173,8 +170,8 @@ export async function getGradesLatest(client, session) {
   if (!sem || !info) return { info, semesters, registrationcode: sem?.registrationcode ?? null, rows: [] };
   const rows = await getGradeCard(client, session, {
     registrationid: sem.registrationid,
-    branchid: info?.branchid,
-    programid: info?.programid,
+    branchid: info.branchid,
+    programid: info.programid,
   });
   return { info, semesters, registrationcode: sem.registrationcode, rows };
 }
@@ -367,31 +364,6 @@ export async function getSubjectAttendanceAll(client, session, row, { registrati
   return out;
 }
 
-/** Choice-print semesters. Encrypted {} -> registrationcodelist. */
-export async function getChoiceSemesters(client) {
-  const body = await client.post(featurePostEndpoints.more.choiceSemesters, {});
-  return asArray(body.response?.registrationcodelist);
-}
-
-/** Enrolled subjects for a semester. Encrypted {instituteid, clientid, registrationid}. */
-export async function getChoiceSubjects(client, session, { registrationid }) {
-  const body = await client.post(featurePostEndpoints.more.choiceSubjects, {
-    instituteid: session.instituteid,
-    clientid: session.clientid,
-    registrationid,
-  });
-  return asArray(body.response?.subjectpreferencegrid);
-}
-
-/** Registered subjects in one call: LOV -> latest registration -> rows. */
-export async function getChoiceSubjectsLatest(client, session) {
-  const semesters = await getChoiceSemesters(client);
-  const sem = semesters[0];
-  if (!sem) return { semesters, registrationcode: null, rows: [] };
-  const rows = await getChoiceSubjects(client, session, { registrationid: sem.registrationid });
-  return { semesters, registrationcode: sem.registrationcode, rows };
-}
-
 /** Marks LOV: semester list. Encrypted — official app AES-encrypts {instituteid} here. */
 export async function getMarksSemesters(client, session) {
   const body = await client.post(featurePostEndpoints.marks.semesters, {
@@ -459,22 +431,28 @@ export async function getMarksLatest(client, session, options = {}) {
   return { semesters, registrationcode: sem.registrationcode, ...detail };
 }
 
-/** SGPA/CGPA student info. Encrypted {instituteid} -> response.studentInfo[0]. */
-export async function getSgpaStudentInfo(client, session) {
+async function catchSgpa500(run, fallback) {
   try {
-    const body = await client.post(featurePostEndpoints.more.sgpaInfo, {
-      instituteid: session.instituteid,
-    });
-    return asArray(body.response?.studentInfo)[0] ?? null;
+    return await run();
   } catch (err) {
-    if (isSgpa500(err)) return null;
+    if (isSgpa500(err)) return fallback;
     throw err;
   }
 }
 
+/** SGPA/CGPA student info. Encrypted {instituteid} -> response.studentInfo[0]. */
+export function getSgpaStudentInfo(client, session) {
+  return catchSgpa500(async () => {
+    const body = await client.post(featurePostEndpoints.more.sgpaInfo, {
+      instituteid: session.instituteid,
+    });
+    return asArray(body.response?.studentInfo)[0] ?? null;
+  }, null);
+}
+
 /** SGPA/CGPA current semester. Encrypted {instituteid, studentid, name, enrollmentno}. */
-export async function getSgpaCurrentSem(client, session, { studentid, name, enrollmentno }) {
-  try {
+export function getSgpaCurrentSem(client, session, { studentid, name, enrollmentno }) {
+  return catchSgpa500(async () => {
     const body = await client.post(featurePostEndpoints.more.sgpaCurrent, {
       instituteid: session.instituteid,
       studentid,
@@ -482,47 +460,29 @@ export async function getSgpaCurrentSem(client, session, { studentid, name, enro
       enrollmentno,
     });
     return body.response?.studentlov?.currentsemester ?? null;
-  } catch (err) {
-    if (isSgpa500(err)) return null;
-    throw err;
-  }
+  }, null);
 }
 
 function isSgpa500(err) {
   if (!err || typeof err !== "object") return false;
   if (err.name === "AbortError" || err.code === "ABORT_ERR") return false;
   if (err.code === "SESSION_EXPIRED" || err.status === 401 || err.name === "SessionExpiredError") return false;
-
-  const statusNum = Number(err.status ?? err.statusCode);
-  if (statusNum === 500) return true;
-
+  if (Number(err.status ?? err.statusCode) === 500) return true;
   const msg = typeof err.message === "string" ? err.message : "";
-  const errList = Array.isArray(err.errors)
-    ? err.errors.join(" ")
-    : typeof err.errors === "string"
-      ? err.errors
-      : "";
-  const combined = `${msg} ${errList}`;
-  return (
-    /SQLGrammarException/i.test(combined) ||
-    /HTTP\s*500\b/i.test(msg) ||
-    /500\s+Internal\s+Server\s+Error/i.test(msg)
-  );
+  const errList = Array.isArray(err.errors) ? err.errors.join(" ") : typeof err.errors === "string" ? err.errors : "";
+  return /SQLGrammarException/i.test(`${msg} ${errList}`) || /HTTP\s*500\b|500\s+Internal\s+Server\s+Error/i.test(msg);
 }
 
 /** SGPA/CGPA semester list (credit-wise rows with sgpa/cgpa). Encrypted {instituteid, studentid, stynumber}. */
-export async function getSgpaSemesters(client, session, { studentid, stynumber }) {
-  try {
+export function getSgpaSemesters(client, session, { studentid, stynumber }) {
+  return catchSgpa500(async () => {
     const body = await client.post(featurePostEndpoints.more.sgpaSemesters, {
       instituteid: session.instituteid,
       studentid,
       stynumber,
     });
     return asArray(body.response?.semesterList);
-  } catch (err) {
-    if (isSgpa500(err)) return [];
-    throw err;
-  }
+  }, []);
 }
 
 /** SGPA/CGPA semester detail (subject rows). Encrypted {instituteid, studentid, stynumber}. Returns response as-is. */
@@ -537,23 +497,18 @@ export async function getSgpaDetail(client, session, { studentid, stynumber }) {
 
 /** SGPA/CGPA in one call: loadData -> checkexist -> currentsem -> semester list. */
 export async function getSgpaLatest(client, session) {
-  try {
-    const student = await getSgpaStudentInfo(client, session);
-    if (!student) return { student: null, currentsem: null, semesters: [] };
-    const currentsem =
-      (await getSgpaCurrentSem(client, session, {
-        studentid: student.studentid,
-        name: student.name,
-        enrollmentno: student.enrollmentno,
-      })) ?? student.stynumber ?? null;
-    const semesters = await getSgpaSemesters(client, session, {
+  const student = await getSgpaStudentInfo(client, session);
+  if (!student) return { student: null, currentsem: null, semesters: [] };
+  const currentsem =
+    (await getSgpaCurrentSem(client, session, {
       studentid: student.studentid,
-      stynumber: currentsem,
-    });
-    return { student, currentsem, semesters };
-  } catch (err) {
-    if (isSgpa500(err)) return { student: null, currentsem: null, semesters: [] };
-    throw err;
-  }
+      name: student.name,
+      enrollmentno: student.enrollmentno,
+    })) ?? student.stynumber ?? null;
+  const semesters = await getSgpaSemesters(client, session, {
+    studentid: student.studentid,
+    stynumber: currentsem,
+  });
+  return { student, currentsem, semesters };
 }
 

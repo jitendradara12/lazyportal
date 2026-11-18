@@ -54,7 +54,6 @@ async function setup(page) {
     cache("exams.rows", [], ["current", "event"]);
     cache("faculty.lov", semesters);
     cache("faculty.detail", { rows: [] }, ["current"]);
-    cache("subjects.latest", { semesters, rows: [] });
   }, { session: SESSION, semesters, marksRow });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Attendance", exact: true })).toBeVisible();
@@ -115,7 +114,7 @@ test("old caches survive navigation, focus, day rollover and reload without othe
   expect(calls).toEqual([]);
 });
 
-test("refresh is per page, cooldowns are independent, and More skips collapsed sections", async ({ page }) => {
+test("refresh is per page, cooldowns are independent, and More refreshes Faculty unconditionally", async ({ page }) => {
   const calls = await setup(page);
   for (const name of ["Results", "Exams", "More", "Attendance"]) await navigate(page, name);
   await refresh(page, "Refresh attendance");
@@ -134,15 +133,16 @@ test("refresh is per page, cooldowns are independent, and More skips collapsed s
   calls.length = 0;
   await navigate(page, "More");
   await refresh(page, "Refresh");
-  expect(calls).toEqual([]);
+  expect(paths(calls)).toEqual(["getfaculties", "getregistrationList"]);
+  calls.length = 0;
   await page.getByRole("button", { name: /^Faculty/ }).click();
   await expect(page.locator("#faculty select")).toHaveValue("current");
   expect(calls).toEqual([]);
-  await refresh(page, "Refresh");
-  expect(paths(calls)).toEqual(["getfaculties", "getregistrationList"]);
 });
 
 test("past marks refresh only the selected semester and failed refresh keeps cached content", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (err) => pageErrors.push(err.message));
   const calls = await setup(page);
   await navigate(page, "Results");
   await expect(page.getByText("Cached Subject", { exact: true })).toBeVisible();
@@ -155,6 +155,7 @@ test("past marks refresh only the selected semester and failed refresh keeps cac
   await refresh(page, "Refresh marks");
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByText("Past Subject", { exact: true })).toBeVisible();
+  expect(pageErrors).toEqual([]);
   expect(paths(calls)).toEqual(["getstudent-exammarks"]);
   expect(calls[0].body.registrationid).toBe("past");
   calls.length = 0;

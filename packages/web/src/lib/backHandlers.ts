@@ -1,10 +1,10 @@
 /** Topmost overlays handle Back before the page. Removing one never consumes another. */
-export function createBackHandlers(onEnabledChange = () => {}) {
-  const handlers = new Map();
+export function createBackHandlers(onEnabledChange: (enabled: boolean) => void = () => {}) {
+  const handlers = new Map<number, { callback: () => void; priority: number }>();
   let sequence = 0;
   return {
     get enabled() { return handlers.size > 0; },
-    add(callback, priority = 0) {
+    add(callback: () => void, priority = 0) {
       const id = ++sequence;
       handlers.set(id, { callback, priority });
       onEnabledChange(handlers.size > 0);

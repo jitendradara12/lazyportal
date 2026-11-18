@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { portalApiPolicy } from "../../../core/src/portalTransport.js";
-import { computeSubjectRowChecksum, getPortalDayKey } from "../../src/lib/portalSchedule.ts";
+import { computeSubjectRowChecksum } from "../../src/lib/portalSchedule.ts";
 import { mockPortal, SESSION } from "./helpers.js";
 
 test("a cold attendance failure settles without repeatedly rendering the page", async ({ page }) => {
@@ -29,7 +29,7 @@ async function setup(page, { missingAttendance = false, missingDetail = false, s
   });
   const row = { subjectid: "subject1", subjectcode: "TEST SUBJECT(CS101)", Psubjectcomponentid: "p1", Ppercentage: 100 };
   const semesters = [{ registrationid: "sem1", registrationcode: "2026ODDSEM" }];
-  await page.addInitScript(({ policy, session, fail, failDiscovery, seededAttendance, row, semesters, checksum, portalDay }) => {
+  await page.addInitScript(({ policy, session, fail, failDiscovery, seededAttendance, row, semesters, checksum }) => {
     localStorage.setItem("juet.portal.session.v1", JSON.stringify(session));
     if (seededAttendance) {
       const cache = (feature, data, parts = [], extra = {}) => {
@@ -39,8 +39,6 @@ async function setup(page, { missingAttendance = false, missingDetail = false, s
       cache("att.initial", { header: null, semesters, rows: [row] });
       cache("att.lov", { header: null, semesters });
       cache("att.subject", { P: { student_attdsummarylist: [{ datetime: "01/10/2026 09:00 AM", present: "Y" }] } }, ["sem1", "subject1"], { checksum });
-      localStorage.setItem(`juet.portal.refresh_quota.${session.username.toUpperCase()}:${session.instituteid}`,
-        JSON.stringify({ day: portalDay, count: 1, unchanged: 3, lastUnchangedAt: Date.now() }));
     }
     window.__portalHttp = { requests: [], capabilities: 0 };
     window.androidBridge = {};
@@ -66,7 +64,7 @@ async function setup(page, { missingAttendance = false, missingDetail = false, s
     };
   }, { policy: missingAttendance ? { ...portalApiPolicy, post: [] } : missingDetail
     ? { ...portalApiPolicy, post: portalApiPolicy.post.filter((path) => !path.endsWith("getstudentsubjectpersentage")) } : portalApiPolicy,
-    session: SESSION, fail, failDiscovery, seededAttendance, row, semesters, checksum: computeSubjectRowChecksum(row), portalDay: getPortalDayKey() });
+    session: SESSION, fail, failDiscovery, seededAttendance, row, semesters, checksum: computeSubjectRowChecksum(row) });
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
   return hosted;
@@ -113,13 +111,11 @@ test("native network errors show retry without proxying the same request", async
   expect(hosted).toEqual([]);
 });
 
-test("direct native attendance bypasses exhausted proxy quotas and allows another check after two seconds", async ({ page }) => {
+test("direct native attendance allows another check after two seconds", async ({ page }) => {
   const hosted = await setup(page, { seededAttendance: true });
   const button = page.getByRole("button", { name: "Refresh attendance", exact: true });
   await expect(button).toHaveAttribute("title", "Refresh attendance");
   await page.clock.install();
-  const quotaKey = `juet.portal.refresh_quota.${SESSION.username.toUpperCase()}:${SESSION.instituteid}`;
-  const before = await page.evaluate((key) => localStorage.getItem(key), quotaKey);
   const reads = () => page.evaluate(() => window.__portalHttp.requests.filter((request) => request.path.endsWith("getstudentattendancedetail")).length);
   await button.click();
   await expect.poll(reads).toBe(1);
@@ -128,18 +124,25 @@ test("direct native attendance bypasses exhausted proxy quotas and allows anothe
   await button.click();
   await expect.poll(reads).toBe(2);
   await expect(button).toBeEnabled();
-  expect(await page.evaluate((key) => localStorage.getItem(key), quotaKey)).toBe(before);
   expect(hosted).toEqual([]);
 });
 
-test("a partially supported attendance batch retains proxy quotas even if its overview can run natively", async ({ page }) => {
+test("a partially supported attendance batch uses the 20s proxy cooldown even if its overview can run natively", async ({ page }) => {
   const hosted = await setup(page, { seededAttendance: true, missingDetail: true });
   await expect.poll(() => page.evaluate(() => window.__portalHttp.capabilities)).toBe(1);
   const button = page.getByRole("button", { name: "Refresh attendance", exact: true });
-  await expect(button).toHaveAttribute("title", "Up to date with portal");
+  const reads = () => page.evaluate(() => window.__portalHttp.requests.filter((request) => request.path.endsWith("getstudentattendancedetail")).length);
+  await page.clock.install();
   await button.click();
-  await expect(page.getByRole("status")).toHaveText("Up to date with portal");
-  expect(await page.evaluate(() => window.__portalHttp.requests)).toEqual([]);
+  await expect.poll(reads).toBe(1);
+  await expect(button).toBeEnabled();
+  await page.clock.fastForward(2_001);
+  await button.click();
+  await expect(page.getByRole("status")).toHaveText("Please wait a few seconds to refresh");
+  expect(await reads()).toBe(1);
+  await page.clock.fastForward(18_001);
+  await button.click();
+  await expect.poll(reads).toBe(2);
   expect(hosted).toEqual([]);
 });
 

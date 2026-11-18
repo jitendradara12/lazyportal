@@ -1,5 +1,5 @@
-import { formatEventCode } from "@juet/core";
-export { formatEventCode, mergeMarkRows } from "@juet/core";
+import { formatEventCode, markRowKey } from "@juet/core";
+export { formatEventCode, markRowKey, mergeMarkRows } from "@juet/core";
 
 /**
  * Pure helper logic for marks section.
@@ -27,13 +27,6 @@ const num = (v: unknown): number | null =>
 const round = (n: number): number => Math.round(n * 100) / 100;
 
 const normMark = (v: unknown): number | string => num(v) ?? String(v ?? "").trim().toUpperCase();
-
-/** Stable identity key for a (course, exam) row. */
-export function markRowKey(row: MarkRow): string | null {
-  const subject = row.subjectcode?.trim().toUpperCase() || row.subjectdesc?.trim().toUpperCase();
-  const event = formatEventCode(row.eventcode) || String(row.exameventid ?? "").trim();
-  return subject && event ? JSON.stringify([subject, event]) : null;
-}
 
 /** Return keys of exam rows that were newly added or had their marks changed relative to a non-empty baseline. */
 export function diffMarkRows(previous: MarkRow[], incoming: MarkRow[]): string[] {

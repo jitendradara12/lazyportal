@@ -1,5 +1,3 @@
-// Deep module: portal errors. Single place for error shape.
-
 export class PortalError extends Error {
   constructor(message, { code = "PORTAL_ERROR", status, errors = [] } = {}) {
     super(message);

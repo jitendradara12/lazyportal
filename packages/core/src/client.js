@@ -1,4 +1,3 @@
-// Deep module: API client.
 // Hides baseUrl, AES body encryption, Auth+LocalName headers, error mapping,
 // and transparent session refresh: a 401 triggers one shared refresh + retry,
 // so callers only see SessionExpiredError when refresh truly fails.

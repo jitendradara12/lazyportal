@@ -1,21 +1,20 @@
-import { useState, useEffect, useRef, useCallback, useContext, type PointerEvent } from "react";
-import { SectionError } from "./DataViews";
+import { useState, useEffect, useMemo, useRef, useCallback, useContext, type PointerEvent } from "react";
+import { SectionError, parseIndianDateTime } from "./DataViews";
 import type { Session } from "../types";
 import {
   type AttRow,
-  subjectName,
-  subjectRowId,
-  getCachedSubjectDetailEntry,
-  useSubjectDetail,
-  CombinedClassLog,
-} from "../sections/attendance";
-import {
+  type ClassRecord,
+  cleanDateTime,
   combinedAttendance,
   computeBunkMargin,
   getColorClass,
   isSubjectDetailComplete,
+  parseClassLogs,
+  rowSubId,
+  subjectName,
 } from "../lib/attendanceCalc";
 import {
+  computeSubjectRowChecksum,
   doesSubjectNeedDeepFetch,
 } from "../lib/portalSchedule";
 import { WhatIfStepper } from "./WhatIfStepper";
@@ -23,8 +22,167 @@ import { BackScope, useAppBack } from "../hooks/useAppBack";
 import { ATTENDANCE_TARGETS, useDefaultAttendanceTarget, type AttendanceTarget } from "../hooks/useDefaultAttendanceTarget";
 import { selectionHaptic } from "../lib/nativeInteractions";
 import { getSessionStatus, onSessionStatus } from "../lib/portal";
-import { pauseAttendanceSync } from "../lib/attendanceSync";
+import {
+  detailMetadata,
+  getCachedSubjectDetailEntry,
+  getSubjectCacheKey,
+  pauseAttendanceSync,
+  readSubjectDetail,
+  subjectDetailRequest,
+  validSubjectComponent,
+} from "../lib/attendanceSync";
+import { getCached, useFeature } from "../hooks/useFeature";
 import { SLOW_PORTAL_MESSAGE, useSlowRequest } from "../hooks/useSlowRequest";
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatClassDateTime(dt?: string): string {
+  if (!dt) return "—";
+  const ms = parseIndianDateTime(dt);
+  if (!ms) return cleanDateTime(dt);
+  const d = new Date(ms);
+  const day = d.getDate();
+  const month = MONTH_NAMES[d.getMonth()];
+  let hours = d.getHours();
+  const minutes = d.getMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const minStr = minutes < 10 ? `0${minutes}` : String(minutes);
+  return `${day} ${month}, ${hours}:${minStr} ${ampm}`;
+}
+
+export function CombinedClassLog({
+  data,
+}: {
+  data: Record<string, unknown>;
+}) {
+  const [filter, setFilter] = useState<"all" | "absent" | "present">("all");
+
+  const { total, attended, absent, allClasses } = useMemo(() => {
+    const parsedEntries = Object.entries(data)
+      .map(([type, raw]) => ({ type, stats: parseClassLogs(raw, type) }))
+      .filter((item): item is { type: string; stats: NonNullable<ReturnType<typeof parseClassLogs>> } => item.stats !== null);
+
+    let tot = 0;
+    let att = 0;
+    const classes: { record: ClassRecord; ts: number }[] = [];
+
+    for (const { stats } of parsedEntries) {
+      tot += stats.total;
+      att += stats.attended;
+      for (const c of stats.classes) {
+        classes.push({ record: c, ts: parseIndianDateTime(c.datetime) ?? 0 });
+      }
+    }
+
+    classes.sort((a, b) => b.ts - a.ts);
+
+    return {
+      total: tot,
+      attended: att,
+      absent: tot - att,
+      allClasses: classes.map((item) => item.record),
+    };
+  }, [data]);
+
+  if (total === 0 && allClasses.length === 0) {
+    return <p className="muted">No class records available.</p>;
+  }
+
+  const filtered = allClasses.filter((c) => {
+    if (filter === "absent") return !c.isAttended;
+    if (filter === "present") return c.isAttended;
+    return true;
+  });
+
+  return (
+    <div className="att-comp-box" onClick={(e) => e.stopPropagation()}>
+      {allClasses.length > 0 && (
+        <>
+          <div className="filter-chips">
+            <button
+              type="button"
+              className={`chip-btn ${filter === "all" ? "active" : ""}`}
+              onClick={() => setFilter("all")}
+            >
+              All ({total})
+            </button>
+            {absent > 0 && (
+              <button
+                type="button"
+                className={`chip-btn chip-absent ${filter === "absent" ? "active" : ""}`}
+                onClick={() => setFilter("absent")}
+              >
+                Absent ({absent})
+              </button>
+            )}
+            <button
+              type="button"
+              className={`chip-btn ${filter === "present" ? "active" : ""}`}
+              onClick={() => setFilter("present")}
+            >
+              Present ({attended})
+            </button>
+          </div>
+
+          <div className="att-log-list" role="list">
+            {filtered.map((c, i) => (
+              <div
+                key={i}
+                className={`att-log-row ${c.isAttended ? "row-present" : "row-absent"}`}
+                role="listitem"
+              >
+                <div className="att-log-info">
+                  <span className="att-log-date">{formatClassDateTime(c.datetime)}</span>
+                  {c.type && <span className="att-log-type-tag">{c.type}</span>}
+                </div>
+                <span className={`log-badge ${c.isAttended ? "present" : "absent"}`}>
+                  {c.isAttended ? "Present" : "Absent"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Full saved history stays visible; a first load can show completed components. */
+export function useSubjectDetail(
+  session: Session,
+  row: AttRow & Record<string, unknown>,
+  base: { registrationid?: string | null; registrationcode?: string | null },
+) {
+  const checksum = computeSubjectRowChecksum(row);
+  const { key, snapshot, portalDay, version } = subjectDetailRequest(session, row, base);
+  const validation = { provisional: false };
+  const [, updateProgress] = useState(0);
+  useEffect(() => {
+    const update = (event: Event) => {
+      if ((event as CustomEvent<{ key: string }>).detail?.key === key) updateProgress((n) => n + 1);
+    };
+    window.addEventListener("juet:cache-updated", update);
+    return () => window.removeEventListener("juet:cache-updated", update);
+  }, [key]);
+  const detail = useFeature<Record<string, Record<string, unknown>>>({
+    run: (signal) => readSubjectDetail(session, row, base, signal, () => { validation.provisional = true; }),
+    deps: [session, base.registrationid, base.registrationcode, rowSubId(row), checksum],
+    cacheKey: getSubjectCacheKey(session.username ?? "", base.registrationid, row, session.instituteid),
+    requestVersion: version,
+    isFresh: () => {
+      const entry = getCachedSubjectDetailEntry(session.username ?? "", base.registrationid, row, session.instituteid);
+      return !doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
+    },
+    writeExtra: () => detailMetadata(row, base, validation.provisional),
+  });
+  const progress = getCached<Record<string, Record<string, unknown>>>(key);
+  const partial = useMemo(() => progress.snapshot === snapshot && progress.portalDay === portalDay
+    ? Object.fromEntries(Object.entries(progress.data ?? {}).filter((entry) => validSubjectComponent(row, entry as [string, Record<string, unknown>]))) : {},
+  [progress.data, progress.snapshot, progress.portalDay, snapshot, portalDay, row]);
+  return { ...detail, data: detail.data ?? (Object.keys(partial).length ? partial : null) };
+}
 
 export function SubjectDetailSheet({
   row,
@@ -67,7 +225,7 @@ export function SubjectDetailSheet({
   const sheetCode = badge || (rawCode && rawCode.toLowerCase() !== name.toLowerCase() ? rawCode : "");
   const base = { registrationid, registrationcode };
   const detail = useSubjectDetail(session, row, base);
-  const entry = getCachedSubjectDetailEntry(session.username, registrationid, row, session.instituteid);
+  const entry = getCachedSubjectDetailEntry(session.username ?? "", registrationid, row, session.instituteid);
   const needsFetch = doesSubjectNeedDeepFetch(row, entry.data, entry.updatedAt, entry.checksum, Date.now(), entry.provisional);
   const pending = detail.loading || detail.refreshing || (!detail.error && needsFetch);
   useEffect(() => {
@@ -80,7 +238,7 @@ export function SubjectDetailSheet({
 
   useEffect(() => {
     if (detail.data && onDetailLoadedRef.current) {
-      const subId = subjectRowId(row);
+      const subId = rowSubId(row);
       onDetailLoadedRef.current(subId, detail.data, detail.updatedAt);
     }
   }, [detail.data, detail.updatedAt, row]);

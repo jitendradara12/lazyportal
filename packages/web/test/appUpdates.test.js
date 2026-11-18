@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isNewerVersion, fetchLatestRelease, LATEST_RELEASE_URL } from "../src/lib/appUpdates.js";
+import { isNewerVersion, fetchLatestRelease, LATEST_RELEASE_URL } from "../src/lib/appUpdates.ts";
 
 test("compares numeric release versions without suggesting downgrades", () => {
   for (const [installed, latest, expected] of [

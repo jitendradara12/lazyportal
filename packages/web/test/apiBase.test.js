@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PROD_API_BASE, resolveApiBase } from "../src/lib/apiBase.js";
+import { PROD_API_BASE, resolveApiBase } from "../src/lib/apiBase.ts";
 
 test("browser builds call the same-origin proxy", () => {
   assert.equal(resolveApiBase(), "/api");

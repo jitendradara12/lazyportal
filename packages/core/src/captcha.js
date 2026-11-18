@@ -1,22 +1,12 @@
 import { captchaGlyphs } from "./captchaGlyphs.js";
 
-function abortError() {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-function throwIfAborted(signal) {
-  if (signal?.aborted) throw abortError();
-}
-
 function waitWithAbort(promise, signal, onAbort) {
   if (!signal) return Promise.resolve(promise);
   if (signal.aborted) {
     try {
       onAbort?.();
     } catch {}
-    return Promise.reject(abortError());
+    return Promise.reject(new DOMException("The operation was aborted", "AbortError"));
   }
 
   return new Promise((resolve, reject) => {
@@ -26,7 +16,7 @@ function waitWithAbort(promise, signal, onAbort) {
       try {
         onAbort?.();
       } catch {}
-      reject(abortError());
+      reject(new DOMException("The operation was aborted", "AbortError"));
     };
     signal.addEventListener("abort", handleAbort, { once: true });
     Promise.resolve(promise).then(
@@ -46,7 +36,7 @@ function waitWithAbort(promise, signal, onAbort) {
 export async function solveCaptcha(captcha, options = {}) {
   const { createCanvas, createImage, signal } = options;
   if (!captcha) return "";
-  throwIfAborted(signal);
+  signal?.throwIfAborted();
 
   const getCanvas =
     createCanvas ??
@@ -92,7 +82,7 @@ export async function solveCaptcha(captcha, options = {}) {
   } else {
     throw new Error("Image API not available in this environment");
   }
-  throwIfAborted(signal);
+  signal?.throwIfAborted();
 
   // This matcher is calibrated for the portal's native image dimensions.
   if (img.width !== 310 || img.height !== 60) return "";
@@ -236,7 +226,7 @@ function matchCharacters(isDark, lineY, startX, { signal, debug }) {
   // Score five glyphs as one image. Retain overlap pixels so a following
   // letter cannot be mistaken for a third leg of the current letter.
   for (let position = 0; position < 5; position++) {
-    throwIfAborted(signal);
+    signal?.throwIfAborted();
     const buckets = new Map();
     for (const state of states) {
       for (const glyph of candidates(state.x)) {

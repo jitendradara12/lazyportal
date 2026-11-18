@@ -19,9 +19,15 @@ const server = await createServer({
   cacheDir, server: { middlewareMode: true }, appType: "custom",
 });
 after(async () => { await server.close(); await rm(cacheDir, { recursive: true, force: true }); });
-const { syncAttendanceDetails, pauseAttendanceSync, runManualAttendanceRefresh } = await server.ssrLoadModule("/src/lib/attendanceSync.ts");
+const {
+  syncAttendanceDetails,
+  pauseAttendanceSync,
+  runManualAttendanceRefresh,
+  refreshSubjectDetail,
+  getCachedSubjectDetailEntry,
+  setCachedSubjectDetail,
+} = await server.ssrLoadModule("/src/lib/attendanceSync.ts");
 const { client } = await server.ssrLoadModule("/src/lib/portal.ts");
-const { refreshSubjectDetail, getCachedSubjectDetailEntry, setCachedSubjectDetail } = await server.ssrLoadModule("/src/sections/attendance.tsx");
 const { invalidateCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts");
 
 function deferred() {
@@ -305,29 +311,25 @@ test("a stale portal reply cannot replace saved history that agrees with the ove
   assert.deepEqual(entry.data, saved);
 });
 
-test("a mismatched first history stays visible without being certified fresh or spending quota", async () => {
+test("a mismatched first history stays visible as provisional without blocking recovery", async () => {
   const input = options("provisional");
   const row = { ...input.rows[0], Lpercentage: 94.4 };
-  const checkpoint = {};
   let reads = 0;
   client.post = async () => { reads++; return { response: logs(32, 30) }; };
-  const result = await runManualAttendanceRefresh({ ...input, checkpoint, baselineRows: [row],
+  const result = await runManualAttendanceRefresh({ ...input, baselineRows: [row],
     readOverview: async () => ({ rows: [row], semesters: [input.base] }),
   });
   assert.equal(result.provisional, true);
-  assert.equal(result.quota.used, 0);
-  assert.equal(result.quota.unchanged, 0);
   const entry = getCachedSubjectDetailEntry(input.session.username, input.base.registrationid, row, input.session.instituteid);
   assert.deepEqual(entry.data, { L: logs(32, 30) });
   assert.equal(entry.provisional, true);
   assert.equal((await syncAttendanceDetails({ ...input, rows: [row] })).complete, true);
   assert.equal(reads, 1, "reopening must not repeatedly request the same contradictory portal snapshot");
   client.post = async () => ({ response: logs(36, 34) });
-  const corrected = await runManualAttendanceRefresh({ ...input, checkpoint, baselineRows: [row],
+  const corrected = await runManualAttendanceRefresh({ ...input, baselineRows: [row],
     readOverview: async () => ({ rows: [row], semesters: [input.base] }),
   });
   assert.equal(corrected.provisional, false);
-  assert.equal(corrected.quota.used, 1, "only the verified recovery spends quota");
   assert.deepEqual(getCachedSubjectDetailEntry(input.session.username, input.base.registrationid, row, input.session.instituteid).data, { L: logs(36, 34) });
 });
 

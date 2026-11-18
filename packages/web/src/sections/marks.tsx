@@ -201,7 +201,6 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     cacheKey: latestKey,
     staleTimeMs: FEATURE_TTL.marks,
     isFresh: () => getCached<MarksLatest>(latestKey).data?.historyRecovered === true,
-    manualRefreshEnabled: () => semId === null || isDefault,
   });
   const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
   const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
@@ -237,7 +236,12 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
   const retry = lov.error || (isDefault && lov.data?.historyError) ? lov.retry : detail.retry;
   const courses = useMemo(() => groupSubjectMarks(rawRows), [rawRows]);
 
-  const pageRefresh = usePageRefresh("marks", session, loading || lov.refreshing || detail.refreshing);
+  const pageRefresh = usePageRefresh(
+    "marks",
+    session,
+    loading || lov.refreshing || detail.refreshing,
+    () => (semId === null || isDefault ? lov.refresh() : detail.refresh()),
+  );
 
   return (
     <div className="page">

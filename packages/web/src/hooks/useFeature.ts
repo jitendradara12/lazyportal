@@ -1,7 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PageRefreshRequest, RefreshPage } from "./usePageRefresh";
-
-type FeatureScope = RefreshPage | "attendance" | "subject";
 
 interface UseFeatureOptions<T> {
   run: (signal: AbortSignal) => Promise<T>;
@@ -17,9 +14,6 @@ interface UseFeatureOptions<T> {
   staleTimeMs?: number;
   /** Custom freshness check (e.g. portal day schedule). Overrides staleTimeMs when provided. */
   isFresh?: (updatedAt: number | null) => boolean;
-  scope?: FeatureScope;
-  /** Keep cached discovery data available without refreshing an inactive semester. */
-  manualRefreshEnabled?: boolean | (() => boolean);
   /** Optional extra metadata to persist in the cache entry (e.g. checksum). */
   writeExtra?: Record<string, unknown> | ((data: T) => Record<string, unknown>);
 }
@@ -147,21 +141,6 @@ export function getCached<T>(key?: string): { data: T | null; updatedAt: number 
   }
 }
 
-export function resolveTargetScope(
-  scope?: FeatureScope,
-  cacheKey?: string,
-): FeatureScope {
-  return scope ?? (
-    cacheKey?.startsWith("att.subject")
-      ? "subject"
-      : cacheKey?.startsWith("att.")
-      ? "attendance"
-      : cacheKey?.startsWith("marks.") ? "marks"
-      : cacheKey?.startsWith("exams.") ? "exams"
-      : "more"
-  );
-}
-
 export function setCached<T>(key: string | undefined, data: T, extra?: Record<string, unknown>): number {
   const now = Date.now();
   if (!key || data == null) return now;
@@ -241,11 +220,8 @@ export function useFeature<T>({
   requestVersion,
   staleTimeMs = STALE_MS,
   isFresh,
-  scope,
-  manualRefreshEnabled = enabled,
   writeExtra,
 }: UseFeatureOptions<T>) {
-  const targetScope = resolveTargetScope(scope, cacheKey);
   const [state, setState] = useState<FeatureState<T>>(() => createFeatureState<T>(cacheKey, enabled));
   // Resolve against the requested key during render, so an institute/semester
   // switch cannot briefly show the previous key's data before effects run.
@@ -316,27 +292,6 @@ export function useFeature<T>({
     window.addEventListener("juet:cache-updated", update);
     return () => window.removeEventListener("juet:cache-updated", update);
   }, [cacheKey, setStateForKey]);
-
-  // Attendance's day rollover remains independent of manual page refreshes.
-  useEffect(() => {
-    const handleRefresh = (event: Event) => {
-      if (!enabled) return;
-      if (targetScope !== "attendance") {
-        if (!(typeof manualRefreshEnabled === "function" ? manualRefreshEnabled() : manualRefreshEnabled)) return;
-        const detail = (event as CustomEvent<PageRefreshRequest>).detail;
-        if (detail?.requests) detail.requests.push(refresh());
-        return;
-      }
-      forceRef.current = (event as CustomEvent<{ force?: boolean }>).detail?.force === true;
-      setStateForKey(cacheKey, { error: null });
-      setRetryKey((k) => k + 1);
-    };
-
-    if (targetScope === "subject") return;
-    const name = `juet:refresh-${targetScope}`;
-    window.addEventListener(name, handleRefresh);
-    return () => window.removeEventListener(name, handleRefresh);
-  }, [cacheKey, setStateForKey, targetScope, enabled, manualRefreshEnabled, refresh]);
 
   useEffect(() => {
     if (!enabled) {

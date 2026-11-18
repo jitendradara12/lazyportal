@@ -135,7 +135,7 @@ test("launcher icons are the generated brand assets, at every density", () => {
 test("docs table matches the baked-in proxy URL", async () => {
   // Installed apps call whatever PROD_API_BASE was at build time; the docs
   // table must name the same URL or the recovery runbook points nowhere.
-  const { PROD_API_BASE } = await import("../packages/web/src/lib/apiBase.js");
+  const { PROD_API_BASE } = await import("../packages/web/src/lib/apiBase.ts");
   assert.ok(read("docs/ANDROID.md").includes(PROD_API_BASE), "docs/ANDROID.md must contain PROD_API_BASE");
 });
 

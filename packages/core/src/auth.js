@@ -1,7 +1,3 @@
-// Deep module: auth.
-// Hides the two-step dance (pretoken-check -> generatewebtoken).
-// UI learns one method: login(). Tests cross the same seam.
-
 import { solveCaptcha } from "./captcha.js";
 import { CaptchaError } from "./errors.js";
 export { solveCaptcha };
@@ -109,8 +105,6 @@ export async function login(
   };
 }
 
-export const loginWithPassword = login;
-
 /** Retry rejected automatic guesses; credential and network errors stop immediately. */
 export async function loginWithCaptchaRetry(
   client,
@@ -120,7 +114,7 @@ export async function loginWithCaptchaRetry(
   let { captcha, captchaText } = params;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     signal?.throwIfAborted();
-    if (attempt > 1) {
+    if (attempt > 1 || !captcha) {
       captcha = await fetchCaptcha(client, { signal });
       try {
         captchaText = await solve(captcha, { signal });

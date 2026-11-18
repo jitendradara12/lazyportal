@@ -126,6 +126,23 @@ test("clearing saved profile removes ciphertext and requires a fresh password", 
   expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBeNull();
 });
 
+test("tapping the right edge of enrollment keeps saved login and password toggle works", async ({ page }) => {
+  await seedLegacy(page);
+  const enrollment = page.getByLabel("Enrollment no", { exact: true });
+  const box = await enrollment.boundingBox();
+  await enrollment.click({ position: { x: box.width - 8, y: box.height / 2 } });
+  await expect(enrollment).toBeFocused();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+  const passwordInput = page.getByLabel("Password", { exact: true });
+  await passwordInput.fill("typed-secret");
+  await expect(passwordInput).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Show password", exact: true }).click();
+  await expect(passwordInput).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Hide password", exact: true }).click();
+  await expect(passwordInput).toHaveAttribute("type", "password");
+});
+
 async function showExpiredDashboard(page) {
   await page.evaluate(async (account) => {
     const { store } = await import(performance.getEntriesByType("resource").find((r) => new URL(r.name).pathname === "/src/lib/portal.ts").name);

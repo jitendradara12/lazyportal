@@ -13,12 +13,9 @@ import {
   preflightHeaders,
 } from "../shared/cors.js";
 
-const UPSTREAM = "https://studentportal.juet.ac.in/StudentPortalAPI";
-const PORTAL_HOST = new URL(UPSTREAM).hostname;
-const PORTAL_PORT = Number(new URL(UPSTREAM).port) || 443;
 const PORTAL_ORIGIN = "https://studentportal.juet.ac.in";
-const PORTAL_REFERER = "https://studentportal.juet.ac.in/studentportal/";
-const UPSTREAM_PATH = new URL(UPSTREAM).pathname.replace(/\/+$/, "");
+const PORTAL_REFERER = `${PORTAL_ORIGIN}/studentportal/`;
+const UPSTREAM_PATH = "/StudentPortalAPI";
 const ALLOWED_METHODS = new Set(
   CORS_ALLOWED_METHODS.filter((method) => method !== "OPTIONS")
 );
@@ -57,14 +54,6 @@ const DROP_HEADERS = new Set([
 ]);
 
 export const MAX_BODY_BYTES = 512 * 1024; // 512 KiB payload protection guard
-
-export class PayloadTooLargeError extends Error {
-  constructor(message = "Payload Too Large") {
-    super(message);
-    this.name = "PayloadTooLargeError";
-    this.status = 413;
-  }
-}
 
 export const config = {
   api: { bodyParser: false },
@@ -108,10 +97,10 @@ export function buildUpstreamTarget(pathValue, query = {}) {
 
 /**
  * Read raw request body directly into a Buffer.
- * Throws a typed PayloadTooLargeError above the limit without destroying
- * the client stream, draining remaining bytes so the 413 response can be delivered cleanly.
+ * Throws a 413 error above the limit without destroying the client stream,
+ * draining remaining bytes so the 413 response can be delivered cleanly.
  */
-export async function readRawBody(req, limit = MAX_BODY_BYTES) {
+async function readRawBody(req, limit = MAX_BODY_BYTES) {
   if (req.destroyed) throw new Error("stream destroyed");
   if (req.readableEnded) return null;
 
@@ -139,7 +128,7 @@ export async function readRawBody(req, limit = MAX_BODY_BYTES) {
         req.once?.("end", () => req.removeListener?.("error", noop));
         req.once?.("close", () => req.removeListener?.("error", noop));
         req.resume?.();
-        reject(new PayloadTooLargeError(`Request body exceeds ${limit} bytes`));
+        reject(Object.assign(new Error(`Request body exceeds ${limit} bytes`), { status: 413 }));
         return;
       }
       chunks.push(buffer);
@@ -186,7 +175,7 @@ function fetchUpstream(target, { method, headers, body, signal }) {
     const req = https.request(
       {
         hostname: url.hostname,
-        port: url.port ? Number(url.port) : PORTAL_PORT,
+        port: url.port ? Number(url.port) : 443,
         path: url.pathname + url.search,
         method,
         headers,
@@ -276,7 +265,7 @@ export default async function handler(req, res) {
           headers["content-length"] = raw.length; // exact byte length, not chunked
         }
       } catch (err) {
-        if (err instanceof PayloadTooLargeError) {
+        if (err?.status === 413) {
           req.on?.("error", () => {});
           sendPayloadTooLarge(res, err.message);
           return;
@@ -285,8 +274,7 @@ export default async function handler(req, res) {
           req.aborted ||
           req.destroyed ||
           controller.signal.aborted ||
-          err?.code === "ERR_UPLOAD_ABORTED" ||
-          err?.message === "upload aborted"
+          err?.code === "ERR_UPLOAD_ABORTED"
         ) {
           return;
         }

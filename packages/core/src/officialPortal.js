@@ -89,20 +89,20 @@ export async function prepareOfficialPortal(session, { now = new Date() } = {}) 
   if (!session?.token || !session?.userid || !session?.instituteid) {
     throw new Error("Reconnect to your account before opening the official portal.");
   }
-  const string = (value) => value == null ? "" : String(value);
-  const username = string(session.username || session.enrollmentno);
-  const membertype = string(session.membertype || (username.startsWith("P") ? "P" : "S"));
+  const str = (value) => String(value ?? "");
+  const username = str(session.username || session.enrollmentno);
+  const membertype = str(session.membertype || (username.startsWith("P") ? "P" : "S"));
   const bypass = session.bypassValue ?? session.bypass;
   const storage = {
-    Token: string(session.token), Username: username,
-    userid: string(session.userid), clientid: string(session.clientid),
-    companyid: string(session.companyid), name: string(session.name),
-    membertype, enrollmentno: string(session.enrollmentno),
-    instituteid: string(session.instituteid), institutename: string(session.institutename),
+    Token: str(session.token), Username: username,
+    userid: str(session.userid), clientid: str(session.clientid),
+    companyid: str(session.companyid), name: str(session.name),
+    membertype, enrollmentno: str(session.enrollmentno),
+    instituteid: str(session.instituteid), institutename: str(session.institutename),
     usertypeselected: membertype === "P" ? "P" : "S",
-    tokendate: string(session.tokendate || now.toString()), Today_DATE: string(now.getTime()),
+    tokendate: str(session.tokendate || now.toString()), Today_DATE: str(now.getTime()),
     // Fail closed on encryption failure. Sending the raw bypass is not valid.
-    bypassValue: bypass == null || bypass === "" ? "" : await encrypt(string(bypass), { now }),
+    bypassValue: bypass == null || bypass === "" ? "" : await encrypt(str(bypass), { now }),
   };
   const config = { ...officialPortalPolicy, storage };
   // The bootstrap goes inside an HTML script, including student-provided names.

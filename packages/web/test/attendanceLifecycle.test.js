@@ -237,8 +237,7 @@ before(async () => {
   ({ useSession } = await server.ssrLoadModule("/src/hooks/useSession.ts"));
   ({ sessionCacheKey, setCached, invalidateCacheGeneration, getCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ client, store, setSessionStatus } = await server.ssrLoadModule("/src/lib/portal.ts"));
-  ({ syncAttendanceDetails } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
-  ({ getSubjectCacheKey, getCachedSubjectDetailEntry } = await server.ssrLoadModule("/src/sections/attendance.tsx"));
+  ({ syncAttendanceDetails, getSubjectCacheKey, getCachedSubjectDetailEntry } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
 });
 
 after(async () => {

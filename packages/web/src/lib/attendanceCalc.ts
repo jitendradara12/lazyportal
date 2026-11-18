@@ -1,6 +1,53 @@
 // Pure calculation and parsing logic for attendance data.
 // No React or browser APIs, so it can be tested directly in Node.
 import { features } from "@juet/core";
+import type { Semester } from "../types";
+
+export interface AttRow {
+  subjectcode?: string;
+  subjectid?: string | number;
+  individualsubjectcode?: string;
+  Lsubjectcomponentid?: string;
+  Tsubjectcomponentid?: string;
+  Psubjectcomponentid?: string;
+  Lpercentage?: string | number;
+  Tpercentage?: string | number;
+  Ppercentage?: string | number;
+  LTpercantage?: string | number;
+  LTpercentage?: string | number;
+}
+
+export interface AttData {
+  header: { stynumber?: string } | null;
+  semesters: Semester[];
+  registrationcode?: string | null;
+  rows: AttRow[];
+}
+
+/** Title-case a string: "COMPUTER NETWORKS" -> "Computer Networks" */
+export function titleCase(s: unknown): string {
+  if (s == null) return "";
+  const str = String(s);
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b(And|Or|Of|The|In|For|To|A|An)\b/g, (w) => w.toLowerCase())
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+export function subjectName(code?: string): { name: string; badge: string } {
+  if (!code) return { name: "", badge: "" };
+  const m = code.match(/^(.+?)\(([^)]+)\)$/);
+  if (m) return { name: titleCase(m[1].trim()), badge: m[2] };
+  return { name: titleCase(code), badge: "" };
+}
+
+/** Stable per-row subject id for cache keys, sync sets, and React keys. */
+export function rowSubId(r?: Record<string, unknown> | null): string {
+  if (!r) return "";
+  return String(r.subjectid ?? r.individualsubjectcode ?? r.subjectcode ?? "");
+}
 
 export type AttColorClass = "att-red" | "att-yellow" | "att-normal" | "att-green" | "";
 

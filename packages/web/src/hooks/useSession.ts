@@ -31,7 +31,6 @@ export function useSession() {
     store.clear();
     savedCredentials.clear();
     try {
-      localStorage.removeItem("juet.portal.last_refresh_attempt");
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
         if (
@@ -40,7 +39,6 @@ export function useSession() {
             k.startsWith("juet.portal.sem.") ||
             k.startsWith("juet.portal.card.") ||
             k === "juet.portal.last_sync" ||
-            k === "juet.portal.last_refresh_attempt" ||
             k === "juet.portal.expired")
         )
           localStorage.removeItem(k);

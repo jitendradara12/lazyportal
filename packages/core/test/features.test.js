@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getGradeRegistrations, getGradeCard, getFacultyRegistrations, getFaculties, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getSubjectAttendanceAll, getChoiceSemesters, getChoiceSubjects, getChoiceSubjectsLatest } from "../src/features.js";
+import { getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getGradeRegistrations, getGradeCard, getFacultyRegistrations, getFaculties, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getSubjectAttendanceAll } from "../src/features.js";
 
 describe("features", () => {
   it("getAttendance chains LOV default semester into detail", async () => {
@@ -928,56 +928,6 @@ describe("features", () => {
     assert.equal(calls, 2);
   });
 
-  it("getChoiceSemesters posts empty object and returns registrationcodelist", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { registrationcodelist: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
-      },
-    };
-    const sems = await getChoiceSemesters(fake);
-    assert.deepEqual(seen, ["/studentchoiceprint/getsemestercodelist", {}]);
-    assert.equal(sems.length, 1);
-    assert.equal(sems[0].registrationid, "r1");
-  });
-
-  it("getChoiceSemesters returns [] on odd shapes", async () => {
-    const fake = { async post() { return { response: { registrationcodelist: {} } }; } };
-    assert.deepEqual(await getChoiceSemesters(fake), []);
-  });
-
-  it("getChoiceSubjects posts instituteid/clientid/registrationid and returns grid", async () => {
-    let seen;
-    const fake = {
-      async post(endpoint, payload) {
-        seen = [endpoint, payload];
-        return { response: { subjectpreferencegrid: [{ subjectcode: "S1" }] } };
-      },
-    };
-    const rows = await getChoiceSubjects(fake, { instituteid: "i1", clientid: "c1" }, { registrationid: "r1" });
-    assert.deepEqual(seen, [
-      "/studentchoiceprint/getsubjectpreference",
-      { instituteid: "i1", clientid: "c1", registrationid: "r1" },
-    ]);
-    assert.equal(rows.length, 1);
-  });
-
-  it("getChoiceSubjectsLatest uses first semester and returns rows", async () => {
-    const fake = {
-      async post(endpoint, payload) {
-        if (endpoint.endsWith("getsemestercodelist")) {
-          return { response: { registrationcodelist: [{ registrationid: "r1", registrationcode: "REG-1" }] } };
-        }
-        assert.equal(payload.registrationid, "r1");
-        return { response: { subjectpreferencegrid: [{ subjectcode: "S1" }] } };
-      },
-    };
-    const out = await getChoiceSubjectsLatest(fake, { instituteid: "i1", clientid: "c1" });
-    assert.equal(out.rows.length, 1);
-    assert.equal(out.registrationcode, "REG-1");
-  });
-
   it("getSubjectAttendanceAll previous branch hits mirrored endpoint", async () => {
     const calls = [];
     const fake = {
@@ -1044,7 +994,7 @@ describe("features", () => {
     ]) assert.ok(calls.includes(e), e);
   });
 
-  it("normalizes unexpected non-array shapes to arrays across exam, marks, grades, choices, and faculty reads", async () => {
+  it("normalizes unexpected non-array shapes to arrays across exam, marks, grades, and faculty reads", async () => {
     const fake = {
       async post() {
         return {
@@ -1056,7 +1006,6 @@ describe("features", () => {
             registrations: { single: "obj" },
             gradecard: null,
             viewmarksbystudent: { bad: true },
-            subjectpreferencegrid: "not-an-array",
           },
         };
       },
@@ -1070,7 +1019,6 @@ describe("features", () => {
     assert.deepEqual(await getGradeRegistrations(fake, session), []);
     assert.deepEqual(await getGradeCard(fake, session, { registrationid: "r", branchid: "b", programid: "p" }), []);
     assert.deepEqual(await getFacultyRegistrations(fake, session), []);
-    assert.deepEqual(await getChoiceSubjects(fake, session, { registrationid: "r" }), []);
     const facultyRes = await getFaculties(fake, session, { registrationid: "r" });
     assert.deepEqual(facultyRes.rows, []);
 

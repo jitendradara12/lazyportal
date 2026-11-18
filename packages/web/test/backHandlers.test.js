@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createBackHandlers } from "../src/lib/backHandlers.js";
+import { createBackHandlers } from "../src/lib/backHandlers.ts";
 
 test("Back dismisses one topmost overlay before navigation, then releases system Back", () => {
   const calls = [], enabled = [];

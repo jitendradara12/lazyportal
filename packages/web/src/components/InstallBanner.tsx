@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
-import { APK_DOWNLOAD_URL } from "../lib/installPrompt.js";
+import { APK_DOWNLOAD_URL } from "../lib/installPrompt";
 
 function ShareIcon() {
   return (

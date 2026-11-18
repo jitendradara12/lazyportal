@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
-import { createBackHandlers } from "./backHandlers.js";
+import { createBackHandlers } from "./backHandlers";
 
 const nativeInteractions = registerPlugin<{
   addListener(event: "back", callback: () => void): Promise<PluginListenerHandle>;

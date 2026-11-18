@@ -1,10 +1,9 @@
 import { features } from "@juet/core";
 import { isSubjectDetailComplete, subjectDetailMatchesOverview } from "./attendanceCalc.ts";
-import { REFRESH_POLICIES, type RefreshPolicy } from "./refreshPolicy.ts";
 export { isSubjectDetailComplete };
 
 /**
- * Portal scheduling and daily refresh quota management.
+ * Portal scheduling and tap-cooldown helpers.
  *
  * JUET's portal mass-commits daily attendance around midnight.
  * By 2:00 AM IST (UTC+05:30), the new day's records are finalized.
@@ -12,15 +11,8 @@ export { isSubjectDetailComplete };
  * A "portal day" runs from 02:00 AM IST to 01:59:59 AM IST the following calendar day.
  */
 
-/**
- * Default proxy quota per student per portal day.
- * Auto-sync on the first app open of the day is free (does not consume this quota).
- */
-export const DAILY_MANUAL_REFRESH_LIMIT = 1;
-export const DAILY_UNCHANGED_REFRESH_LIMIT = 3;
-export const UNCHANGED_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6-hour cooldown between unchanged checks
-
-export const REFRESH_THROTTLE_MS = REFRESH_POLICIES.proxy.throttleMs;
+export const REFRESH_THROTTLE_MS = 20_000;
+export const NATIVE_REFRESH_THROTTLE_MS = 2_000;
 
 export function getThrottleKey(key = "attendance"): string {
   if (key.startsWith("juet.portal.")) return key;
@@ -73,7 +65,6 @@ export const FEATURE_TTL = {
   marks: Number.POSITIVE_INFINITY,
   exams: Number.POSITIVE_INFINITY,
   faculty: Number.POSITIVE_INFINITY,
-  subjects: Number.POSITIVE_INFINITY,
   legacySubjectDetail: 7 * 24 * 60 * 60 * 1000, // migrate old attendance entries without checksums
   pastDetail: 30 * 24 * 60 * 60 * 1000, // 30 days (immutable past-semester history)
   lov: 7 * 24 * 60 * 60 * 1000, // 7 days (static semester registration LOV)
@@ -84,12 +75,6 @@ export function toMs(date?: Date | number): number {
   if (typeof date === "number" && Number.isFinite(date)) return date;
   if (date instanceof Date && Number.isFinite(date.getTime())) return date.getTime();
   return Date.now();
-}
-
-/** Helper to clamp integer values safely, defaulting invalid and non-finite values to min */
-function clamp(val: unknown, min: number, max: number): number {
-  const n = Number(val);
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : min;
 }
 
 /**
@@ -135,168 +120,6 @@ export function getMsUntilNextPortalDay(now?: Date | number): number {
   const nowMs = toMs(now);
   const nextReset = getNextPortalResetTimestamp(nowMs);
   return Math.max(0, nextReset - nowMs);
-}
-
-export type QuotaBlockedReason = "cooldown" | "unchanged_exhausted" | "manual_exhausted" | null;
-
-export interface RefreshQuotaState {
-  used: number;
-  unchanged: number;
-  total: number;
-  remaining: number;
-  canRefresh: boolean;
-  blockedReason: QuotaBlockedReason;
-  resetsInMs: number;
-  portalDay: string;
-}
-
-/** Daily attendance is already checked before a manual refresh is blocked. */
-export function getRefreshQuotaNotice(quota: RefreshQuotaState): string {
-  return quota.blockedReason ? "Up to date with portal" : "Refresh attendance";
-}
-
-export function getQuotaStorageKey(session?: SessionRef | null): string {
-  const user = session?.username ? encodeURIComponent(String(session.username).trim().toUpperCase()) : "anonymous";
-  const inst = session?.instituteid != null ? encodeURIComponent(String(session.instituteid)) : "default";
-  return `juet.portal.refresh_quota.${user}:${inst}`;
-}
-
-interface QuotaRecord {
-  day: string;
-  count: number;
-  unchanged: number;
-  lastUnchangedAt: number;
-}
-
-function readQuotaRecord(session?: SessionRef | null, portalDay?: string, nowMs = Date.now()): QuotaRecord {
-  const day = portalDay ?? getPortalDayKey(nowMs);
-  const fallback: QuotaRecord = { day, count: 0, unchanged: 0, lastUnchangedAt: 0 };
-  const key = getQuotaStorageKey(session);
-  try {
-    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return fallback;
-
-    let lastUnchangedAt = clamp(parsed.lastUnchangedAt, 0, Number.MAX_SAFE_INTEGER);
-    // Sanitize future skew: if stored timestamp is in the future relative to current time, clamp to nowMs
-    if (lastUnchangedAt > nowMs) {
-      lastUnchangedAt = nowMs;
-    }
-
-    if (parsed.day !== day) {
-      // New portal day: counts and cooldown cleanly reset at 02:00 AM IST
-      return { day, count: 0, unchanged: 0, lastUnchangedAt: 0 };
-    }
-
-    return {
-      day,
-      count: clamp(parsed.count, 0, DAILY_MANUAL_REFRESH_LIMIT),
-      unchanged: clamp(parsed.unchanged, 0, DAILY_UNCHANGED_REFRESH_LIMIT),
-      lastUnchangedAt,
-    };
-  } catch {
-    try { localStorage.removeItem(key); } catch {}
-    return fallback;
-  }
-}
-
-/**
- * Query the remaining proxy budget for the current portal day. Direct native
- * reads bypass these counters; the short tap cooldown is enforced separately.
- */
-export function getManualRefreshQuota(session?: SessionRef | null, now?: Date | number, policy: RefreshPolicy = REFRESH_POLICIES.proxy): RefreshQuotaState {
-  const nowMs = toMs(now);
-  const portalDay = getPortalDayKey(nowMs);
-  if (!policy.attendanceQuota) {
-    return { used: 0, unchanged: 0, total: Infinity, remaining: Infinity,
-      canRefresh: true, blockedReason: null, resetsInMs: 0, portalDay };
-  }
-  const { count: used, unchanged, lastUnchangedAt } = readQuotaRecord(session, portalDay, nowMs);
-
-  const isCooledDown = lastUnchangedAt === 0 || nowMs - lastUnchangedAt >= UNCHANGED_COOLDOWN_MS;
-  const isManualExhausted = used >= DAILY_MANUAL_REFRESH_LIMIT;
-  const isUnchangedExhausted = unchanged >= DAILY_UNCHANGED_REFRESH_LIMIT;
-
-  let blockedReason: QuotaBlockedReason = null;
-  if (isManualExhausted) {
-    blockedReason = "manual_exhausted";
-  } else if (isUnchangedExhausted) {
-    blockedReason = "unchanged_exhausted";
-  } else if (!isCooledDown) {
-    blockedReason = "cooldown";
-  }
-
-  const canRefresh = blockedReason === null;
-  // remaining represents manual refresh capacity (1 - used); does not report 0 when only temporarily in cooldown,
-  // but reports 0 if unchanged checks are exhausted for the day.
-  const remaining = isUnchangedExhausted ? 0 : Math.max(0, DAILY_MANUAL_REFRESH_LIMIT - used);
-  const resetsInMs = blockedReason === "cooldown"
-    ? Math.max(0, UNCHANGED_COOLDOWN_MS - (nowMs - lastUnchangedAt))
-    : getMsUntilNextPortalDay(nowMs);
-
-  return {
-    used,
-    unchanged,
-    total: DAILY_MANUAL_REFRESH_LIMIT,
-    remaining,
-    canRefresh,
-    blockedReason,
-    resetsInMs,
-    portalDay,
-  };
-}
-
-/**
- * Record that a manual refresh completed with real portal data.
- * Must ONLY be called upon successful 200 response with non-empty rows.
- * Deducts full manual quota if attendance changed, or counts toward unchanged limit and starts 6h cooldown.
- * Native policies leave stored proxy budgets untouched.
- */
-export function recordSuccessfulManualRefresh(
-  session?: SessionRef | null,
-  options?: { changed?: boolean; now?: Date | number } | number | Date,
-  policy: RefreshPolicy = REFRESH_POLICIES.proxy,
-): RefreshQuotaState {
-  let nowMs = Date.now();
-  let changed = true;
-
-  if (typeof options === "number" || options instanceof Date) {
-    nowMs = toMs(options);
-  } else if (typeof options === "object" && options !== null) {
-    if (options.now !== undefined) nowMs = toMs(options.now);
-    if (typeof options.changed === "boolean") changed = options.changed;
-  }
-
-  const current = getManualRefreshQuota(session, nowMs, policy);
-  if (!policy.attendanceQuota) return current;
-  const portalDay = getPortalDayKey(nowMs);
-  const rec = readQuotaRecord(session, portalDay, nowMs);
-
-  if (changed) {
-    if (current.used >= DAILY_MANUAL_REFRESH_LIMIT || current.unchanged >= DAILY_UNCHANGED_REFRESH_LIMIT) {
-      return current;
-    }
-    rec.count = Math.min(DAILY_MANUAL_REFRESH_LIMIT, rec.count + 1);
-  } else {
-    // Window-slide prevention: if ALREADY cooling down or exhausted, do NOT push lastUnchangedAt forward!
-    if (!current.canRefresh) {
-      return current;
-    }
-    rec.unchanged = Math.min(DAILY_UNCHANGED_REFRESH_LIMIT, rec.unchanged + 1);
-    rec.lastUnchangedAt = nowMs;
-  }
-
-  try {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(getQuotaStorageKey(session), JSON.stringify(rec));
-    }
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("juet:quota-changed"));
-    }
-  } catch {}
-
-  return getManualRefreshQuota(session, nowMs, policy);
 }
 
 /** Helper to extract the first non-empty string among potential key names */
@@ -472,7 +295,6 @@ function notifyRollover() {
     } catch {}
   }
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("juet:quota-changed"));
     window.dispatchEvent(new CustomEvent("juet:refresh-attendance"));
   }
 }

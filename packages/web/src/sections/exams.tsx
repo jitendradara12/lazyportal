@@ -11,10 +11,10 @@ import { SectionError, ListSkeleton, countdown, titleCase, formatSemester } from
 import { TopBar, SemesterPicker } from "../components/AppBar";
 import type { SectionProps, Semester } from "../types";
 import { examTimes, groupExams, formatExamRoom, cleanExamSubject, type ExamRow } from "../lib/exams";
-import { ExamCalendarButton } from "../components/ExamCalendarButton";
+import { CalendarButton } from "../components/CalendarButton";
 import { CalendarAddIcon } from "../components/icons";
 import { examCalendarEvent } from "../lib/examCalendar";
-import { canExportExamCalendar, exportExamCalendar } from "../lib/examCalendarActions";
+import { canExportCalendar, exportCalendar } from "../lib/calendarActions";
 import { dateFormatter } from "../lib/dateFormat";
 
 interface ExamEvent {
@@ -79,14 +79,23 @@ export function ExamsSection({ session }: SectionProps) {
   const exportable = upcoming.filter((row) => examCalendarEvent(row) !== null);
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
-  const pageRefresh = usePageRefresh("exams", session, loading || examSems.refreshing || examEvents.refreshing || examRows.refreshing);
+  const pageRefresh = usePageRefresh(
+    "exams",
+    session,
+    loading || examSems.refreshing || examEvents.refreshing || examRows.refreshing,
+    () => Promise.allSettled([
+      examSems.refresh(),
+      ...(examSem !== null ? [examEvents.refresh()] : []),
+      ...(examSem !== null && activeEventId !== null ? [examRows.refresh()] : []),
+    ]),
+  );
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   async function exportUpcoming() {
     if (exporting) return;
     setExporting(true);
     setExportError(null);
-    try { await exportExamCalendar(exportable); }
+    try { await exportCalendar(exportable.map((row) => examCalendarEvent(row)!), "exams.ics"); }
     catch { setExportError("Couldn’t save calendar. Try again."); }
     finally { setExporting(false); }
   }
@@ -94,7 +103,7 @@ export function ExamsSection({ session }: SectionProps) {
   return (
     <div className="page">
       <TopBar title="Exams" subtitle={semLabel || undefined} {...pageRefresh} refreshLabel="Refresh exams"
-        actions={exportable.length > 0 && canExportExamCalendar() && <button type="button" className="exam-calendar-button exam-export" aria-label="Export upcoming exams" title="Export upcoming exams" disabled={exporting} onClick={exportUpcoming}><CalendarAddIcon /></button>} />
+        actions={exportable.length > 0 && canExportCalendar() && <button type="button" className="exam-calendar-button exam-export" aria-label="Export upcoming exams" title="Export upcoming exams" disabled={exporting} onClick={exportUpcoming}><CalendarAddIcon /></button>} />
       <div className="page-body">
         {((examEvents.data?.length ?? 0) > 1 || (examSems.data?.length ?? 0) > 1) && (
           <div className="page-toolbar">
@@ -183,7 +192,7 @@ function ExamCard({ row, now, featured = false }: { row: ExamRow; now: number; f
         <div className="exam-seat">
           <span className="exam-tag"><span className="exam-tag-label">Room</span> {room}</span>
           <span className="exam-tag"><span className="exam-tag-label">Seat</span> {row.seatno ?? "—"}</span>
-          <ExamCalendarButton row={row} />
+          <CalendarButton event={examCalendarEvent(row)} filename="exams.ics" unavailableLabel="Calendar unavailable until exam times are announced" />
         </div>
       </div>
     </article>

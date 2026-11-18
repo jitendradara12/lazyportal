@@ -17,7 +17,6 @@ const split = (id: string, factory: () => Promise<{ default: ComponentType<Secti
 const marks = split("marks", () => import("./marks").then((m) => ({ default: m.MarksSection })));
 const exams = split("exams", () => import("./exams").then((m) => ({ default: m.ExamsSection })));
 const calendar = split("calendar", () => import("../pages/AcademicCalendarPage").then((m) => ({ default: m.AcademicCalendarPage })));
-const subjects = split("subjects", () => import("./subjects").then((m) => ({ default: m.SubjectsSection })));
 
 export interface SectionEntry {
   id: string;
@@ -47,9 +46,7 @@ export const prefetchTabs = () => [marks, exams, calendar].forEach((tab) => tab.
 /**
  * Sections listed on the More page, rendered in order.
  * To turn a section off, set enabled: false. To drop it, delete its line + file.
- * Grades/CGPA are off: new portal returns 500/empty even officially. Flip on when fixed.
  */
 export const SECTIONS: SectionEntry[] = [
   { id: "faculty", label: "Faculty", Component: FacultySection },
-  { id: "subjects", label: "Subjects", Component: subjects.Component, enabled: false },
 ];
