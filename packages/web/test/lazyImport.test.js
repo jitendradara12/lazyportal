@@ -35,3 +35,37 @@ test("only recovery of the failed chunk resets its reload guard", async (t) => {
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(reloads, 2);
 });
+
+test("offline failures never trigger a page reload", async (t) => {
+  const values = new Map();
+  const previousStorage = globalThis.sessionStorage;
+  const previousLocation = globalThis.location;
+  const prevOnLine = Object.getOwnPropertyDescriptor(globalThis.navigator, "onLine");
+  let reloads = 0;
+  let online = false;
+  globalThis.sessionStorage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  globalThis.location = { reload: () => { reloads++; } };
+  Object.defineProperty(globalThis.navigator, "onLine", { get: () => online, configurable: true });
+  t.after(() => {
+    globalThis.sessionStorage = previousStorage;
+    globalThis.location = previousLocation;
+    if (prevOnLine) Object.defineProperty(globalThis.navigator, "onLine", prevOnLine);
+    else delete globalThis.navigator.onLine;
+  });
+
+  const error = new Error("Chunk unavailable");
+  const load = lazyImport(() => Promise.reject(error), "marks");
+
+  await assert.rejects(load(), err => err === error);
+  assert.equal(reloads, 0);
+  assert.equal(values.size, 0);
+
+  online = true;
+  void load();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reloads, 1);
+});

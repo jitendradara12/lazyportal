@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { solveCaptcha } from "../src/captcha.js";
+import { captchaGlyphs } from "../src/captchaGlyphs.js";
 
 const manifest = JSON.parse(readFileSync(new URL("./fixtures/captcha/labels.json", import.meta.url)));
 const pixels = gunzipSync(readFileSync(new URL("./fixtures/captcha/pixels.rgba.gz", import.meta.url)));
@@ -61,5 +62,27 @@ describe("captcha", () => {
     }
     assert.ok(exact >= 32, `${exact}/36 exact: ${errors.join(", ")}`);
     assert.ok(validation >= 21, `${validation}/24 validation images`);
+  });
+
+  it("keeps a valid y=30 strike-through match instead of falling back to x=260 noise", async () => {
+    const data = new Uint8ClampedArray(imageBytes).fill(255);
+    const setDark = (x, y) => {
+      const idx = (y * 310 + x) * 4;
+      data[idx] = data[idx + 1] = data[idx + 2] = 0;
+    };
+    const glyphs = Object.fromEntries(captchaGlyphs);
+    for (const [i, ch] of ["2", "3", "4", "5", "6"].entries()) {
+      const cols = glyphs[ch];
+      const baseX = 20 + i * 22;
+      for (let dx = 0; dx < cols.length / 2; dx++) {
+        for (let y = 0; y < 60; y++) {
+          const word = cols[dx * 2 + (y >>> 5)];
+          if ((word >>> (y & 31)) & 1) setDark(baseX + dx, y);
+        }
+      }
+    }
+    for (let x = 10; x <= 275; x++) setDark(x, 30);
+    setDark(260, 5);
+    assert.equal(await solveCaptcha({}, imageOptions(data)), "23456");
   });
 });

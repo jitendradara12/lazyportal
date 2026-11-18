@@ -11,8 +11,9 @@ export function lazyImport<T>(factory: () => Promise<T>, id: string): () => Prom
       return module;
     },
     (error) => {
+      const online = typeof navigator === "undefined" || navigator.onLine !== false;
       try {
-        if (!sessionStorage.getItem(RELOADED)) {
+        if (online && !sessionStorage.getItem(RELOADED)) {
           sessionStorage.setItem(RELOADED, id);
           location.reload();
           return new Promise<never>(() => {});

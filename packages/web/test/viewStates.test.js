@@ -950,6 +950,7 @@ test("attendance rows show bunk/attend margin and move the subject code into Sub
   const sheetHtml = renderToStaticMarkup(createElement(SubjectDetailSheet, {
     session, row, ...semester, onClose() {}, onLogout() {},
   }));
+  assert.match(sheetHtml, /class="att-sheet-top"/);
   assert.match(sheetHtml, /Computer Networks/);
   assert.match(sheetHtml, /CS109/, "subject code is displayed in the detail sheet header");
 });

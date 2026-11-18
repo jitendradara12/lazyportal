@@ -32,7 +32,9 @@ test("Calendar navigation opens the fifth tab, filters and exports fixed dates",
   await expect(page.getByText("Proposed", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Calendar unavailable while dates are proposed" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Test 1", exact: true }).filter({ visible: true })).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Month view" }).getByText("October")).toBeVisible();
   await page.getByRole("button", { name: "Holidays", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Month view" }).getByText("November")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Technical fest (JYC)", exact: true })).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "Deepawali break", exact: true })).toBeVisible();
   const add = page.getByRole("button", { name: "Add Deepawali break to calendar", exact: true });

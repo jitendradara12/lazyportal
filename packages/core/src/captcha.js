@@ -115,19 +115,19 @@ export async function solveCaptcha(captcha, options = {}) {
 
   // Trace strike-through line from right edge back to x=10
   let startY = 30;
+  let lineFound = false;
   for (let x = 275; x >= 240; x--) {
-    let found = false;
     for (let y = 4; y <= 56; y++) {
       if (isDark(x, y) && isDark(x - 1, y)) {
         startY = y;
-        found = true;
+        lineFound = true;
         break;
       }
     }
-    if (found) break;
+    if (lineFound) break;
   }
   // Fallback scan if 2-pixel entry wasn't found
-  if (startY === 30) {
+  if (!lineFound) {
     for (let y = 0; y < 60; y++) {
       if (isDark(260, y)) {
         startY = y;

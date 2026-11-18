@@ -12,6 +12,7 @@ function storeResponse(request, response) {
 }
 
 self.addEventListener("install", (event) => {
+  event.waitUntil(fetch("/").then((res) => storeResponse("/", res)).catch(() => {}));
   self.skipWaiting();
 });
 

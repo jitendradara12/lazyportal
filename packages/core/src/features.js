@@ -494,7 +494,7 @@ function isSgpa500(err) {
   if (err.code === "SESSION_EXPIRED" || err.status === 401 || err.name === "SessionExpiredError") return false;
 
   const statusNum = Number(err.status ?? err.statusCode);
-  if (Number.isFinite(statusNum) && statusNum >= 500) return true;
+  if (statusNum === 500) return true;
 
   const msg = typeof err.message === "string" ? err.message : "";
   const errList = Array.isArray(err.errors)
@@ -505,8 +505,8 @@ function isSgpa500(err) {
   const combined = `${msg} ${errList}`;
   return (
     /SQLGrammarException/i.test(combined) ||
-    /HTTP\s*5\d\d/i.test(msg) ||
-    /5\d\d\s+Internal\s+Server\s+Error/i.test(msg)
+    /HTTP\s*500\b/i.test(msg) ||
+    /500\s+Internal\s+Server\s+Error/i.test(msg)
   );
 }
 

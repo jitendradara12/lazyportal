@@ -133,29 +133,33 @@ function seedCoursesFromCache(
       facultyRows = getCached<{ rows?: Row[] }>(sessionCacheKey("faculty.detail", session, String(firstSemId))).data?.rows ?? [];
     }
   }
-  const cachedRows = [...(subjectsData?.rows ?? []), ...facultyRows];
+  const cachedRows = [...(subjectsData?.rows ?? []), ...facultyRows, ...(getCached<{ rows?: Row[] }>(sessionCacheKey("att.initial", session)).data?.rows ?? [])];
 
   if (cachedRows.length > 0) {
-    const seen = new Map<string, { name: string; credits: number | null }>();
+    const seen = new Map<string, { name: string; credits: number | null; lab: boolean }>();
     for (const row of cachedRows) {
-      const rawCode = String(row.subjectcode ?? "").trim().toUpperCase();
-      const rawName = String(row.subjectdesc ?? row.subjectname ?? row.subject ?? row.subjectcode ?? "").trim();
+      const rawSubjectCode = String(row.subjectcode ?? "").trim();
+      const parenMatch = rawSubjectCode.match(/^(.+?)\(([^)]+)\)$/);
+      const rawCode = (parenMatch ? parenMatch[2] : rawSubjectCode).trim().toUpperCase();
+      const rawName = String(row.subjectdesc ?? row.subjectname ?? row.subject ?? (parenMatch ? parenMatch[1] : rawSubjectCode)).trim();
       if (!rawCode && !rawName) continue;
       const formatted = formatSubjectName(rawName || rawCode);
       const key = rawCode || formatted.toUpperCase();
       const cr = toNumber(row.credits ?? row.coursecredit ?? row.coursecreditpoint ?? row.credit);
+      const hasPracticalOnly = Boolean(row.Psubjectcomponentid) && !row.Lsubjectcomponentid && !row.Tsubjectcomponentid;
       const prev = seen.get(key);
       if (!prev) {
-        seen.set(key, { name: formatted, credits: cr != null && cr > 0 ? cr : null });
+        seen.set(key, { name: formatted, credits: cr != null && cr > 0 ? cr : null, lab: hasPracticalOnly });
       } else {
         if (!prev.name && formatted) prev.name = formatted;
         if (prev.credits == null && cr != null && cr > 0) prev.credits = cr;
+        if (hasPracticalOnly) prev.lab = true;
       }
     }
     if (seen.size > 0) {
       let idx = 0;
       return [...seen.values()].map((entry) => {
-        const isLab = /\blab\b/i.test(entry.name);
+        const isLab = entry.lab || /\blab\b/i.test(entry.name);
         const credits = entry.credits ?? (isLab ? 1 : idx < 3 ? 4 : 3);
         const item: ForecastCourse = {
           id: `c-${sty}-${idx}`,

@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FCF8FD" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141316" />
     <script>
       (function () {
         try {
@@ -13,12 +15,13 @@
           if (t === "light" || t === "dark") {
             var m = document.querySelector('meta[name="color-scheme"]');
             if (m) m.setAttribute("content", t);
+            var c = t === "dark" ? "#141316" : "#FCF8FD";
+            var tc = document.querySelectorAll('meta[name="theme-color"]');
+            for (var i = 0; i < tc.length; i++) tc[i].setAttribute("content", c);
           }
         } catch (e) {}
       })();
     </script>
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FCF8FD" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141316" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="JUET" />

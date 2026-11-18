@@ -6,6 +6,7 @@ import { useAppBack } from "../hooks/useAppBack";
 
 export function CalendarButton({ event, filename = "calendar.ics", unavailableLabel = "Calendar unavailable until dates are announced" }: { event: CalendarEvent | null; filename?: string; unavailableLabel?: string }) {
   const [open, setOpen] = useState(false);
+  const [openDown, setOpenDown] = useState(false);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -30,9 +31,15 @@ export function CalendarButton({ event, filename = "calendar.ics", unavailableLa
   async function add() {
     if (!event || busy) return;
     setBusy(true);
-    try { if (!(await insertCalendarEvent(event))) setOpen(!open); }
-    catch { setOpen(true); }
-    finally { setBusy(false); }
+    try {
+      if (!(await insertCalendarEvent(event))) {
+        if (!open) setOpenDown((button.current?.getBoundingClientRect().top ?? 999) < 160);
+        setOpen(!open);
+      }
+    } catch {
+      setOpenDown((button.current?.getBoundingClientRect().top ?? 999) < 160);
+      setOpen(true);
+    } finally { setBusy(false); }
   }
 
   async function exportFile() {
@@ -55,7 +62,7 @@ export function CalendarButton({ event, filename = "calendar.ics", unavailableLa
         <CalendarAddIcon />
       </button>
       {open && googleUrl && (
-        <div className="exam-calendar-options" id={id} role="group" aria-label="Add to calendar">
+        <div className={`exam-calendar-options${openDown ? " is-down" : ""}`} id={id} role="group" aria-label="Add to calendar">
           <a href={googleUrl} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Google Calendar</a>
           {canExportCalendar() && <button type="button" disabled={busy} onClick={exportFile}>Calendar file (.ics)</button>}
           {exportError && <p role="alert">Couldn’t save calendar. Try again.</p>}

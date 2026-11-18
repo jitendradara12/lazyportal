@@ -18,7 +18,11 @@ export function AppUpdateAction() {
   useEffect(() => {
     mountedRef.current = true;
     let active = true;
-    updateCheck ??= Promise.all([getInstalledAppVersion(), fetchLatestRelease().catch(() => null)]);
+    updateCheck ??= Promise.all([getInstalledAppVersion(), fetchLatestRelease().catch(() => null)])
+      .then((res) => {
+        if (!res[1]) updateCheck = undefined;
+        return res;
+      });
     void updateCheck.then((res) => {
       if (active) setResult(res);
     });

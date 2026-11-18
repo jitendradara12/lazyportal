@@ -31,6 +31,14 @@ export function applyThemePreference(preference: ThemePreference = readStoredThe
   if (meta) {
     meta.setAttribute("content", preference === "light" || preference === "dark" ? preference : "light dark");
   }
+  const lightColor = "#FCF8FD";
+  const darkColor = "#141316";
+  const override = preference === "light" || preference === "dark";
+  const resolvedColor = resolved === "dark" ? darkColor : lightColor;
+  document.querySelectorAll?.('meta[name="theme-color"]').forEach((el) => {
+    const media = el.getAttribute("media") ?? "";
+    el.setAttribute("content", override ? resolvedColor : media.includes("dark") ? darkColor : lightColor);
+  });
 }
 
 export function useThemePreference(): [ThemePreference, (next: ThemePreference) => void] {

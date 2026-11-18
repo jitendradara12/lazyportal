@@ -220,7 +220,7 @@ test("history scrolls without dismissing; the close button still works", async (
   }
   await expect.poll(() => dialog.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   await expect(dialog).toBeVisible();
-  await dialog.evaluate((el) => { el.scrollTop = 0; });
+  expect(await dialog.evaluate((el) => el.querySelector(".att-sheet-top").getBoundingClientRect().top - el.getBoundingClientRect().top)).toBe(0);
   await page.getByRole("button", { name: "Close subject details" }).click();
   await expect(dialog).toHaveCount(0);
 });

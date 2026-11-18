@@ -13,7 +13,7 @@ const shares = (a?: AcademicDay, b?: AcademicDay) => Boolean(a && b && a.tone ==
 const Chevron = ({ back }: { back?: boolean }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={back ? "m15 6-6 6 6 6" : "m9 6 6 6-6 6"} /></svg>;
 
 /** Month view. Multi-day events read as one band with solid ends, like Material's range picker. */
-export function MonthGrid({ days, today, first, last, selected, onSelect }: {
+export function MonthGrid({ days, today, first, last, selected, onSelect, month: controlledMonth, onMonthChange }: {
   days: Map<string, AcademicDay>;
   today: string;
   /** Earliest and latest browsable month, YYYY-MM. */
@@ -21,8 +21,12 @@ export function MonthGrid({ days, today, first, last, selected, onSelect }: {
   last: string;
   selected: string | null;
   onSelect: (date: string | null) => void;
+  month?: string;
+  onMonthChange?: (month: string) => void;
 }) {
-  const [month, setMonth] = useState(() => (today.slice(0, 7) < first ? first : today.slice(0, 7) > last ? last : today.slice(0, 7)));
+  const [internalMonth, setInternalMonth] = useState(() => (today.slice(0, 7) < first ? first : today.slice(0, 7) > last ? last : today.slice(0, 7)));
+  const month = controlledMonth ?? internalMonth;
+  const setMonth = onMonthChange ?? setInternalMonth;
   const start = new Date(`${month}-01T00:00:00Z`);
   const lead = start.getUTCDay();
   const count = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();

@@ -281,6 +281,30 @@ describe("client", () => {
     assert.match(err.message, /captcha/i);
   });
 
+  it("normalizes string status.errors payloads without slicing first character", async () => {
+    const client = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () =>
+        ok({ status: { responseStatus: "Failure", errors: "Invalid captcha submitted." } })
+      ),
+      now: () => NOW,
+    });
+    const err = await client.post("/token/pretoken-check", {}).catch((e) => e);
+    assert.equal(err.code, "CAPTCHA_INVALID");
+    assert.equal(err.message, "Invalid captcha submitted.");
+
+    const plainClient = createClient({
+      baseUrl: "https://x",
+      fetchImpl: mockFetch(async () =>
+        ok({ status: { responseStatus: "Failure", errors: "Custom portal failure" } })
+      ),
+      now: () => NOW,
+    });
+    const plainErr = await plainClient.post("/a", {}).catch((e) => e);
+    assert.equal(plainErr.message, "Custom portal failure");
+    assert.deepEqual(plainErr.errors, ["Custom portal failure"]);
+  });
+
   it("maps 200+empty body to PortalError", async () => {
     const client = createClient({
       baseUrl: "https://x",

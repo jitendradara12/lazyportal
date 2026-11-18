@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { offlinePage } from "../scripts/offline-page.mjs";
@@ -118,6 +118,7 @@ test("built offline page embeds the exact bundled image, requiring no image requ
     assert.ok(images[0][1].startsWith("data:image/jpeg;base64,"));
     assert.deepEqual(Buffer.from(images[0][1].split(",")[1], "base64"), image);
     assert.equal(built, html.replace('src="offline.jpg"', `src="${images[0][1]}"`), "only the image source changes; styling and reconnect behavior stay intact");
+    await assert.rejects(access(join(outDir, "offline.jpg")), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

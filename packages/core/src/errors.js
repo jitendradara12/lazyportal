@@ -26,7 +26,12 @@ export class CaptchaError extends PortalError {
 
 /** Normalize CampusLynx failure payloads: {status:{responseStatus,errors},response} */
 export function toPortalError(body, status) {
-  const errors = body?.status?.errors ?? [];
+  const rawErrors = body?.status?.errors;
+  const errors = Array.isArray(rawErrors)
+    ? rawErrors
+    : typeof rawErrors === "string" && rawErrors
+      ? [rawErrors]
+      : [];
   const msg = errors[0] ?? `Request failed (HTTP ${status})`;
   if (/captcha/i.test(msg)) return new CaptchaError(msg);
   if (status === 401 || /session.*expired|invalid.*token|token.*expired|login again/i.test(msg)) {

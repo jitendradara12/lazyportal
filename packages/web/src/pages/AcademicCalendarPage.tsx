@@ -24,6 +24,10 @@ const filters = [
   { id: "academic", label: "Academic" },
 ];
 
+const yearMonths = (entry: AcademicYear) =>
+  entry.events.flatMap((event) => event.startDate ? [event.startDate, event.endDate ?? event.startDate] : []).map((date) => date.slice(0, 7)).sort();
+const clampMonth = (month: string, first: string, last: string) => (month < first ? first : month > last ? last : month);
+
 export function AcademicCalendarPage() {
   const now = useNow();
   const [yearId, setYearId] = useState(() => currentAcademicCalendar(calendars, now).academicYear);
@@ -38,12 +42,17 @@ export function AcademicCalendarPage() {
   const query = search.trim();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const months = yearMonths(year);
+  const firstMonth = months[0];
+  const lastMonth = months.at(-1);
+  const todayMonth = portalDate(now).slice(0, 7);
+  const defaultMonth = firstMonth && lastMonth ? clampMonth(todayMonth, firstMonth, lastMonth) : "";
+  const [month, setMonth] = useState(defaultMonth);
   const matching = year.events.filter((event) => event.audience !== "Faculty & staff" &&
     (filter === "all" || event.category === filter || (filter === "break" && event.category === "holiday")) && matchesAcademicSearch(event, query));
   const days = academicDays(matching);
   const activeDay = day && days.has(day) ? day : null;
   const events = activeDay ? days.get(activeDay)!.events : matching;
-  const months = year.events.flatMap((event) => event.startDate ? [event.startDate, event.endDate ?? event.startDate] : []).map((date) => date.slice(0, 7)).sort();
   const { past, upcoming, guidance } = groupAcademicEvents(events, now);
   const shownGuidance = guidance.filter((event) => query || event.semester!.startsOn >= currentSemester);
   const next = activeDay ? undefined : upcoming.find((event) => academicBounds(event)!.start > now);
@@ -59,6 +68,19 @@ export function AcademicCalendarPage() {
   function clearSearch() {
     setSearch("");
     searchInput.current?.focus();
+  }
+
+  function selectFilter(nextFilter: string) {
+    setFilter(nextFilter);
+    if (nextFilter === filter || !firstMonth || !lastMonth) return;
+    if (nextFilter === "all" && !query) {
+      setMonth(defaultMonth);
+      return;
+    }
+    const nextMatching = year.events.filter((event) => event.audience !== "Faculty & staff" &&
+      (nextFilter === "all" || event.category === nextFilter || (nextFilter === "break" && event.category === "holiday")) && matchesAcademicSearch(event, query));
+    const targetDate = groupAcademicEvents(nextMatching, now).upcoming[0]?.startDate ?? nextMatching.find((event) => event.startDate)?.startDate;
+    if (targetDate) setMonth(clampMonth(targetDate.slice(0, 7), firstMonth, lastMonth));
   }
 
   async function exportUpcoming() {
@@ -87,7 +109,14 @@ export function AcademicCalendarPage() {
 
   return <div className="page academic-calendar-page">
     <TopBar title="Academic calendar" subtitle={years.length > 1 ? <span className="academic-sem">
-        <select aria-label="Academic year" value={yearId} onChange={(event) => { setYearId(event.target.value); setDay(null); setExportError(null); }}>
+        <select aria-label="Academic year" value={yearId} onChange={(event) => {
+          const nextId = event.target.value;
+          const nextMonths = yearMonths(years.find((entry) => entry.academicYear === nextId)!);
+          setYearId(nextId);
+          setDay(null);
+          setExportError(null);
+          if (nextMonths.length > 0) setMonth(clampMonth(todayMonth, nextMonths[0], nextMonths.at(-1)!));
+        }}>
           {years.map((entry) => <option key={entry.academicYear} value={entry.academicYear}>{entry.academicYear}</option>)}
         </select>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
@@ -102,9 +131,9 @@ export function AcademicCalendarPage() {
         <input ref={searchInput} id="academic-search" type="search" aria-label="Search calendar events" placeholder="Search events, dates…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} autoFocus />
         <button type="button" className="academic-search-close" aria-label="Close calendar search" title="Close calendar search" onClick={closeSearch}><CloseIcon /></button>
       </div>}
-      {months.length > 0 && <MonthGrid key={yearId} days={days} today={portalDate(now)} first={months[0]} last={months.at(-1)!} selected={activeDay} onSelect={setDay} />}
+      {months.length > 0 && <MonthGrid key={yearId} days={days} today={portalDate(now)} first={firstMonth} last={lastMonth!} selected={activeDay} onSelect={setDay} month={month} onMonthChange={setMonth} />}
       <div className="chip-row academic-filters" role="group" aria-label="Event categories">
-        {filters.map(({ id, label }) => <button key={id} type="button" className={`chip-btn ${filter === id ? "active" : ""}`} aria-pressed={filter === id} onClick={() => setFilter(id)}>{id !== "all" && <span className={`chip-dot tone-${id}`} aria-hidden="true" />}{label}</button>)}
+        {filters.map(({ id, label }) => <button key={id} type="button" className={`chip-btn ${filter === id ? "active" : ""}`} aria-pressed={filter === id} onClick={() => selectFilter(id)}>{id !== "all" && <span className={`chip-dot tone-${id}`} aria-hidden="true" />}{label}</button>)}
       </div>
       <div className="academic-schedule-heading">{activeDay
         ? <><h2 className="page-subhead">{fullDay(new Date(`${activeDay}T00:00:00Z`))}</h2><button type="button" className="academic-clear-day" onClick={() => setDay(null)}>Show all</button></>
@@ -118,7 +147,7 @@ export function AcademicCalendarPage() {
           <p className="muted page-note">{query ? "No events match your search. Try another term or change the filters." : events.length === 0 ? "No events match this filter." : "No upcoming events for this selection."}</p>
           <div className="academic-empty-actions">
             {query && <button type="button" onClick={clearSearch}>Clear search</button>}
-            {filter !== "all" && <button type="button" onClick={() => { setFilter("all"); searchInput.current?.focus(); }}>{query ? "Search all categories" : "Show all categories"}</button>}
+            {filter !== "all" && <button type="button" onClick={() => { selectFilter("all"); searchInput.current?.focus(); }}>{query ? "Search all categories" : "Show all categories"}</button>}
           </div>
         </div>}
         {past.length > 0 && <Timeline label="Academic schedule" className="academic-timeline" key={`${yearId}:${filter}:${activeDay}:${query}`}><TimelineGroup label="Past events" count={past.length} defaultOpen={Boolean(query || activeDay)}>{schedule(past, true)}</TimelineGroup></Timeline>}

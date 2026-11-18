@@ -24,17 +24,22 @@ function worker({ network = async () => new Response("fresh"), failWrites = fals
     },
   };
   vm.runInNewContext(source, {
-    self: { addEventListener: (name, fn) => listeners.set(name, fn) },
+    self: { addEventListener: (name, fn) => listeners.set(name, fn), skipWaiting: () => {} },
     location: { origin }, URL, Response, caches,
     setTimeout: (fn, ms) => { const timer = { fn, ms, cleared: false }; timers.push(timer); return timer; },
     clearTimeout: (timer) => { if (timer) timer.cleared = true; },
-    fetch: async (request) => { calls.push(request.url); return network(request); },
+    fetch: async (request) => { calls.push(typeof request === "string" ? request : request.url); return network(request); },
   });
   return {
     calls, entries, timers,
     elapse: async () => { for (const timer of timers) if (!timer.cleared) { timer.cleared = true; await timer.fn(); } },
     seed(path, text) { entries.set(key(path), new Response(text)); },
     read(path) { return entries.get(key(path))?.clone().text(); },
+    async install() {
+      const lifetime = [];
+      listeners.get("install")({ waitUntil(promise) { lifetime.push(promise); } });
+      await Promise.all(lifetime);
+    },
     dispatch(path, { mode = "cors", method = "GET" } = {}) {
       const lifetime = [];
       let response;
@@ -184,4 +189,16 @@ test("a navigation answered by the network cancels its patience timer", async ()
   assert.equal(await (await event.response).text(), "fresh");
   await event.settled();
   assert.ok(sw.timers.every((timer) => timer.cleared));
+});
+
+test("install precaches the app shell so a first-visit offline launch still opens", async () => {
+  let online = true;
+  const sw = worker({ network: async () => {
+    if (!online) throw new Error("Offline");
+    return new Response("first shell");
+  } });
+  await sw.install();
+  online = false;
+  const event = sw.dispatch("/", { mode: "navigate" });
+  assert.equal(await (await event.response).text(), "first shell");
 });

@@ -172,26 +172,28 @@ export function SubjectDetailSheet({
         aria-modal="true"
         aria-labelledby="att-sheet-title"
       >
-        {/* Mobile Drag Indicator Handle */}
-        <div className="att-sheet-handle" aria-hidden="true" {...dragHandlers}><span /></div>
+        <div className="att-sheet-top">
+          {/* Mobile Drag Indicator Handle */}
+          <div className="att-sheet-handle" aria-hidden="true" {...dragHandlers}><span /></div>
 
-        {/* Sheet Header */}
-        <div className="att-sheet-header" {...dragHandlers}>
-          <div className="att-sheet-title-group">
-            <h2 className="att-sheet-title" id="att-sheet-title">
-              {name}
-            </h2>
-            {sheetCode && <span className="att-code att-sheet-code">{sheetCode}</span>}
+          {/* Sheet Header */}
+          <div className="att-sheet-header" {...dragHandlers}>
+            <div className="att-sheet-title-group">
+              <h2 className="att-sheet-title" id="att-sheet-title">
+                {name}
+              </h2>
+              {sheetCode && <span className="att-code att-sheet-code">{sheetCode}</span>}
+            </div>
+            <button
+              type="button"
+              className="auth-close-btn"
+              onClick={handleClose}
+              aria-label="Close subject details"
+              title="Close"
+            >
+              ✕
+            </button>
           </div>
-          <button
-            type="button"
-            className="auth-close-btn"
-            onClick={handleClose}
-            aria-label="Close subject details"
-            title="Close"
-          >
-            ✕
-          </button>
         </div>
 
         {/* Hero KPI Summary inside Sheet */}

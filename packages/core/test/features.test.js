@@ -576,6 +576,22 @@ describe("features", () => {
     assert.deepEqual(out, { student: null, currentsem: null, semesters: [] });
   });
 
+  it("getSgpaLatest rethrows 502/503/504 gateway outages instead of caching empty data", async () => {
+    for (const status of [502, 503, 504]) {
+      const fake = {
+        async post() {
+          const err = new Error("JUET's portal is down (not us).");
+          err.status = status;
+          throw err;
+        },
+      };
+      await assert.rejects(
+        () => getSgpaLatest(fake, { instituteid: "i1" }),
+        (err) => err?.status === status
+      );
+    }
+  });
+
 
 
 
