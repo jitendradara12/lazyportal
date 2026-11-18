@@ -415,6 +415,7 @@ export async function getMarksReport(client, session, { registrationid, registra
 /** Marks in one call: LOV -> latest registration -> detail rows. */
 export async function getMarksLatest(client, session, options = {}) {
   const semesters = await getMarksSemesters(client, session);
+  options.onSemesters?.(semesters);
   const sem = semesters[0];
   if (!sem)
     return {

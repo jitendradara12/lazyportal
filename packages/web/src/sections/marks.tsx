@@ -7,7 +7,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCached } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { FEATURE_TTL } from "../lib/portalSchedule";
+import { FEATURE_TTL, isCurrentPortalDay } from "../lib/portalSchedule";
 import { readPdfText } from "../lib/readPdfText";
 import {
   diffMarkRows,
@@ -188,9 +188,13 @@ export function MarksSection(props: SectionProps) {
 
 function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactNode }) {
   const latestKey = sessionCacheKey("marks.latest", session);
+  const [discovered, setDiscovered] = useState<{ key: string; semesters: Semester[] } | null>(null);
   const lov = useFeature<MarksLatest>({
     run: async () => {
-      const latest = await features.getMarksLatest(client, session, { readPdfText });
+      const latest = await features.getMarksLatest(client, session, {
+        readPdfText,
+        onSemesters: (sems) => setDiscovered({ key: latestKey, semesters: sems }),
+      });
       const previous = getCached<MarksLatest>(latestKey).data;
       const registrationid = latest.semesters[0]?.registrationid;
       const sameSemester = registrationid != null && String(registrationid) === String(previous?.semesters[0]?.registrationid);
@@ -202,10 +206,21 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     enabled: true,
     cacheKey: latestKey,
     staleTimeMs: FEATURE_TTL.marks,
-    isFresh: () => getCached<MarksLatest>(latestKey).data?.historyRecovered === true,
+    isFresh: (updatedAt) => {
+      const cached = getCached<MarksLatest>(latestKey).data;
+      if (cached?.historyRecovered !== true) return false;
+      // A 1-semester cache has no semester selector yet; recheck once per portal day
+      // so newly published semesters appear without requiring a manual refresh.
+      if ((cached.semesters?.length ?? 0) <= 1 && !isCurrentPortalDay(updatedAt)) return false;
+      return true;
+    },
   });
-  const [semId, setSemId, sem] = useSemester(sessionCacheKey("semester", session, "marks"), lov.data?.semesters);
-  const isDefault = semId === String(lov.data?.semesters?.[0]?.registrationid);
+  const semesters = (discovered?.key === latestKey ? discovered.semesters : null) ?? lov.data?.semesters ?? [];
+  const [semId, setSemId, sem] = useSemester(
+    sessionCacheKey("semester", session, "marks"),
+    semesters.length > 0 ? semesters : undefined,
+  );
+  const isDefault = semesters.length > 0 && semId === String(semesters[0]?.registrationid);
   const detailKey = semId ? sessionCacheKey("marks.detail", session, semId) : undefined;
   const detail = useFeature<MarksDetail>({
     run: async () => {
@@ -222,27 +237,28 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     isFresh: () => getCached<MarksDetail>(detailKey).data?.historyRecovered === true,
   });
 
-  const rawRows = isDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);
-  const updatedKeys = isDefault ? (lov.data?.updatedKeys ?? []) : (detail.data?.updatedKeys ?? []);
+  const showDefault = semesters.length === 0 || isDefault;
+  const rawRows = showDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);
+  const updatedKeys = showDefault ? (lov.data?.updatedKeys ?? []) : (detail.data?.updatedKeys ?? []);
   const updatedSet = useMemo(() => new Set(updatedKeys), [updatedKeys]);
-  const semesters = lov.data?.semesters ?? [];
-  const code = sem?.registrationcode ?? (isDefault ? lov.data?.registrationcode : undefined);
+  const code = sem?.registrationcode ?? (showDefault ? lov.data?.registrationcode : undefined);
   const semLabel = formatSemester(code);
-  const error = lov.error ?? detail.error ?? (isDefault ? lov.data?.historyError : detail.data?.historyError);
+  const error = showDefault
+    ? (lov.error ?? lov.data?.historyError)
+    : (detail.error ?? detail.data?.historyError);
   // Include the gaps between chained reads/semester selection, before their
   // effects start the next request. Those are still loading, not empty results.
-  const loading = lov.loading || detail.loading || (!error && (
-    lov.data === null || (semesters.length > 0 && sem === null) ||
-    (sem !== null && !isDefault && detail.data === null)
-  ));
-  const retry = lov.error || (isDefault && lov.data?.historyError) ? lov.retry : detail.retry;
+  const loading = showDefault
+    ? (lov.loading || (!error && (lov.data === null || (semesters.length > 0 && sem === null))))
+    : (detail.loading || (!error && (sem === null || detail.data === null)));
+  const retry = showDefault ? lov.retry : detail.retry;
   const courses = useMemo(() => groupSubjectMarks(rawRows), [rawRows]);
 
   const pageRefresh = usePageRefresh(
     "marks",
     session,
     loading || lov.refreshing || detail.refreshing,
-    () => (semId === null || isDefault ? lov.refresh() : detail.refresh()),
+    () => (showDefault ? lov.refresh() : detail.refresh()),
   );
 
   useTabRefresh("marks", () => {
@@ -271,7 +287,7 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
             ))}
           </ul>
         )}
-        {lov.data && rawRows.length === 0 && !error && !loading && (
+        {(showDefault ? lov.data : detail.data) && rawRows.length === 0 && !error && !loading && (
           <p className="muted page-note">No marks records found for {semLabel || "this semester"}. They show up here once faculty upload them.</p>
         )}
         {error && <SectionError label="Marks" error={error} retry={retry} />}

@@ -30,6 +30,53 @@ test("event-wise report recovers all theory/practical events, fractional/zero/ab
   assert.throws(() => parseMarksReport([[item("Registration Code: 2026ODDSEM", 0, 0)]], "2026ODDSEM"), { code: "INVALID_RESPONSE" });
 });
 
+test("report parser stitches wrapped two-line OM/FM cells and skips dash columns", () => {
+  const headers = [
+    item("Registration Code: 2026EVESEM", 20, 800),
+    ...["P-2", "TEST-1", "TEST-3", "ASS", "TEST-2", "P-1"].flatMap((event, i) => [
+      item(event, 320 + i * 160, 740),
+      item("OM/FM", 280 + i * 160, 720),
+      item("OW/WT", 360 + i * 160, 720),
+    ]),
+  ];
+  const wrappedPage = [
+    ...headers,
+    item("COMPUTER ORGANISATION", 20, 690),
+    item("AND ARCHITECTURE", 20, 675),
+    item("(CS107)", 20, 660),
+    item("11.0/", 440, 682),
+    item("15.0", 440, 670),
+    item("11.0/15.0", 520, 676),
+    item("13.0/", 600, 682),
+    item("35.0", 600, 670),
+    item("13.0/35.0", 680, 676),
+    item("-", 760, 676),
+    item("-", 840, 676),
+    item("17.0/", 920, 682),
+    item("25.0", 920, 670),
+    item("17.0/25.0", 1000, 676),
+    item("ALGORITHMS LAB", 20, 640),
+    item("(CS207)", 20, 625),
+    item("11.0/", 280, 638),
+    item("15.0", 280, 628),
+    item("11.0/15.0", 360, 632),
+    item("14.0/", 1080, 638),
+    item("15.0", 1080, 628),
+    item("14.0/15.0", 1160, 632),
+  ];
+  const rows = parseMarksReport([wrappedPage], "2026EVESEM");
+  assert.deepEqual(
+    rows.map(({ subjectcode, eventcode, obtainedmarks, fullmarks }) => [subjectcode, eventcode, obtainedmarks, fullmarks]),
+    [
+      ["CS107", "TEST-1", 11, 15],
+      ["CS107", "TEST-3", 13, 35],
+      ["CS107", "TEST-2", 17, 25],
+      ["CS207", "P-2", 11, 15],
+      ["CS207", "P-1", 14, 15],
+    ],
+  );
+});
+
 test("report read uses the selected semester; fresh JSON corrections override report scores", async () => {
   let seen;
   const client = {

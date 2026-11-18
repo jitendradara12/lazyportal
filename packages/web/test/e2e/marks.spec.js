@@ -187,6 +187,94 @@ test("switching semesters replaces course totals and resets expansion", async ({
   expect(requests).toEqual([]);
 });
 
+test("stale 1-semester marks cache from a prior portal day revalidates and reveals the semester selector", async ({ page }) => {
+  await mockPortal(page);
+  await page.route("**/api/studentcommonsontroller/getsemestercode-exammarks", (route) => route.fulfill({
+    json: {
+      response: {
+        semestercode: [
+          { registrationid: "current", registrationcode: "2026ODDSEM" },
+          { registrationid: "past", registrationcode: "2026EVESEM" },
+        ],
+      },
+    },
+  }));
+  await page.route("**/api/studentsexamview/getstudent-exammarks", async (route) => {
+    const body = JSON.parse(await decrypt(route.request().postData()));
+    const rows = body.registrationid === "past"
+      ? [{ subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", eventcode: "TEST-1", obtainedmarks: 10, fullmarks: 15 }]
+      : [{ subjectcode: "CS303", subjectdesc: "ARTIFICIAL INTELLIGENCE", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 }];
+    return route.fulfill({ json: { response: { viewmarksbystudent: rows } } });
+  });
+  await page.route("**/api/studentsexamview/printstudent-exammarks/**", (route) => route.fulfill({
+    contentType: "application/pdf", path: fileURLToPath(new URL("../fixtures/marks-history.pdf", import.meta.url)),
+  }));
+  await page.addInitScript((session) => {
+    localStorage.setItem("juet.portal.session.v1", JSON.stringify(session));
+    localStorage.setItem("juet.portal.install.dismissedAt.v1", String(Date.now()));
+    const key = ["marks.latest", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify({
+      data: {
+        semesters: [{ registrationid: "past", registrationcode: "2026EVESEM" }],
+        rows: [{ subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", eventcode: "TEST-1", obtainedmarks: 10, fullmarks: 15 }],
+        historyRecovered: true,
+      },
+      updatedAt: Date.now() - 2 * 86_400_000,
+    }));
+  }, SESSION);
+
+  await page.goto("/#marks");
+  const picker = page.getByRole("combobox", { name: "Select semester" });
+  await expect(picker).toBeVisible();
+  await expect(picker.locator("option")).toHaveText(["Odd 2026", "Even 2026"]);
+  await picker.selectOption("current");
+  await expect(course(page, "CS303").locator(".score-header .score-value")).toHaveText("20/40");
+});
+
+test("semester selector still appears and switches to past semester when latest semester marks fail", async ({ page }) => {
+  await mockPortal(page);
+  await page.route("**/api/studentcommonsontroller/getsemestercode-exammarks", (route) => route.fulfill({
+    json: {
+      response: {
+        semestercode: [
+          { registrationid: "current", registrationcode: "2026ODDSEM" },
+          { registrationid: "past", registrationcode: "2026EVESEM" },
+        ],
+      },
+    },
+  }));
+  await page.route("**/api/studentsexamview/getstudent-exammarks", async (route) => {
+    const body = JSON.parse(await decrypt(route.request().postData()));
+    if (body.registrationid === "current") {
+      return route.fulfill({ status: 503, body: "Unavailable" });
+    }
+    return route.fulfill({
+      json: {
+        response: {
+          viewmarksbystudent: [
+            { subjectcode: "CS109", subjectdesc: "COMPUTER NETWORKS", eventcode: "TEST-1", obtainedmarks: 10, fullmarks: 15 },
+          ],
+        },
+      },
+    });
+  });
+  await page.route("**/api/studentsexamview/printstudent-exammarks/**", (route) => route.fulfill({
+    contentType: "application/pdf", path: fileURLToPath(new URL("../fixtures/marks-empty-past.pdf", import.meta.url)),
+  }));
+  await page.addInitScript((session) => {
+    localStorage.setItem("juet.portal.session.v1", JSON.stringify(session));
+    localStorage.setItem("juet.portal.install.dismissedAt.v1", String(Date.now()));
+  }, SESSION);
+
+  await page.goto("/#marks");
+  const picker = page.getByRole("combobox", { name: "Select semester" });
+  await expect(picker).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await picker.selectOption("past");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(course(page, "CS109").locator(".score-header .score-value")).toHaveText("10/15");
+});
+
 test("score numbers carry semantic bands on totals and breakdown rows without progress bars", async ({ page }) => {
   await setup(page);
   await expect(page.locator(".score-progress")).toHaveCount(0);

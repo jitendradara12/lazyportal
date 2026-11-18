@@ -42,13 +42,16 @@ export function parseMarksReport(pages, registrationcode) {
   let sawTable = false;
   for (const page of pages) {
     const items = page.map((item) => ({ ...item, text: item.text.trim(), center: item.x + item.width / 2 }));
-    const events = items.filter((item) => /^[TP]\d+$/.test(formatEventCode(item.text)));
+    const tpEvents = items.filter((item) => /^[TP]\d+$/.test(formatEventCode(item.text)));
     const columns = items.filter((item) => /^(OM\/FM|OW\/WT)$/.test(item.text)).sort((a, b) => a.center - b.center);
-    if (!events.length || !columns.some((column) => column.text === "OM/FM")) continue;
+    if (!tpEvents.length || !columns.some((column) => column.text === "OM/FM")) continue;
     sawTable = true;
     const nearest = (list, x) => list.reduce((a, b) => Math.abs(a.center - x) <= Math.abs(b.center - x) ? a : b);
     const headerBottom = Math.min(...columns.map((item) => item.y));
-    const subjectEdge = columns[0].x - 40;
+    const subjectEdge = columns[0].x - 20;
+    const eventY = tpEvents.reduce((sum, item) => sum + item.y, 0) / tpEvents.length;
+    const events = items.filter((item) =>
+      item.x >= subjectEdge && Math.abs(item.y - eventY) <= 5 && item.text && !/^(OM\/FM|OW\/WT)$/.test(item.text));
     const courses = items.filter((item) => item.x < subjectEdge && item.y < headerBottom && /^\([A-Z0-9][A-Z0-9._-]*\)$/.test(item.text))
       .sort((a, b) => b.y - a.y);
     courses.forEach((course, index) => {
@@ -57,11 +60,23 @@ export function parseMarksReport(pages, registrationcode) {
       const subjectcode = course.text.slice(1, -1);
       const subjectdesc = band.filter((item) => item.x < subjectEdge && item !== course && item.text !== course.text)
         .sort((a, b) => b.y - a.y || a.x - b.x).map((item) => item.text).filter(Boolean).join(" ");
+      const cellsByColumn = new Map();
       for (const cell of band.filter((item) => item.x >= subjectEdge)) {
-        const score = cell.text.match(/^([^/]+)\s*\/\s*(\d+(?:\.\d+)?)$/);
-        if (!score) continue;
         const column = nearest(columns, cell.center);
         if (column.text !== "OM/FM") continue;
+        const list = cellsByColumn.get(column) ?? [];
+        list.push(cell);
+        cellsByColumn.set(column, list);
+      }
+      for (const [column, cellItems] of cellsByColumn) {
+        const text = cellItems
+          .sort((a, b) => b.y - a.y || a.x - b.x)
+          .map((item) => item.text)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const score = text.match(/^([^/]+)\s*\/\s*(\d+(?:\.\d+)?)$/);
+        if (!score) continue;
         const event = nearest(events, column.center);
         const obtained = score[1].trim();
         const fullmarks = Number(score[2]);

@@ -232,6 +232,23 @@ describe("features", () => {
     assert.deepEqual(rows, []);
   });
 
+  it("getMarksLatest notifies onSemesters before detail read fails", async () => {
+    let seen = null;
+    const fake = {
+      async post(endpoint) {
+        if (endpoint.endsWith("getsemestercode-exammarks")) {
+          return { response: { semestercode: [{ registrationid: "r2" }, { registrationid: "r1" }] } };
+        }
+        throw new Error("marks down");
+      },
+    };
+    await assert.rejects(
+      () => getMarksLatest(fake, { instituteid: "i1" }, { onSemesters: (s) => { seen = s; } }),
+      /marks down/,
+    );
+    assert.deepEqual(seen, [{ registrationid: "r2" }, { registrationid: "r1" }]);
+  });
+
   it("getExamSemesters posts encrypted clientid+instituteid", async () => {
     let seen;
     const fake = {
