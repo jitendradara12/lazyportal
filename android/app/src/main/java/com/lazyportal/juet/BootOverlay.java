@@ -12,67 +12,48 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import androidx.core.content.ContextCompat;
 
 /**
- * Lightweight themed boot overlay displayed over the WebView until the web app
- * mounts (or offline.html commits). Prevents staring at an empty grey WebView
- * surface while waiting for the remote bundle on slow campus networks.
+ * Lightweight themed fallback overlay shown ONLY if boot takes longer than the
+ * initial system splash window (or during warm-resume recovery). Uses the exact
+ * same DayNight surface colour as the system splash and web app so transitions
+ * never flicker or show a second competing logo splash.
  */
 final class BootOverlay {
-    private static final long SPINNER_REVEAL_DELAY_MS = 350L;
-    private static final long SLOW_HINT_DELAY_MS = 4_500L;
+    private static final long SLOW_HINT_DELAY_MS = 3_500L;
     private static final long FADE_DURATION_MS = 160L;
 
     private final Activity activity;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final FrameLayout root;
-    private final LinearLayout progressGroup;
     private final ProgressBar spinner;
     private final TextView statusText;
     private final TextView retryButton;
 
-    private Runnable revealSpinnerTask;
     private Runnable revealSlowHintTask;
-    private boolean visible = true;
+    private boolean visible;
     private boolean destroyed;
 
     BootOverlay(Activity activity, Runnable onRetry) {
         this.activity = activity;
 
         root = new FrameLayout(activity);
-        root.setClickable(true);
-        root.setFocusable(true);
+        root.setVisibility(View.GONE);
+        root.setClickable(false);
+        root.setFocusable(false);
 
         LinearLayout center = new LinearLayout(activity);
         center.setOrientation(LinearLayout.VERTICAL);
         center.setGravity(Gravity.CENTER_HORIZONTAL);
 
-        ImageView icon = new ImageView(activity);
-        icon.setImageResource(R.mipmap.ic_launcher_round);
-        icon.setContentDescription(activity.getString(R.string.app_name));
-        int iconSize = dp(72);
-        center.addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
-
-        progressGroup = new LinearLayout(activity);
-        progressGroup.setOrientation(LinearLayout.VERTICAL);
-        progressGroup.setGravity(Gravity.CENTER_HORIZONTAL);
-        progressGroup.setAlpha(0f);
-        progressGroup.setVisibility(View.INVISIBLE);
-        LinearLayout.LayoutParams progressGroupParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        progressGroupParams.topMargin = dp(24);
-
         spinner = new ProgressBar(activity, null, android.R.attr.progressBarStyle);
         spinner.setIndeterminate(true);
-        int spinnerSize = dp(28);
-        progressGroup.addView(spinner, new LinearLayout.LayoutParams(spinnerSize, spinnerSize));
+        int spinnerSize = dp(30);
+        center.addView(spinner, new LinearLayout.LayoutParams(spinnerSize, spinnerSize));
 
         statusText = new TextView(activity);
         statusText.setText("Connecting…");
@@ -82,8 +63,8 @@ final class BootOverlay {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        statusParams.topMargin = dp(12);
-        progressGroup.addView(statusText, statusParams);
+        statusParams.topMargin = dp(14);
+        center.addView(statusText, statusParams);
 
         retryButton = new TextView(activity);
         retryButton.setText("Retry");
@@ -97,7 +78,7 @@ final class BootOverlay {
         retryButton.setVisibility(View.GONE);
         retryButton.setOnClickListener(v -> {
             if (destroyed) return;
-            resetProgressState("Retrying…");
+            show("Retrying…");
             onRetry.run();
         });
         LinearLayout.LayoutParams retryParams = new LinearLayout.LayoutParams(
@@ -105,9 +86,7 @@ final class BootOverlay {
             ViewGroup.LayoutParams.WRAP_CONTENT
         );
         retryParams.topMargin = dp(16);
-        progressGroup.addView(retryButton, retryParams);
-
-        center.addView(progressGroup, progressGroupParams);
+        center.addView(retryButton, retryParams);
 
         FrameLayout.LayoutParams centerParams = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -125,7 +104,6 @@ final class BootOverlay {
             root,
             new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         );
-        scheduleProgressReveal();
     }
 
     void applyTheme() {
@@ -152,15 +130,20 @@ final class BootOverlay {
         retryButton.setBackground(new RippleDrawable(ColorStateList.valueOf(rippleColor), pill, mask));
     }
 
-    void showForRecovery(String caption) {
+    void show(String caption) {
         if (destroyed) return;
         cancelTimers();
         root.animate().cancel();
         visible = true;
+        statusText.setText(caption);
+        retryButton.animate().cancel();
+        retryButton.setVisibility(View.GONE);
+        retryButton.setAlpha(0f);
         root.setAlpha(1f);
         root.setClickable(true);
+        root.setFocusable(true);
         root.setVisibility(View.VISIBLE);
-        resetProgressState(caption);
+        scheduleSlowHint();
     }
 
     void setStatus(String caption) {
@@ -195,43 +178,14 @@ final class BootOverlay {
         visible = false;
         cancelTimers();
         root.animate().cancel();
-        progressGroup.animate().cancel();
         retryButton.animate().cancel();
-    }
-
-    private void resetProgressState(String caption) {
-        cancelTimers();
-        statusText.setText(caption);
-        retryButton.animate().cancel();
-        retryButton.setVisibility(View.GONE);
-        retryButton.setAlpha(0f);
-        progressGroup.animate().cancel();
-        progressGroup.setVisibility(View.VISIBLE);
-        progressGroup.setAlpha(1f);
-        scheduleSlowHint();
-    }
-
-    private void scheduleProgressReveal() {
-        cancelTimers();
-        revealSpinnerTask = () -> {
-            revealSpinnerTask = null;
-            if (destroyed || !visible) return;
-            progressGroup.setVisibility(View.VISIBLE);
-            progressGroup.animate().alpha(1f).setDuration(FADE_DURATION_MS).start();
-        };
-        handler.postDelayed(revealSpinnerTask, SPINNER_REVEAL_DELAY_MS);
-        scheduleSlowHint();
     }
 
     private void scheduleSlowHint() {
-        if (revealSlowHintTask != null) {
-            handler.removeCallbacks(revealSlowHintTask);
-        }
+        cancelTimers();
         revealSlowHintTask = () -> {
             revealSlowHintTask = null;
             if (destroyed || !visible) return;
-            progressGroup.setVisibility(View.VISIBLE);
-            progressGroup.setAlpha(1f);
             statusText.setText("Taking longer than usual…");
             retryButton.setVisibility(View.VISIBLE);
             retryButton.animate().alpha(1f).setDuration(FADE_DURATION_MS).start();
@@ -240,10 +194,6 @@ final class BootOverlay {
     }
 
     private void cancelTimers() {
-        if (revealSpinnerTask != null) {
-            handler.removeCallbacks(revealSpinnerTask);
-            revealSpinnerTask = null;
-        }
         if (revealSlowHintTask != null) {
             handler.removeCallbacks(revealSlowHintTask);
             revealSlowHintTask = null;

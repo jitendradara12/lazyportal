@@ -18,20 +18,12 @@
         <item name="android:windowBackground">@color/app_surface</item>
     </style>
 
-    <!-- Launch (splash) theme. The app is single-activity, so the launch theme
-         is the one the WebView is hosted in for the whole process: it paints
-         the generated navy splash, hides the action bar and keeps the status
-         bar light-on-dark (see values-v31/ for Android 12+'s own splash). -->
-    <style name="AppTheme.NoActionBarLaunch.Base" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
-        <item name="android:windowBackground">@drawable/splash</item>
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
-        <item name="android:windowLightStatusBar">false</item>
+    <!-- Launch (splash) theme using AndroidX Core SplashScreen. Matches the app's
+         DayNight surface colour and centres the circular/adaptive launcher icon
+         so there is no stretched/cropped full-screen bitmap or colour jump. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/app_surface</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
-
-    <!-- Styles do not merge across resource configurations, so Android 12+
-         re-declares the style and inherits the items above from `.Base`. -->
-    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBarLaunch.Base" />
 </resources>

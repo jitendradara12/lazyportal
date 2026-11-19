@@ -29,7 +29,9 @@ import java.net.InetAddress;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class MainActivity extends BridgeActivity {
-    private static final long[] EARLY_MOUNT_POLL_DELAYS_MS = { 0L, 180L, 450L, 1_000L };
+    private static final long MAX_SYSTEM_SPLASH_MS = 1_100L;
+    private static final long SPLASH_EXIT_FADE_MS = 180L;
+    private static final long[] EARLY_MOUNT_POLL_DELAYS_MS = { 0L, 120L, 300L, 600L, 1_000L };
     private static final AtomicLong lastRendererRecoveryMs = new AtomicLong(0L);
 
     private final WebViewHealthMonitor healthMonitor = new WebViewHealthMonitor();
@@ -40,14 +42,34 @@ public class MainActivity extends BridgeActivity {
     private Runnable activePostLoadCheck;
     private Runnable activeEvalTimeout;
     private Runnable activeEarlyPoll;
+    private Runnable activeSplashRelease;
     private int evalGeneration;
     private int earlyPollGeneration;
+    private long bootStartedAtMs;
+    private boolean appReadyForReveal;
+    private boolean systemSplashReleased;
     private boolean bypassCacheForCurrentLoad;
     private boolean destroyed;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        SplashScreen.installSplashScreen(this);
+        bootStartedAtMs = SystemClock.uptimeMillis();
+        SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
+        splashScreen.setKeepOnScreenCondition(this::shouldKeepSystemSplash);
+        splashScreen.setOnExitAnimationListener(splashViewProvider -> {
+            systemSplashReleased = true;
+            View splashView = splashViewProvider.getView();
+            if (isInactive() || splashView == null) {
+                removeSplashQuietly(splashViewProvider);
+                return;
+            }
+            splashView.animate()
+                .alpha(0f)
+                .setDuration(SPLASH_EXIT_FADE_MS)
+                .withEndAction(() -> removeSplashQuietly(splashViewProvider))
+                .start();
+        });
+
         preResolveServerDns(getApplicationContext());
 
         registerPlugin(AlertsPlugin.class);
@@ -100,12 +122,13 @@ public class MainActivity extends BridgeActivity {
         String initialUrl = initialWebView != null ? initialWebView.getUrl() : null;
         if (WebViewHealthMonitor.isOfflineUrl(initialUrl, getErrorUrl())) {
             healthMonitor.onPageLoaded(initialUrl, getErrorUrl());
-            dismissBootOverlay();
+            markAppReadyForReveal();
         } else {
-            WebViewHealthMonitor.PageStartAction bootAction = healthMonitor.onBootStarted(SystemClock.uptimeMillis());
+            WebViewHealthMonitor.PageStartAction bootAction = healthMonitor.onBootStarted(bootStartedAtMs);
             if (bootAction == WebViewHealthMonitor.PageStartAction.ARM_STALL_WATCHDOG) {
                 armStallWatchdog(WebViewHealthMonitor.STALL_TIMEOUT_MS);
             }
+            scheduleSlowBootHandoff();
             if (initialWebView != null
                 && initialWebView.getProgress() == 100
                 && !WebViewHealthMonitor.isBlankUrl(initialUrl)) {
@@ -124,12 +147,16 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStop() {
         super.onStop();
+        appReadyForReveal = true;
+        cancelSplashRelease();
         cancelPendingChecks();
     }
 
     @Override
     public void onDestroy() {
         destroyed = true;
+        appReadyForReveal = true;
+        cancelSplashRelease();
         cancelPendingChecks();
         mainHandler.removeCallbacksAndMessages(null);
         if (bootOverlay != null) {
@@ -150,6 +177,59 @@ public class MainActivity extends BridgeActivity {
         applyWebViewTheme();
         if (bootOverlay != null) {
             bootOverlay.applyTheme();
+        }
+    }
+
+    private boolean shouldKeepSystemSplash() {
+        if (appReadyForReveal || systemSplashReleased || isInactive()) {
+            return false;
+        }
+        long elapsedMs = SystemClock.uptimeMillis() - bootStartedAtMs;
+        if (elapsedMs >= MAX_SYSTEM_SPLASH_MS) {
+            if (bootOverlay != null && !bootOverlay.isVisible()) {
+                bootOverlay.show("Connecting…");
+            }
+            systemSplashReleased = true;
+            return false;
+        }
+        return true;
+    }
+
+    private void scheduleSlowBootHandoff() {
+        cancelSplashRelease();
+        activeSplashRelease = () -> {
+            activeSplashRelease = null;
+            if (isInactive() || appReadyForReveal) {
+                return;
+            }
+            if (bootOverlay != null && !bootOverlay.isVisible()) {
+                bootOverlay.show("Connecting…");
+            }
+            systemSplashReleased = true;
+            invalidateContent();
+        };
+        mainHandler.postDelayed(activeSplashRelease, MAX_SYSTEM_SPLASH_MS);
+    }
+
+    private void invalidateContent() {
+        View content = findViewById(android.R.id.content);
+        if (content != null) {
+            content.invalidate();
+        }
+    }
+
+    private void cancelSplashRelease() {
+        if (activeSplashRelease != null) {
+            mainHandler.removeCallbacks(activeSplashRelease);
+            activeSplashRelease = null;
+        }
+    }
+
+    private static void removeSplashQuietly(androidx.core.splashscreen.SplashScreenViewProvider provider) {
+        try {
+            provider.remove();
+        } catch (RuntimeException ignored) {
+            // Activity or window may already be tearing down.
         }
     }
 
@@ -200,7 +280,7 @@ public class MainActivity extends BridgeActivity {
         );
         if (action == WebViewHealthMonitor.PageStartAction.CANCEL_FOR_OFFLINE) {
             restoreDefaultCacheMode(view);
-            dismissBootOverlay();
+            markAppReadyForReveal();
             return;
         }
         if (action == WebViewHealthMonitor.PageStartAction.ARM_STALL_WATCHDOG) {
@@ -215,10 +295,10 @@ public class MainActivity extends BridgeActivity {
         String effectiveUrl = url != null && !url.isEmpty() ? url : view.getUrl();
         if (WebViewHealthMonitor.isOfflineUrl(effectiveUrl, getErrorUrl())) {
             restoreDefaultCacheMode(view);
-            dismissBootOverlay();
+            markAppReadyForReveal();
             return;
         }
-        if (bootOverlay != null && bootOverlay.isVisible()) {
+        if (isWaitingForReveal()) {
             startEarlyMountPolls(0);
         }
     }
@@ -233,11 +313,11 @@ public class MainActivity extends BridgeActivity {
         String errorUrl = getErrorUrl();
         WebViewHealthMonitor.PageLoadAction action = healthMonitor.onPageLoaded(url, errorUrl);
         if (action == WebViewHealthMonitor.PageLoadAction.CLEAR_FOR_OFFLINE) {
-            dismissBootOverlay();
+            markAppReadyForReveal();
             return;
         }
         if (action == WebViewHealthMonitor.PageLoadAction.SCHEDULE_POST_LOAD_CHECK) {
-            if (bootOverlay != null && bootOverlay.isVisible()) {
+            if (isWaitingForReveal()) {
                 startEarlyMountPolls(0);
             }
             schedulePostLoadCheck();
@@ -283,14 +363,14 @@ public class MainActivity extends BridgeActivity {
                 break;
             case LOAD_APP_URL:
                 if (bootOverlay != null) {
-                    bootOverlay.showForRecovery("Connecting…");
+                    bootOverlay.show("Connecting…");
                 }
                 armStallWatchdog(WebViewHealthMonitor.STALL_TIMEOUT_MS);
                 loadAppUrl(webView, false);
                 break;
             case RELOAD_STALLED_WITH_CLEAN_CACHE:
                 if (bootOverlay != null) {
-                    bootOverlay.showForRecovery("Retrying…");
+                    bootOverlay.show("Retrying…");
                 }
                 armStallWatchdog(WebViewHealthMonitor.STALL_TIMEOUT_MS);
                 reloadWithCleanCache(webView, getAppUrl());
@@ -306,28 +386,32 @@ public class MainActivity extends BridgeActivity {
                     }
                     if (healthMonitor.onWarmReadinessEvaluated(current.getUrl(), getErrorUrl(), result)) {
                         if (bootOverlay != null) {
-                            bootOverlay.showForRecovery("Reconnecting…");
+                            bootOverlay.show("Reconnecting…");
                         }
                         healthMonitor.onManualRetry(SystemClock.uptimeMillis());
                         armStallWatchdog(WebViewHealthMonitor.STALL_TIMEOUT_MS);
                         reloadWithCleanCache(current, getAppUrl());
                     } else {
-                        dismissBootOverlay();
+                        markAppReadyForReveal();
                     }
                 });
                 break;
         }
     }
 
+    private boolean isWaitingForReveal() {
+        return !appReadyForReveal || (bootOverlay != null && bootOverlay.isVisible());
+    }
+
     private void startEarlyMountPolls(int index) {
         cancelEarlyPolls();
-        if (destroyed || bootOverlay == null || !bootOverlay.isVisible() || index >= EARLY_MOUNT_POLL_DELAYS_MS.length) {
+        if (destroyed || !isWaitingForReveal() || index >= EARLY_MOUNT_POLL_DELAYS_MS.length) {
             return;
         }
         final int pollGen = earlyPollGeneration;
         activeEarlyPoll = () -> {
             activeEarlyPoll = null;
-            if (isInactive() || pollGen != earlyPollGeneration || bootOverlay == null || !bootOverlay.isVisible()) {
+            if (isInactive() || pollGen != earlyPollGeneration || !isWaitingForReveal()) {
                 return;
             }
             WebView webView = getActiveWebView();
@@ -338,7 +422,7 @@ public class MainActivity extends BridgeActivity {
             String errorUrl = getErrorUrl();
             if (WebViewHealthMonitor.isOfflineUrl(url, errorUrl)) {
                 healthMonitor.onEarlyMountConfirmed(url, errorUrl);
-                dismissBootOverlay();
+                markAppReadyForReveal();
                 return;
             }
             webView.evaluateJavascript(WebViewHealthMonitor.READINESS_CHECK_JS, value -> {
@@ -350,7 +434,7 @@ public class MainActivity extends BridgeActivity {
                     String currentUrl = current != null ? current.getUrl() : url;
                     healthMonitor.onEarlyMountConfirmed(currentUrl, getErrorUrl());
                     cancelPendingChecks();
-                    dismissBootOverlay();
+                    markAppReadyForReveal();
                 } else {
                     startEarlyMountPolls(index + 1);
                 }
@@ -386,7 +470,7 @@ public class MainActivity extends BridgeActivity {
         String errorUrl = getErrorUrl();
         if (WebViewHealthMonitor.isOfflineUrl(url, errorUrl)) {
             healthMonitor.onPageLoaded(url, errorUrl);
-            dismissBootOverlay();
+            markAppReadyForReveal();
             return;
         }
         evaluateReadiness(webView, result -> {
@@ -403,11 +487,15 @@ public class MainActivity extends BridgeActivity {
     private void applyRecoveryAction(WebView view, WebViewHealthMonitor.RecoveryAction action) {
         switch (action) {
             case NONE:
-                dismissBootOverlay();
+                markAppReadyForReveal();
                 break;
             case RETRY_WITH_CLEAN_CACHE:
                 if (bootOverlay != null) {
-                    bootOverlay.setStatus("Retrying…");
+                    if (bootOverlay.isVisible()) {
+                        bootOverlay.setStatus("Retrying…");
+                    } else {
+                        bootOverlay.show("Retrying…");
+                    }
                 }
                 armStallWatchdog(WebViewHealthMonitor.STALL_TIMEOUT_MS);
                 reloadWithCleanCache(view, getAppUrl());
@@ -425,7 +513,7 @@ public class MainActivity extends BridgeActivity {
             view.stopLoading();
             view.loadUrl(errorUrl);
         }
-        dismissBootOverlay();
+        markAppReadyForReveal();
     }
 
     private void evaluateReadiness(WebView view, ValueCallback<String> onResult) {
@@ -491,11 +579,14 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void dismissBootOverlay() {
+    private void markAppReadyForReveal() {
+        appReadyForReveal = true;
+        cancelSplashRelease();
         cancelEarlyPolls();
         if (bootOverlay != null) {
             bootOverlay.dismiss();
         }
+        invalidateContent();
     }
 
     private void cancelPendingChecks() {

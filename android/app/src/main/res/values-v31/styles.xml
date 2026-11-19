@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ draws the splash itself from the launch theme. Without an
-         explicit colour it falls back to the light window background and
-         flashes white before the navy splash drawable takes over. -->
-    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBarLaunch.Base">
-        <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
+    <!-- Android 12+ draws the initial splash directly from platform attributes
+         before the process starts. Match AppTheme.NoActionBarLaunch so the
+         handoff into the app surface is completely seamless. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/app_surface</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:windowSplashScreenBackground">@color/app_surface</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
 </resources>
