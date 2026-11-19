@@ -9,7 +9,6 @@ import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
-import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.Map;
@@ -19,8 +18,9 @@ public class AlertsMessagingService extends FirebaseMessagingService {
     @Override
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
+        AlertsPlugin.setTopicSubscribed(this, false);
         if (!AlertsPlugin.isMuted(this) && AlertsPlugin.isFirebaseConfigured(this)) {
-            FirebaseMessaging.getInstance().subscribeToTopic(AlertsPlugin.TOPIC_ALERTS);
+            AlertsPlugin.subscribeTopicAsync(this);
         }
     }
 

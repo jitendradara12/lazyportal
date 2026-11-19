@@ -10,7 +10,7 @@ public class WebViewHealthMonitorTest {
     private static final String ERROR_URL = "https://localhost/offline.html";
 
     @Test
-    public void recognizesOfflineAndBlankUrlsSafely() {
+    public void recognizesOfflineBlankAndOriginUrlsSafely() {
         assertTrue(WebViewHealthMonitor.isOfflineUrl(ERROR_URL, ERROR_URL));
         assertTrue(WebViewHealthMonitor.isOfflineUrl(ERROR_URL + "?retry=1", ERROR_URL));
         assertTrue(WebViewHealthMonitor.isOfflineUrl(ERROR_URL + "#top", ERROR_URL));
@@ -31,6 +31,12 @@ public class WebViewHealthMonitorTest {
         assertFalse(WebViewHealthMonitor.isMountedResult("false"));
         assertFalse(WebViewHealthMonitor.isMountedResult("null"));
         assertFalse(WebViewHealthMonitor.isMountedResult(null));
+
+        assertTrue(WebViewHealthMonitor.sameOrigin("https://lazyportal-tan.vercel.app/attendance", APP_URL));
+        assertTrue(WebViewHealthMonitor.sameOrigin("HTTPS://LAZYPORTAL-TAN.VERCEL.APP:443/", APP_URL));
+        assertFalse(WebViewHealthMonitor.sameOrigin("https://static.cloudflareinsights.com/beacon.min.js", APP_URL));
+        assertFalse(WebViewHealthMonitor.sameOrigin("http://lazyportal-tan.vercel.app/", APP_URL));
+        assertFalse(WebViewHealthMonitor.sameOrigin("not a url", APP_URL));
     }
 
     @Test
@@ -39,6 +45,36 @@ public class WebViewHealthMonitorTest {
             "(() => { const r = document.getElementById('root'); return Boolean(r && r.childElementCount > 0); })()",
             WebViewHealthMonitor.READINESS_CHECK_JS
         );
+    }
+
+    @Test
+    public void coldBootArmsWatchdogEvenIfOnPageStartedNeverFires() {
+        WebViewHealthMonitor monitor = new WebViewHealthMonitor();
+
+        assertEquals(
+            WebViewHealthMonitor.PageStartAction.ARM_STALL_WATCHDOG,
+            monitor.onBootStarted(1_000L)
+        );
+        assertTrue(monitor.isLoadInProgress());
+
+        // First onStart() is cold start and leaves boot watchdog intact.
+        assertEquals(
+            WebViewHealthMonitor.WarmStartAction.NONE,
+            monitor.onStart(APP_URL, ERROR_URL, 1_050L).action
+        );
+
+        // Backgrounding and returning before stall timeout re-arms remaining window.
+        WebViewHealthMonitor.WarmStartDecision rearm =
+            monitor.onStart(APP_URL, ERROR_URL, 3_500L);
+        assertEquals(WebViewHealthMonitor.WarmStartAction.REARM_STALL_WATCHDOG, rearm.action);
+        assertEquals(WebViewHealthMonitor.STALL_TIMEOUT_MS - 2_500L, rearm.remainingWatchdogMs);
+
+        // Returning past stall timeout immediately reloads with clean cache.
+        assertEquals(
+            WebViewHealthMonitor.WarmStartAction.RELOAD_STALLED_WITH_CLEAN_CACHE,
+            monitor.onStart(APP_URL, ERROR_URL, 1_000L + WebViewHealthMonitor.STALL_TIMEOUT_MS).action
+        );
+        assertTrue(monitor.hasRetriedWithCleanCache());
     }
 
     @Test
@@ -59,11 +95,69 @@ public class WebViewHealthMonitorTest {
             WebViewHealthMonitor.PageLoadAction.SCHEDULE_POST_LOAD_CHECK,
             monitor.onPageLoaded(APP_URL, ERROR_URL)
         );
+        assertFalse(monitor.isLoadInProgress());
+        assertEquals(WebViewHealthMonitor.LoadState.AWAITING_MOUNT, monitor.getState());
+
         assertEquals(
             WebViewHealthMonitor.RecoveryAction.NONE,
             monitor.onReadinessEvaluated(APP_URL, ERROR_URL, "true")
         );
+        assertTrue(monitor.isMounted());
         assertFalse(monitor.isLoadInProgress());
+        assertFalse(monitor.hasRetriedWithCleanCache());
+    }
+
+    @Test
+    public void warmResumeDuringPostLoadGraceChecksReadinessInsteadOfReloading() {
+        WebViewHealthMonitor monitor = new WebViewHealthMonitor();
+
+        monitor.onBootStarted(1_000L);
+        monitor.onStart(APP_URL, ERROR_URL, 1_010L);
+        monitor.onPageStarted(APP_URL, ERROR_URL, 1_200L);
+        monitor.onPageLoaded(APP_URL, ERROR_URL);
+
+        // User switched away during POST_LOAD_GRACE_MS and returned 20s later.
+        // Page already finished loading; check readiness instead of blowing it away.
+        assertEquals(
+            WebViewHealthMonitor.WarmStartAction.CHECK_READINESS,
+            monitor.onStart(APP_URL, ERROR_URL, 25_000L).action
+        );
+        assertFalse(monitor.onWarmReadinessEvaluated(APP_URL, ERROR_URL, "true"));
+        assertTrue(monitor.isMounted());
+    }
+
+    @Test
+    public void earlyMountConfirmationMarksMountedAndResetsRetryBudget() {
+        WebViewHealthMonitor monitor = new WebViewHealthMonitor();
+
+        monitor.onBootStarted(1_000L);
+        assertEquals(
+            WebViewHealthMonitor.RecoveryAction.RETRY_WITH_CLEAN_CACHE,
+            monitor.onReadinessEvaluated(APP_URL, ERROR_URL, "false")
+        );
+        assertTrue(monitor.hasRetriedWithCleanCache());
+
+        monitor.onEarlyMountConfirmed(APP_URL, ERROR_URL);
+        assertTrue(monitor.isMounted());
+        assertFalse(monitor.hasRetriedWithCleanCache());
+    }
+
+    @Test
+    public void manualRetryResetsBudgetAndArmsWatchdog() {
+        WebViewHealthMonitor monitor = new WebViewHealthMonitor();
+
+        monitor.onBootStarted(1_000L);
+        assertEquals(
+            WebViewHealthMonitor.RecoveryAction.RETRY_WITH_CLEAN_CACHE,
+            monitor.onReadinessEvaluated(APP_URL, ERROR_URL, "false")
+        );
+        assertTrue(monitor.hasRetriedWithCleanCache());
+
+        assertEquals(
+            WebViewHealthMonitor.PageStartAction.ARM_STALL_WATCHDOG,
+            monitor.onManualRetry(10_000L)
+        );
+        assertTrue(monitor.isLoadInProgress());
         assertFalse(monitor.hasRetriedWithCleanCache());
     }
 
@@ -178,6 +272,31 @@ public class WebViewHealthMonitorTest {
             monitor.onStart(ERROR_URL, ERROR_URL, 20_000L).action
         );
         assertFalse(monitor.onWarmReadinessEvaluated(ERROR_URL, ERROR_URL, "false"));
+    }
+
+    @Test
+    public void sslFallbackOnlyTriggersForMainAppOriginBeforeMount() {
+        WebViewHealthMonitor monitor = new WebViewHealthMonitor();
+        monitor.onBootStarted(1_000L);
+
+        assertTrue(monitor.shouldFallbackOnSslError(APP_URL, APP_URL));
+        assertTrue(monitor.shouldFallbackOnSslError(APP_URL + "assets/app.js", APP_URL));
+        assertFalse(monitor.shouldFallbackOnSslError("https://static.cloudflareinsights.com/beacon.min.js", APP_URL));
+
+        monitor.onEarlyMountConfirmed(APP_URL, ERROR_URL);
+        assertFalse(monitor.shouldFallbackOnSslError(APP_URL, APP_URL));
+    }
+
+    @Test
+    public void renderProcessRecoveryEnforcesCooldownAgainstCrashLoops() {
+        assertTrue(WebViewHealthMonitor.shouldRecreateOnRenderProcessGone(1_000L, 0L));
+        assertFalse(WebViewHealthMonitor.shouldRecreateOnRenderProcessGone(3_000L, 1_000L));
+        assertTrue(
+            WebViewHealthMonitor.shouldRecreateOnRenderProcessGone(
+                1_000L + WebViewHealthMonitor.RENDER_RECOVERY_COOLDOWN_MS,
+                1_000L
+            )
+        );
     }
 
     @Test

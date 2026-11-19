@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="notification_accent">#1a237e</color>
+    <color name="app_surface">#FCF8FD</color>
+    <color name="app_on_surface">#1C1B1F</color>
+    <color name="app_on_surface_variant">#48454E</color>
+    <color name="app_accent">#4A4459</color>
+    <color name="app_on_accent">#FFFFFF</color>
 </resources>

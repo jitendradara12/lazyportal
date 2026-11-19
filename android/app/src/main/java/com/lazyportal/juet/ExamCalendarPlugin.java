@@ -31,8 +31,13 @@ public class ExamCalendarPlugin extends Plugin {
             call.reject("Invalid exam times");
             return;
         }
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Calendar unavailable");
+            return;
+        }
         try {
-            getActivity().startActivity(intent);
+            activity.startActivity(intent);
             call.resolve();
         } catch (ActivityNotFoundException exception) {
             call.reject("No calendar app available", exception);
@@ -84,7 +89,12 @@ public class ExamCalendarPlugin extends Plugin {
             call.reject("No file selected");
             return;
         }
-        try (OutputStream output = getContext().getContentResolver().openOutputStream(uri, "w")) {
+        android.content.Context context = getContext();
+        if (context == null) {
+            call.reject("Could not save calendar file");
+            return;
+        }
+        try (OutputStream output = context.getContentResolver().openOutputStream(uri, "w")) {
             if (output == null) throw new IOException("Cannot open calendar file");
             output.write(content.getBytes(StandardCharsets.UTF_8));
         } catch (IOException | SecurityException exception) {

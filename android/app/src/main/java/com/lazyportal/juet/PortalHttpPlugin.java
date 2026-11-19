@@ -72,7 +72,13 @@ public class PortalHttpPlugin extends Plugin {
     }
 
     protected PortalTransport createTransport(PortalPolicy policy) throws Exception {
-        return new PortalTransport(policy, new PortalTls(getContext(), policy));
+        PortalTls tls = new PortalTls(getContext(), policy);
+        try {
+            executor.execute(tls::warmUp);
+        } catch (RejectedExecutionException ignored) {
+            // Lazy initialization in PortalTls.open() still covers the first request.
+        }
+        return new PortalTransport(policy, tls);
     }
 
     @PluginMethod public void capabilities(PluginCall call) {

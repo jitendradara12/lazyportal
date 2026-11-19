@@ -41,6 +41,7 @@ public class AlertsPlugin extends Plugin {
     static final String PREFS_NAME = "juet_alerts_prefs";
     static final String KEY_MUTED = "muted";
     static final String KEY_PERMANENTLY_DENIED = "permanently_denied";
+    static final String KEY_TOPIC_SUBSCRIBED = "topic_subscribed";
 
     static final String EXTRA_TAB = "tab";
     static final String EXTRA_MODE = "mode";
@@ -57,15 +58,26 @@ public class AlertsPlugin extends Plugin {
 
     @Override
     public void load() {
-        Context context = getContext();
-        ensureNotificationChannel(context);
-        if (isFirebaseConfigured(context) && !isMuted(context) && hasPostNotificationsPermission(context)) {
-            FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS);
-        }
         Activity activity = getActivity();
         if (activity != null) {
             captureNotificationIntent(activity.getIntent(), false);
         }
+        Context context = getContext();
+        if (context == null) return;
+        final Context appContext = context.getApplicationContext();
+        // Move channel creation and Firebase initialization off MainActivity.onCreate()
+        // so cold launch reaches WebView loading immediately.
+        Thread initThread = new Thread(() -> {
+            ensureNotificationChannel(appContext);
+            if (!isMuted(appContext)
+                && !isTopicSubscribed(appContext)
+                && hasPostNotificationsPermission(appContext)
+                && isFirebaseConfigured(appContext)) {
+                subscribeTopicAsync(appContext);
+            }
+        }, "juet-alerts-init");
+        initThread.setDaemon(true);
+        initThread.start();
     }
 
     @Override
@@ -80,8 +92,8 @@ public class AlertsPlugin extends Plugin {
         boolean configured = isFirebaseConfigured(context);
         String permission = resolvePermissionStatus();
         boolean muted = isMuted(context);
-        if (configured && !muted && "granted".equals(permission)) {
-            FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS);
+        if (configured && !muted && "granted".equals(permission) && !isTopicSubscribed(context)) {
+            subscribeTopicAsync(context.getApplicationContext());
         }
         call.resolve(buildStatus(configured, muted, permission));
     }
@@ -96,6 +108,7 @@ public class AlertsPlugin extends Plugin {
         boolean wantMuted = Boolean.TRUE.equals(call.getBoolean("muted", false));
         if (wantMuted) {
             setMutedPref(context, true);
+            setTopicSubscribed(context, false);
             FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC_ALERTS);
             call.resolve(buildStatus(true, true, resolvePermissionStatus()));
             return;
@@ -176,8 +189,31 @@ public class AlertsPlugin extends Plugin {
         Context context = getContext();
         ensureNotificationChannel(context);
         setMutedPref(context, false);
-        FirebaseMessaging.getInstance().subscribeToTopic(TOPIC_ALERTS);
+        if (context != null) {
+            subscribeTopicAsync(context.getApplicationContext());
+        }
         call.resolve(buildStatus(true, false, "granted"));
+    }
+
+    static void subscribeTopicAsync(Context context) {
+        if (context == null) return;
+        final Context appContext = context.getApplicationContext();
+        FirebaseMessaging.getInstance()
+            .subscribeToTopic(TOPIC_ALERTS)
+            .addOnSuccessListener(unused -> setTopicSubscribed(appContext, true));
+    }
+
+    static boolean isTopicSubscribed(Context context) {
+        if (context == null) return false;
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_TOPIC_SUBSCRIBED, false);
+    }
+
+    static void setTopicSubscribed(Context context, boolean subscribed) {
+        if (context == null) return;
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_TOPIC_SUBSCRIBED, subscribed)
+            .apply();
     }
 
     private void captureNotificationIntent(Intent intent, boolean notify) {

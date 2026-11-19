@@ -7,5 +7,10 @@
     "url": "https://lazyportal-tan.vercel.app",
     "cleartext": false,
     "errorPath": "offline.html"
+  },
+  "plugins": {
+    "SystemBars": {
+      "initialViewportFitValueHint": "cover"
+    }
   }
 }

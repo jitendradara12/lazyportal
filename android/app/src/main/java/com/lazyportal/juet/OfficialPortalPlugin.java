@@ -2,8 +2,10 @@ package com.lazyportal.juet;
 
 import android.app.Activity;
 import android.content.Context;
-import android.webkit.WebView;
+import android.os.Handler;
+import android.os.Looper;
 import android.webkit.WebStorage;
+import android.webkit.WebView;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.JSObject;
@@ -20,29 +22,65 @@ import com.lazyportal.juet.officialportal.PortalStorage;
  * the packaged policy independently confines every network operation. */
 @CapacitorPlugin(name = "OfficialPortal")
 public class OfficialPortalPlugin extends Plugin {
+    private static final String PREFS_NAME = "juet_official_portal_prefs";
+    private static final String KEY_STORAGE_DIRTY = "storage_dirty";
+    private static final long STARTUP_CLEANUP_DELAY_MS = 2_500L;
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private OfficialPortalView portal;
     private PortalPolicy policy;
     private WebViewListener pageListener;
+    private Runnable pendingStartupCleanup;
     private volatile boolean destroyed;
 
     @Override public void load() {
-        try {
-            Context context = getContext();
-            if (context != null) policy = PortalPolicy.load(context);
-        } catch (Exception ignored) { /* open() reports a missing/broken policy. */ }
-        // Also remove storage left by a process kill, which may skip dismiss.
-        Activity activity = getActivity();
-        if (activity != null) {
-            activity.runOnUiThread(() -> {
-                Activity current = getActivity();
-                if (!destroyed && policy != null && current != null) PortalStorage.clear(current, policy.origin, success -> {});
-            });
-        }
         pageListener = new WebViewListener() {
             @Override public void onPageStarted(WebView view) { closeView(); }
         };
         Bridge bridge = getBridge();
         if (bridge != null) bridge.addWebViewListener(pageListener);
+
+        // Only run the legacy/crash storage cleanup WebView when storage may actually exist,
+        // and defer it off cold-start so a second WebView never contends with initial app boot.
+        Context context = getContext();
+        if (context != null && isStorageDirty(context)) {
+            scheduleDeferredStartupCleanup();
+        }
+    }
+
+    private void scheduleDeferredStartupCleanup() {
+        cancelStartupCleanup();
+        pendingStartupCleanup = () -> {
+            pendingStartupCleanup = null;
+            if (destroyed || portal != null) return;
+            Looper.myQueue().addIdleHandler(() -> {
+                Activity current = getActivity();
+                if (destroyed || portal != null || current == null || current.isFinishing() || current.isDestroyed()) {
+                    return false;
+                }
+                if (!isStorageDirty(current)) return false;
+                try {
+                    if (policy == null) policy = PortalPolicy.load(current);
+                } catch (Exception ignored) {
+                    return false;
+                }
+                if (policy == null) return false;
+                PortalStorage.clear(current, policy.origin, success -> {
+                    if (success && !destroyed && portal == null) {
+                        setStorageDirty(current, false);
+                    }
+                });
+                return false;
+            });
+        };
+        mainHandler.postDelayed(pendingStartupCleanup, STARTUP_CLEANUP_DELAY_MS);
+    }
+
+    private void cancelStartupCleanup() {
+        if (pendingStartupCleanup != null) {
+            mainHandler.removeCallbacks(pendingStartupCleanup);
+            pendingStartupCleanup = null;
+        }
     }
 
     @PluginMethod public void open(PluginCall call) {
@@ -71,8 +109,12 @@ public class OfficialPortalPlugin extends Plugin {
                 if (call.getInt("version", 0) != policy.version) {
                     call.reject("Update Lazyportal to open this portal view."); return;
                 }
+                cancelStartupCleanup();
+                setStorageDirty(current, true);
                 portal = new OfficialPortalView(current, policy, bootstrap, expired -> {
-                    portal = null; call.resolve(new JSObject().put("expired", expired));
+                    portal = null;
+                    setStorageDirty(current, false);
+                    call.resolve(new JSObject().put("expired", expired));
                 });
                 portal.show();
             } catch (Exception error) {
@@ -89,13 +131,23 @@ public class OfficialPortalPlugin extends Plugin {
             return;
         }
         activity.runOnUiThread(() -> {
+            cancelStartupCleanup();
             closeView();
             Activity current = getActivity();
+            if (policy == null) {
+                try {
+                    if (current != null) policy = PortalPolicy.load(current);
+                } catch (Exception ignored) { /* Proceed as nothing to clear if policy unavailable. */ }
+            }
             if (policy == null) call.resolve();
             else if (destroyed || current == null) call.reject("Could not clear the old portal session. Please restart the app.");
             else PortalStorage.clear(current, policy.origin, success -> {
-                if (success) call.resolve();
-                else call.reject("Could not clear the old portal session. Please restart the app.");
+                if (success) {
+                    setStorageDirty(current, false);
+                    call.resolve();
+                } else {
+                    call.reject("Could not clear the old portal session. Please restart the app.");
+                }
             });
         });
     }
@@ -103,10 +155,24 @@ public class OfficialPortalPlugin extends Plugin {
     private void closeView() {
         if (portal != null) { portal.close(); portal = null; }
         if (policy != null) WebStorage.getInstance().deleteOrigin(policy.origin);
+        Context context = getContext();
+        if (context != null) setStorageDirty(context, false);
+    }
+
+    private static boolean isStorageDirty(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_STORAGE_DIRTY, true);
+    }
+
+    private static void setStorageDirty(Context context, boolean dirty) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_STORAGE_DIRTY, dirty)
+            .apply();
     }
 
     @Override protected void handleOnDestroy() {
         destroyed = true;
+        cancelStartupCleanup();
         Bridge bridge = getBridge();
         if (pageListener != null && bridge != null) bridge.removeWebViewListener(pageListener);
         Activity activity = getActivity();
