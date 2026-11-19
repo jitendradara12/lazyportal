@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useShell } from "../components/AppBar";
+import { useShell } from "./useShell";
 import { sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "./useFeature";
 import { recordRefreshAttempt, shouldThrottleRefresh } from "../lib/portalSchedule";
 import { getRefreshThrottleMs, getSessionStatus, type RefreshPage } from "../lib/portal";

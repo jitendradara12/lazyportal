@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { writePersistentValue } from "../lib/persistentState.ts";
+
+export { writePersistentValue };
 
 function readValue(key: string, initial: string | null): string | null {
   try {
@@ -29,23 +32,6 @@ export function resolvePersistentEventValue(
   if (changedKey !== key && changedKey !== null) return { match: false, value: initial };
   const value = ce.detail && "value" in ce.detail ? (ce.detail.value ?? initial) : readValue(key, initial);
   return { match: true, value };
-}
-
-/** Persist to localStorage (best effort) and broadcast in-memory update across mounted hooks. */
-export function writePersistentValue(key: string, next: string | null): void {
-  try {
-    if (next === null) globalThis.localStorage?.removeItem(`juet.portal.${key}`);
-    else globalThis.localStorage?.setItem(`juet.portal.${key}`, next);
-  } catch {
-    /* storage blocked or quota exceeded */
-  }
-  try {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-      window.dispatchEvent(new CustomEvent("juet:persistent-state", { detail: { key, value: next } }));
-    }
-  } catch {
-    /* dispatch blocked */
-  }
 }
 
 /** useState persisted to localStorage, so semester picks survive reloads. */

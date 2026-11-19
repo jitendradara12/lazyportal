@@ -1,23 +1,8 @@
-/** App shell context + top app bar shared by every tab. */
-import { createContext, useContext, type ComponentPropsWithoutRef, type ReactNode } from "react";
+/** Top app bar and semester pickers shared across tabs. */
+import { type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { ChevronDown, RefreshIcon } from "./icons";
+import { useShell } from "../hooks/useShell";
 import { SLOW_PORTAL_MESSAGE, useSlowRequest } from "../hooks/useSlowRequest";
-
-export interface Shell {
-  isExpired: boolean;
-  isRecovering: boolean;
-  requestRenew: () => void;
-  setShorts: (n: number) => void;
-}
-
-export const ShellContext = createContext<Shell>({
-  isExpired: false,
-  isRecovering: false,
-  requestRenew() {},
-  setShorts() {},
-});
-
-export const useShell = () => useContext(ShellContext);
 
 export function TopBar({
   title,

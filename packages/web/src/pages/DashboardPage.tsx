@@ -4,7 +4,7 @@ import { AttendancePage } from "./AttendancePage";
 import { MorePage, ReconnectModal, prefetchIdle } from "../lazy";
 import { ListSkeleton } from "../components/DataViews";
 import { NavigationBar, type NavItem } from "../components/NavigationBar";
-import { ShellContext, type Shell } from "../components/AppBar";
+import { ShellContext, type Shell } from "../hooks/useShell";
 import { AttendanceIcon, MoreIcon } from "../components/icons";
 import type { Session } from "../types";
 import { BackScope, useAppBack } from "../hooks/useAppBack";
@@ -80,7 +80,6 @@ export function DashboardPage({
     const onHash = () => setTab(tabFromHash(ids));
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
   useEffect(() => {
@@ -119,7 +118,6 @@ export function DashboardPage({
       if (pending) applyAction(pending);
     });
     return subscribeNotificationAction(applyAction);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
   useEffect(prefetchIdle, []);

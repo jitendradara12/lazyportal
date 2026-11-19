@@ -4,7 +4,7 @@ import { usePersistentState } from "../hooks/usePersistentState";
 import { isCurrentPortalDay } from "../lib/portalSchedule";
 import { titleCase } from "../lib/attendanceCalc";
 import { dateFormatter } from "../lib/dateFormat";
-import { useShell } from "./AppBar";
+import { useShell } from "../hooks/useShell";
 
 export { titleCase };
 
@@ -143,6 +143,11 @@ export function SectionError({
   const { isOffline, isDown, isTransient } = classifySectionError(error);
   const retryRef = useRef(retry);
   retryRef.current = retry;
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (retryTimer.current !== null) clearTimeout(retryTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!autoRetry) return;
@@ -157,7 +162,11 @@ export function SectionError({
     if (retrying) return;
     setRetrying(true);
     retry();
-    setTimeout(() => setRetrying(false), 600);
+    if (retryTimer.current !== null) clearTimeout(retryTimer.current);
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      setRetrying(false);
+    }, 600);
   };
 
   return (

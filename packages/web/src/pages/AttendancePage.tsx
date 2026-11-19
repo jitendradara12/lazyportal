@@ -4,7 +4,8 @@ import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurre
 import { SectionError, ListSkeleton, formatLastSync } from "../components/DataViews";
 import { SubjectDetailSheet } from "../lazy";
 import { selectionHaptic } from "../lib/nativeInteractions";
-import { TopBar, useShell } from "../components/AppBar";
+import { TopBar } from "../components/AppBar";
+import { useShell } from "../hooks/useShell";
 import { AppUpdatePromptBanner } from "../components/AppUpdatePromptBanner";
 import { useTabRefresh } from "../hooks/useAlerts";
 import {

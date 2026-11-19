@@ -65,7 +65,6 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
     } else {
       userRef.current?.focus();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleClearSaved = () => {

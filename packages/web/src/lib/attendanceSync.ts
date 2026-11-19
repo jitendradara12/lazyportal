@@ -1,6 +1,6 @@
 import { features } from "@juet/core";
 import { client } from "./portal";
-import { getCached, setCached, sessionCacheKey, requestFeature, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
+import { getCached, setCached, sessionCacheKey, requestFeature, getCacheGeneration, isCacheGenerationCurrent } from "./featureCache";
 import {
   isSubjectDetailComplete,
   parseClassLogs,

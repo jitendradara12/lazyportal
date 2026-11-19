@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
-import { writePersistentValue } from "../hooks/usePersistentState";
+import { writePersistentValue } from "./persistentState";
 
 export type AlertTab = "attendance" | "marks" | "exams" | "calendar" | "more";
 export type AlertMode = "marks" | "cgpa";
