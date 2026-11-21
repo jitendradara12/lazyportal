@@ -29,19 +29,20 @@ async function setup(page) {
 
 test("timeline, icon-only actions and calendar contents work on mobile", async ({ page }) => {
   await setup(page);
-  await expect(page.getByRole("img", { name: "Crushed", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Crushed", exact: true })).not.toBeVisible();
   await expect(page.getByRole("img", { name: "Up next", exact: true })).toBeVisible();
-  await expect(page.getByRole("img", { name: "Upcoming", exact: true })).not.toBeVisible();
-  const toggle = page.locator("summary[aria-label='Later exams (1)']");
-  await expect(toggle).toHaveAccessibleName("Later exams (1)");
-  await toggle.click();
   await expect(page.getByRole("img", { name: "Upcoming", exact: true })).toBeVisible();
+  const toggle = page.locator("summary[aria-label='Past exams (1)']");
+  await expect(toggle).toHaveAccessibleName("Past exams (1)");
+  await toggle.click();
+  await expect(page.getByRole("img", { name: "Crushed", exact: true })).toBeVisible();
   await expect(page.locator(".exam-timeline .exam-subject")).toHaveText([
-    "Probability Theory and Random Processes", "Artificial Intelligence", "Computer Networks",
+    "Computer Networks", "Artificial Intelligence", "Probability Theory and Random Processes",
   ]);
   await toggle.click();
-  await expect(page.getByRole("heading", { name: "Probability Theory and Random Processes", exact: true })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Computer Networks", exact: true })).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "Artificial Intelligence", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Probability Theory and Random Processes", exact: true })).toBeVisible();
   const add = page.getByRole("button", { name: "Add Artificial Intelligence to calendar", exact: true });
   await expect(add).toHaveText("");
   await add.click();
@@ -70,8 +71,7 @@ test("timeline, icon-only actions and calendar contents work on mobile", async (
   await page.clock.fastForward(2 * 60 * 60 * 1000);
   await expect(page.getByRole("img", { name: "In progress", exact: true })).toBeVisible();
   await page.clock.fastForward(3 * 60 * 60 * 1000);
-  await expect(page.getByRole("img", { name: "Crushed", exact: true })).toHaveCount(2);
-  await expect(page.locator(".exam-future-group")).toHaveCount(0);
+  await expect(page.locator("summary[aria-label='Past exams (2)']")).toBeVisible();
   await expect(page.locator(".exam-stop.is-next .exam-subject")).toHaveText("Probability Theory and Random Processes");
 });
 

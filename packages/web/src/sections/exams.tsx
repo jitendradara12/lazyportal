@@ -48,7 +48,7 @@ export function ExamsSection({ session }: SectionProps) {
   // Resolve the event during render so semester changes never read the old
   // event or briefly claim that the next step in the chain has no schedules.
   const selectedEvent = examEvents.data?.find((e) => String(e.exameventid) === examEventId)
-    ?? examEvents.data?.[0];
+    ?? examEvents.data?.[examEvents.data.length - 1];
   const activeEventId = selectedEvent?.exameventid != null ? String(selectedEvent.exameventid) : null;
 
   const examRows = useFeature<ExamRow[]>({
@@ -73,10 +73,7 @@ export function ExamsSection({ session }: SectionProps) {
   const rows = examRows.data ?? [];
   const { upcoming, past, undated } = groupExams(rows, now);
   const [next] = upcoming;
-  const dated = [...past, ...upcoming].sort((a, b) => examTimes(b)!.start - examTimes(a)!.start);
-  const later = dated.filter((row) => row !== next && examTimes(row)!.start > now);
-  const laterSet = new Set(later);
-  const visible = dated.filter((row) => !laterSet.has(row));
+  const hasDated = past.length > 0 || upcoming.length > 0;
   const exportable = upcoming.filter((row) => examCalendarEvent(row) !== null);
   const semLabel = formatSemester(examSem?.registrationcode ?? examSem?.registrationdesc);
 
@@ -130,11 +127,13 @@ export function ExamsSection({ session }: SectionProps) {
           </div>
         )}
         {loading && rows.length === 0 && <ListSkeleton rows={3} label="Loading…" />}
-        {dated.length > 0 && <Timeline label="Exam schedule">
-          {later.length > 0 && <TimelineGroup key={`${examSemId}:${activeEventId}:${next ? examTimes(next)!.start : ""}`} label="Later exams" count={later.length}>
-            {later.map((row, i) => <ExamStop key={i} row={row} now={now} />)}
-          </TimelineGroup>}
-          {visible.map((row, i) => <ExamStop key={i} row={row} now={now} next={row === next} />)}
+        {hasDated && <Timeline label="Exam schedule">
+          {past.length > 0 && (
+            <TimelineGroup key={`past:${examSemId}:${activeEventId}`} label="Past exams" count={past.length}>
+              {past.map((row, i) => <ExamStop key={i} row={row} now={now} />)}
+            </TimelineGroup>
+          )}
+          {upcoming.map((row, i) => <ExamStop key={i} row={row} now={now} next={row === next} />)}
         </Timeline>}
         {undated.length > 0 && (
           <>

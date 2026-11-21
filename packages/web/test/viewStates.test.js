@@ -131,7 +131,7 @@ test("exams stay loading through the semester/events/schedule chain", () => {
   assert.match(render(ExamsSection), /No exam schedule published/);
 });
 
-test("all-past schedules remain visible as completed timeline stops", () => {
+test("all-past schedules are stacked as past exams", () => {
   values.set("juet.portal.card.exams", "1");
   selectSemester("exams");
   cache("exams.sems", [semester]);
@@ -140,7 +140,9 @@ test("all-past schedules remain visible as completed timeline stops", () => {
   const html = render(ExamsSection);
   assert.match(html, /class="exam-stop is-past"/);
   assert.match(html, /aria-label="Crushed"/);
-  assert.doesNotMatch(html, /<details|Export upcoming exams/);
+  assert.match(html, /<details/);
+  assert.match(html, /Past exams/);
+  assert.doesNotMatch(html, /Export upcoming exams/);
   assert.match(html, /<h3 class="exam-subject">Past Exam<\/h3>/);
   assert.doesNotMatch(html, /CS101|Cs101/);
   assert.match(html, /Room<\/span> LT-4/);
