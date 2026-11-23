@@ -255,9 +255,10 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
   });
   const semesters = (discovered?.key === latestKey ? discovered.semesters : null) ?? lov.data?.semesters ?? [];
   const defaultSemId = lov.data?.registrationid ?? semesters[0]?.registrationid;
+  const selectableSemesters = lov.data || lov.error ? semesters : undefined;
   const [semId, setSemId, sem] = useSemester(
     sessionCacheKey("semester", session, "marks"),
-    semesters.length > 0 ? semesters : undefined,
+    selectableSemesters?.length ? selectableSemesters : undefined,
     undefined,
     lov.data?.registrationid,
   );

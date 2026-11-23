@@ -74,24 +74,53 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
   return { rows, currentSem: body.response?.currentSem };
 }
 
-/** Daily attendance in one call: LOV -> latest active registration -> detail rows.
- * When JUET adds an upcoming semester (e.g. next term before classes start) at
- * semlist[0] with zero attendance rows, fall back one slot to semlist[1] while
- * keeping semesters in portal order so the new term activates automatically. */
-export async function getAttendance(client, session, cachedLov, { signal } = {}) {
-  const usedCache = Array.isArray(cachedLov?.semesters) && cachedLov.semesters.length > 0;
-  const lov = usedCache ? cachedLov : await getAttendanceRegistrations(client, session, { signal });
-  const sems = asArray(lov?.semesters);
-  const sem = sems[0];
-  if (!sem) return { header: lov?.header ?? null, semesters: sems, registrationid: null, registrationcode: null, rows: [], currentSem: null };
-  const isFatal = (err) =>
+function isFatalPortalError(err, signal) {
+  return Boolean(
     signal?.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR" ||
     err?.code === "SESSION_EXPIRED" ||
     err?.code === "NETWORK_ERROR" ||
     err?.code === "REQUEST_TIMEOUT" ||
     err?.code === "INVALID_RESPONSE" ||
     err?.status === 401 ||
-    (typeof err?.status === "number" && err.status >= 500);
+    (typeof err?.status === "number" && err.status >= 500)
+  );
+}
+
+/** Daily attendance in one call: LOV -> latest active registration -> detail rows.
+ * When JUET adds an upcoming semester (e.g. next term before classes start) at
+ * semlist[0] with zero attendance rows or a future-date portal error, fall back
+ * one slot to semlist[1] while keeping semesters in portal order. */
+export async function getAttendance(client, session, cachedLov, { signal } = {}) {
+  const usedCache = Array.isArray(cachedLov?.semesters) && cachedLov.semesters.length > 0;
+  const lov = usedCache ? cachedLov : await getAttendanceRegistrations(client, session, { signal });
+  const sems = asArray(lov?.semesters);
+  const sem = sems[0];
+  if (!sem) return { header: lov?.header ?? null, semesters: sems, registrationid: null, registrationcode: null, rows: [], currentSem: null };
+
+  const tryPrevSem = async () => {
+    const prevSem = sems[1];
+    if (!prevSem) return null;
+    try {
+      const fallback = await getAttendanceDetail(client, session, {
+        stynumber: lov?.header?.stynumber,
+        registrationid: prevSem.registrationid,
+        registrationcode: prevSem.registrationcode,
+      }, { signal });
+      if (fallback.rows.length > 0) {
+        return {
+          header: lov?.header ?? null,
+          semesters: sems,
+          registrationid: prevSem.registrationid,
+          registrationcode: prevSem.registrationcode,
+          ...fallback,
+        };
+      }
+    } catch (fallbackErr) {
+      if (isFatalPortalError(fallbackErr, signal)) throw fallbackErr;
+    }
+    return null;
+  };
+
   try {
     const detail = await getAttendanceDetail(client, session, {
       stynumber: lov?.header?.stynumber,
@@ -102,27 +131,8 @@ export async function getAttendance(client, session, cachedLov, { signal } = {})
       if (usedCache) {
         return getAttendance(client, session, undefined, { signal });
       }
-      const prevSem = sems[1];
-      if (prevSem) {
-        try {
-          const fallback = await getAttendanceDetail(client, session, {
-            stynumber: lov?.header?.stynumber,
-            registrationid: prevSem.registrationid,
-            registrationcode: prevSem.registrationcode,
-          }, { signal });
-          if (fallback.rows.length > 0) {
-            return {
-              header: lov?.header ?? null,
-              semesters: sems,
-              registrationid: prevSem.registrationid,
-              registrationcode: prevSem.registrationcode,
-              ...fallback,
-            };
-          }
-        } catch (fallbackErr) {
-          if (isFatal(fallbackErr)) throw fallbackErr;
-        }
-      }
+      const fallback = await tryPrevSem();
+      if (fallback) return fallback;
     }
     return {
       header: lov?.header ?? null,
@@ -132,9 +142,13 @@ export async function getAttendance(client, session, cachedLov, { signal } = {})
       ...detail,
     };
   } catch (err) {
-    // retry with fresh LOV only on portal parameter/data errors; bubble auth/network immediately
-    if (usedCache && !isFatal(err)) {
-      return getAttendance(client, session, undefined, { signal });
+    // retry with fresh LOV or fall back to previous term on non-fatal portal errors
+    if (!isFatalPortalError(err, signal)) {
+      if (usedCache) {
+        return getAttendance(client, session, undefined, { signal });
+      }
+      const fallback = await tryPrevSem();
+      if (fallback) return fallback;
     }
     throw err;
   }
@@ -211,28 +225,40 @@ export async function getGradesLatest(client, session) {
       rows: [],
     };
   }
-  const rows = await getGradeCard(client, session, {
-    registrationid: sem.registrationid,
-    branchid: info.branchid,
-    programid: info.programid,
-  });
-  if (rows.length === 0 && semesters[1]) {
-    const prevSem = semesters[1];
-    const fallbackRows = await getGradeCard(client, session, {
-      registrationid: prevSem.registrationid,
+  let rows = null;
+  let primaryError = null;
+  try {
+    rows = await getGradeCard(client, session, {
+      registrationid: sem.registrationid,
       branchid: info.branchid,
       programid: info.programid,
     });
-    if (fallbackRows.length > 0) {
-      return {
-        info,
-        semesters,
+  } catch (err) {
+    if (isFatalPortalError(err) || !semesters[1]) throw err;
+    primaryError = err;
+  }
+  if ((primaryError || rows.length === 0) && semesters[1]) {
+    const prevSem = semesters[1];
+    try {
+      const fallbackRows = await getGradeCard(client, session, {
         registrationid: prevSem.registrationid,
-        registrationcode: prevSem.registrationcode,
-        rows: fallbackRows,
-      };
+        branchid: info.branchid,
+        programid: info.programid,
+      });
+      if (fallbackRows.length > 0) {
+        return {
+          info,
+          semesters,
+          registrationid: prevSem.registrationid,
+          registrationcode: prevSem.registrationcode,
+          rows: fallbackRows,
+        };
+      }
+    } catch (fallbackErr) {
+      if (isFatalPortalError(fallbackErr)) throw fallbackErr;
     }
   }
+  if (primaryError) throw primaryError;
   return { info, semesters, registrationid: sem.registrationid, registrationcode: sem.registrationcode, rows };
 }
 
@@ -489,14 +515,26 @@ export async function getMarksLatest(client, session, options = {}) {
       obtainedweightagemarksflag: null,
       historyRecovered: true,
     };
-  const detail = await getMarks(client, session, { ...options, registrationid: sem.registrationid, registrationcode: sem.registrationcode });
-  if (detail.rows.length === 0 && !detail.historyError && semesters[1]) {
+  let detail = null;
+  let primaryError = null;
+  try {
+    detail = await getMarks(client, session, { ...options, registrationid: sem.registrationid, registrationcode: sem.registrationcode });
+  } catch (err) {
+    if (isFatalPortalError(err) || !semesters[1]) throw err;
+    primaryError = err;
+  }
+  if ((primaryError || (detail.rows.length === 0 && !detail.historyError)) && semesters[1]) {
     const prevSem = semesters[1];
-    const fallback = await getMarks(client, session, { ...options, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode });
-    if (fallback.rows.length > 0) {
-      return { semesters, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode, ...fallback };
+    try {
+      const fallback = await getMarks(client, session, { ...options, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode });
+      if (fallback.rows.length > 0) {
+        return { semesters, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode, ...fallback };
+      }
+    } catch (fallbackErr) {
+      if (isFatalPortalError(fallbackErr)) throw fallbackErr;
     }
   }
+  if (primaryError) throw primaryError;
   return { semesters, registrationid: sem.registrationid, registrationcode: sem.registrationcode, ...detail };
 }
 

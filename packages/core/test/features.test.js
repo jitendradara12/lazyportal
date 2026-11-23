@@ -208,6 +208,57 @@ describe("features", () => {
     assert.equal(out.rows.length, 1);
   });
 
+  it("getMarksLatest falls back to semesters[1] when upcoming semesters[0] throws future-facility error", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (endpoint.includes("getsemestercode")) {
+          return {
+            response: {
+              semestercode: [
+                { registrationid: "r2027", registrationcode: "2027EVESEM" },
+                { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+              ],
+            },
+          };
+        }
+        if (payload.registrationid === "r2027") {
+          throw new Error("This facility will be available from 01-January-2027");
+        }
+        return { response: { viewmarksbystudent: [{ subjectcode: "CS101", obtainedmarks: 18 }] } };
+      },
+    };
+    const out = await getMarksLatest(fake, { instituteid: "i1", companyid: "c1" });
+    assert.equal(out.registrationid, "r2026");
+    assert.equal(out.registrationcode, "2026ODDSEM");
+    assert.equal(out.rows.length, 1);
+  });
+
+  it("getAttendance falls back to semesters[1] when upcoming semesters[0] throws non-fatal portal error", async () => {
+    const fake = {
+      async postRaw() {
+        return {
+          response: {
+            headerlist: [{ stynumber: "4" }],
+            semlist: [
+              { registrationid: "r2027", registrationcode: "2027EVESEM" },
+              { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+            ],
+          },
+        };
+      },
+      async post(_endpoint, payload) {
+        if (payload.registrationid === "r2027") {
+          throw new Error("This facility will be available from 01-January-2027");
+        }
+        return { response: { studentattendancelist: [{ subjectcode: "CS101" }], currentSem: "4" } };
+      },
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" });
+    assert.equal(res.registrationid, "r2026");
+    assert.equal(res.registrationcode, "2026ODDSEM");
+    assert.equal(res.rows.length, 1);
+  });
+
   it("getAttendance does not retry LOV on fatal auth or network error", async () => {
     let postRawCalled = false;
     const fake = {
