@@ -6,7 +6,13 @@ const NAVIGATION_PATIENCE_MS = 3000;
 const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^/]+$/;
 
 function storeResponse(request, response) {
-  if (!response || response.status !== 200) return;
+  if (!response || !response.ok || response.status !== 200 || response.redirected) return;
+  if (response.type && response.type !== "basic" && response.type !== "default") return;
+  const reqUrl = typeof request === "string" ? request : request?.url || "";
+  if (/\.(?:js|css)(?:[?#]|$)/i.test(reqUrl)) {
+    const contentType = (response.headers?.get?.("content-type") || "").toLowerCase();
+    if (contentType.includes("text/html")) return;
+  }
   const copy = response.clone();
   return caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
 }
@@ -58,7 +64,17 @@ self.addEventListener("fetch", (event) => {
         const shell = await cachedShell().catch(() => undefined);
         if (shell) finish(shell);
       }, NAVIGATION_PATIENCE_MS);
-      network.then(finish, async () => finish(await cachedShell().catch(() => undefined) || Response.error()));
+      network.then(
+        async (response) => {
+          if (response && response.ok && !response.redirected) {
+            finish(response);
+            return;
+          }
+          const shell = await cachedShell().catch(() => undefined);
+          finish(shell || response);
+        },
+        async () => finish(await cachedShell().catch(() => undefined) || Response.error()),
+      );
     }));
     return;
   }
