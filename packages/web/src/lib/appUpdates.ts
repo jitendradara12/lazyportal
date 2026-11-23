@@ -29,6 +29,32 @@ export interface ReleaseInfo {
 export type AppUpdateCheck = [string | null, ReleaseInfo | null];
 
 const UPDATE_DISMISSED_KEY = "juet.portal.update_prompt_dismissed_version";
+const LEGACY_UPDATE_DISMISSED_KEY = "juet.portal.legacy_update_dismissed_at";
+export const LEGACY_UPDATE_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
+
+const IN_APP_BROWSER_UA = /FBAN|FBAV|Instagram|Line\/|MicroMessenger|WhatsApp|GSA|TikTok|Snapchat/i;
+
+/** Detects old pure-WebView Android APKs that lack the Capacitor native bridge. */
+export function isLegacyAndroidWebView(userAgent: string = typeof navigator !== "undefined" ? navigator.userAgent : ""): boolean {
+  return /Android.*;\s*wv\)/i.test(userAgent) && !IN_APP_BROWSER_UA.test(userAgent);
+}
+
+export function isLegacyUpdateDismissed(now: number = Date.now()): boolean {
+  try {
+    const raw = globalThis.localStorage?.getItem(LEGACY_UPDATE_DISMISSED_KEY);
+    const ts = Number(raw);
+    if (!Number.isSafeInteger(ts) || ts <= 0 || ts > now) return false;
+    return now - ts < LEGACY_UPDATE_COOLDOWN_MS;
+  } catch {
+    return false;
+  }
+}
+
+export function dismissLegacyUpdatePrompt(now: number = Date.now()): void {
+  try {
+    globalThis.localStorage?.setItem(LEGACY_UPDATE_DISMISSED_KEY, String(now));
+  } catch {}
+}
 let sharedInstalledVersion: Promise<string | null> | undefined;
 let sharedUpdateCheck: Promise<AppUpdateCheck> | undefined;
 

@@ -74,6 +74,21 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
   return { rows, currentSem: body.response?.currentSem };
 }
 
+/** True when a JUET semester code (e.g. 2027EVESEM in Nov 2026) has not started yet. */
+export function isFutureSemester(semester, now = new Date()) {
+  if (!semester || typeof semester !== "object") return false;
+  const raw = String(semester.registrationcode ?? semester.registrationdesc ?? "").trim();
+  const match = raw.match(/^(\d{4})(ODD|EVE|EVEN)(?:SEM)?$/i);
+  if (!match) return false;
+  const semYear = Number(match[1]);
+  const isOdd = match[2].toUpperCase() === "ODD";
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0 = Jan, 6 = Jul
+  return isOdd
+    ? currentYear < semYear || (currentYear === semYear && currentMonth < 6)
+    : currentYear < semYear;
+}
+
 function isFatalPortalError(err, signal) {
   return Boolean(
     signal?.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR" ||
@@ -127,10 +142,7 @@ export async function getAttendance(client, session, cachedLov, { signal } = {})
       registrationid: sem.registrationid,
       registrationcode: sem.registrationcode,
     }, { signal });
-    if (detail.rows.length === 0) {
-      if (usedCache) {
-        return getAttendance(client, session, undefined, { signal });
-      }
+    if (detail.rows.length === 0 && isFutureSemester(sem)) {
       const fallback = await tryPrevSem();
       if (fallback) return fallback;
     }

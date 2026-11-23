@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import {
+  dismissLegacyUpdatePrompt,
   dismissUpdatePrompt,
   getSharedAppUpdateCheck,
+  isLegacyAndroidWebView,
+  isLegacyUpdateDismissed,
   isNewerVersion,
   isUpdatePromptDismissed,
   type AppUpdateCheck,
 } from "../lib/appUpdates";
-import { getInstalledAppVersion } from "../lib/nativeInteractions";
+import { APK_DOWNLOAD_URL } from "../lib/installPrompt";
+import { getInstalledAppVersion, selectionHaptic } from "../lib/nativeInteractions";
 import { PromptBanner } from "./PromptBanner";
 
 function UpdateIcon() {
@@ -19,20 +23,49 @@ function UpdateIcon() {
 }
 
 export function AppUpdatePromptBanner({ onOpenMore }: { onOpenMore?: () => void }) {
-  const isAndroid = Capacitor.getPlatform() === "android";
+  const isCapacitorAndroid = Capacitor.getPlatform() === "android";
+  const isLegacyWebView = !isCapacitorAndroid && isLegacyAndroidWebView();
   const [result, setResult] = useState<AppUpdateCheck | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  const [legacyDismissed, setLegacyDismissed] = useState<boolean>(() => isLegacyUpdateDismissed());
 
   useEffect(() => {
-    if (!isAndroid) return;
+    if (!isCapacitorAndroid) return;
     let active = true;
     void getSharedAppUpdateCheck(getInstalledAppVersion).then((res) => {
       if (active) setResult(res);
     });
     return () => { active = false; };
-  }, [isAndroid]);
+  }, [isCapacitorAndroid]);
 
-  if (!isAndroid || !result) return null;
+  // Old v1 / beta APKs lack NativeInteractions.getAppVersion (installed === null)
+  // or Capacitor entirely (Android WebView UA). Prompt them directly without
+  // depending on api.github.com (which is rate-limited on campus NAT).
+  const isLegacyCapacitorApk = isCapacitorAndroid && result !== null && result[0] === null;
+  if (isLegacyWebView || isLegacyCapacitorApk) {
+    if (legacyDismissed || isLegacyUpdateDismissed()) return null;
+    const latest = result?.[1] ?? null;
+    return (
+      <PromptBanner
+        ariaLabel="App update available"
+        icon={<UpdateIcon />}
+        title={latest ? `Update app to ${latest.version}` : "Update Lazyportal app"}
+        subtitle="Faster direct login, exam alerts & fixes"
+        actionLabel="Download"
+        onAction={() => {
+          selectionHaptic();
+          window.open(latest?.url ?? APK_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+        }}
+        dismissLabel="Dismiss update prompt"
+        onDismiss={() => {
+          dismissLegacyUpdatePrompt();
+          setLegacyDismissed(true);
+        }}
+      />
+    );
+  }
+
+  if (!isCapacitorAndroid || !result) return null;
   const [installed, latest] = result;
   if (!installed || !latest || isNewerVersion(installed, latest.version) !== true) {
     return null;
