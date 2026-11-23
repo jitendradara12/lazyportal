@@ -67,9 +67,9 @@ test("native project matches the Capacitor config", () => {
   assert.match(activity, /extends BridgeActivity/);
 });
 
-test("native updater declares install permission, FileProvider, and installUpdate bridge", () => {
+test("native app omits REQUEST_INSTALL_PACKAGES while keeping FileProvider for calendar export", () => {
   const manifest = read("android/app/src/main/AndroidManifest.xml");
-  assert.match(manifest, /<uses-permission\s+android:name="android\.permission\.REQUEST_INSTALL_PACKAGES"\s*\/>/);
+  assert.doesNotMatch(manifest, /REQUEST_INSTALL_PACKAGES/);
   assert.match(
     manifest,
     /<provider[\s\S]*?android:name="androidx\.core\.content\.FileProvider"[\s\S]*?android:authorities="\$\{applicationId\}\.fileprovider"[\s\S]*?android:resource="@xml\/file_paths"[\s\S]*?<\/provider>/
@@ -77,10 +77,6 @@ test("native updater declares install permission, FileProvider, and installUpdat
 
   const filePaths = read("android/app/src/main/res/xml/file_paths.xml");
   assert.match(filePaths, /<cache-path\s+[^>]*path="\."/);
-
-  const plugin = read("android/app/src/main/java/com/lazyportal/juet/NativeInteractionsPlugin.java");
-  assert.match(plugin, /@PluginMethod\s+public\s+void\s+installUpdate\s*\(\s*PluginCall\s+call\s*\)/);
-  assert.match(plugin, /@ActivityCallback\s+protected\s+void\s+onInstallPermissionResult\s*\(/);
 });
 
 test("CI version codes remain above existing APKs after the workflow rename", () => {
