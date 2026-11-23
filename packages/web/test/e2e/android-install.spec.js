@@ -182,3 +182,15 @@ test("tapping the update row downloads the release APK in the browser", async ({
   expect(await download.failure()).toBeNull();
   expect(await page.evaluate(() => window.__haptics)).toBe(hapticsBefore + 1);
 });
+
+test("legacy Android APKs without getAppVersion see a direct update banner even when GitHub API is offline", async ({ page }) => {
+  await page.addInitScript(() => { window.androidBridge = {}; });
+  await openApp(page, { dashboard: true });
+  const updateBanner = page.getByRole("region", { name: "App update available" });
+  await expect(updateBanner).toBeVisible();
+  await expect(updateBanner).toContainText("Update Lazyportal app");
+  await updateBanner.getByRole("button", { name: "Dismiss update prompt", exact: true }).click();
+  await expect(updateBanner).toHaveCount(0);
+  await page.reload();
+  await expect(updateBanner).toHaveCount(0);
+});

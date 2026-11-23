@@ -132,6 +132,32 @@ describe("features", () => {
     assert.deepEqual((await getAttendance(fake, {}, { semesters: [{ registrationid: "r1" }] })).rows, []);
   });
 
+  it("getAttendance does not re-fetch LOV or probe past semester when active cached semester is empty", async () => {
+    let lovCalls = 0;
+    const detailCalls = [];
+    const fake = {
+      async postRaw() {
+        lovCalls++;
+        return { response: { semlist: [] } };
+      },
+      async post(_endpoint, payload) {
+        detailCalls.push(payload.registrationid);
+        return { response: { studentattendancelist: [] } };
+      },
+    };
+    const cachedLov = {
+      header: { stynumber: "4" },
+      semesters: [
+        { registrationid: "current", registrationcode: "2026ODDSEM" },
+        { registrationid: "past", registrationcode: "2026EVESEM" },
+      ],
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" }, cachedLov);
+    assert.equal(lovCalls, 0);
+    assert.deepEqual(detailCalls, ["current"]);
+    assert.deepEqual(res.rows, []);
+  });
+
   it("getAttendance falls back to semesters[1] when upcoming semesters[0] has no rows", async () => {
     const calls = [];
     const fake = {
