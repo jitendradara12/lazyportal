@@ -144,7 +144,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
           <div className="auth-header">
             <div className="auth-header-text">
               <h1 className="auth-title">Sign in</h1>
-              <p className="auth-subtitle">with your studentportal credentials</p>
+              <p className="auth-subtitle">with your JUET Webkiosk &amp; studentportal credentials</p>
             </div>
             <div className="auth-icon-badge" aria-hidden="true">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -346,7 +346,7 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
         {/* FAQ Section — collapsed into a quiet disclosure so login stays app-like while preserving SEO */}
         <details className="auth-faq-disclosure">
           <summary className="auth-faq-disclosure-summary">
-            <span>About Lazyportal & FAQs</span>
+            <span>About JUET Lazyportal &amp; FAQs</span>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="6 9 12 15 18 9" />
             </svg>
@@ -356,25 +356,25 @@ export function LoginPage({ onDone }: { onDone: (s: Session) => void }) {
               <details className="auth-faq-item">
                 <summary className="auth-faq-question">What is JUET Lazyportal?</summary>
                 <div className="auth-faq-answer">
-                  JUET Lazyportal is an independent, mobile-friendly client for Jaypee University of Engineering and Technology (JUET Guna) students to check attendance, calculate bunk margins, and view internal marks faster than the default webkiosk and studentportal.
+                  JUET Lazyportal is an open-source, mobile-friendly client for Jaypee University of Engineering and Technology (JUET Guna) students to check attendance, calculate 70% bunk margins, and view exam marks, CGPA, and seating plans faster than the default Webkiosk and Studentportal.
                 </div>
               </details>
               <details className="auth-faq-item">
-                <summary className="auth-faq-question">Can I use this instead of the official JUET Webkiosk and Studentportal?</summary>
+                <summary className="auth-faq-question">Can I use Lazyportal instead of the official JUET Webkiosk and Studentportal?</summary>
                 <div className="auth-faq-answer">
-                  Yes. Lazyportal directly queries the official portal APIs while keeping your session alive, providing a faster experience on phones and laptops without daily session expiration.
+                  Yes. Lazyportal queries the official JUET portal directly while keeping your session active and auto-solving captchas, giving you a faster experience on phones and laptops.
                 </div>
               </details>
               <details className="auth-faq-item">
-                <summary className="auth-faq-question">How does attendance margin calculation work?</summary>
+                <summary className="auth-faq-question">How does the JUET 70% attendance margin calculator work?</summary>
                 <div className="auth-faq-answer">
-                  Lazyportal tracks lecture, tutorial, and practical attendance components against the 70% requirement. It calculates how many consecutive classes you can safely skip or need to attend to maintain or restore eligibility.
+                  Lazyportal tracks lecture, tutorial, and practical attendance components against the 70% requirement and calculates how many consecutive classes you can safely skip or need to attend.
                 </div>
               </details>
               <details className="auth-faq-item">
-                <summary className="auth-faq-question">Are my login credentials safe?</summary>
+                <summary className="auth-faq-question">Are my JUET student portal credentials safe on Lazyportal?</summary>
                 <div className="auth-faq-answer">
-                  Your credentials never go to any third-party server. All credentials and sessions are encrypted and stored locally on your device.
+                  Yes. Your credentials never go to any third-party database. Saved credentials and sessions are encrypted and stored locally on your device.
                 </div>
               </details>
             </div>

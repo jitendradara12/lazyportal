@@ -13,12 +13,15 @@ test("index.html contains SEO metadata", () => {
 
   assert.match(
     html,
-    /<title>JUET Lazyportal \| Student Webportal, Webkiosk and Attendance<\/title>/i,
-    "Title must contain primary search keywords"
+    /<title>JUET Webkiosk &amp; Student Portal \| Lazyportal \(No Captcha\)<\/title>/i,
+    "Title must lead with primary search keywords"
   );
 
-  assert.match(html, /<meta[^>]+name=["']description["'][^>]*content=["'][^"']+["']/i);
-  assert.match(html, /<meta[^>]+name=["']keywords["'][^>]*content=["'][^"']+["']/i);
+  const descMatch = html.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["']/i);
+  assert.ok(descMatch, "index.html must include a meta description");
+  const decodedDesc = descMatch[1].replace(/&amp;/g, "&");
+  assert.ok(decodedDesc.length <= 160, `Meta description should fit SERP snippet (<=160 chars, got ${decodedDesc.length})`);
+
   assert.match(html, /<meta[^>]+name=["']robots["'][^>]*content=["']index,\s*follow[^"']*["']/i);
   assert.match(html, /<link[^>]+rel=["']canonical["'][^>]+href=["']https:\/\/lazyportal-tan\.vercel\.app\/["']/i);
 
@@ -35,12 +38,24 @@ test("index.html contains SEO metadata", () => {
   const parsedJsonLd = JSON.parse(jsonLdMatch[1]);
   assert.equal(parsedJsonLd["@context"], "https://schema.org");
   assert.ok(Array.isArray(parsedJsonLd["@graph"]));
+
+  const website = parsedJsonLd["@graph"].find((item) => item["@type"] === "WebSite");
+  assert.ok(website, "JSON-LD must define WebSite entity for Google Site Name");
+  assert.equal(website.name, "JUET Lazyportal");
+
   const webApp = parsedJsonLd["@graph"].find((item) => item["@type"] === "WebApplication");
   assert.ok(webApp, "JSON-LD must define WebApplication entity");
   assert.equal(webApp.name, "JUET Lazyportal");
   assert.ok(webApp.alternateName.includes("JUET Webkiosk"));
   assert.ok(webApp.alternateName.includes("JUET Webportal"));
   assert.ok(webApp.alternateName.includes("JUET CampusLynx"));
+
+  const faqPage = parsedJsonLd["@graph"].find((item) => item["@type"] === "FAQPage");
+  assert.ok(faqPage && Array.isArray(faqPage.mainEntity), "JSON-LD must define FAQPage");
+  const loginTsx = fs.readFileSync(path.join(webDir, "src/pages/LoginPage.tsx"), "utf-8");
+  for (const q of faqPage.mainEntity) {
+    assert.ok(loginTsx.includes(q.name), `LoginPage.tsx FAQ must match JSON-LD question: ${q.name}`);
+  }
 
   assert.match(html, /<noscript>[\s\S]*?JUET Lazyportal[\s\S]*?<\/noscript>/i);
 });
