@@ -32,6 +32,7 @@ import {
   getSubjectCacheKey,
   idleAttendanceSync,
   readAttendanceOverview,
+  resolveAttendanceSemester,
   runManualAttendanceRefresh,
   syncAttendanceDetails,
 } from "../lib/attendanceSync";
@@ -125,7 +126,7 @@ export function AttendancePage({
     isFresh: isCurrentPortalDay,
   });
   const initial = att.data;
-  const sem = initial?.semesters?.[0] ?? null;
+  const sem = resolveAttendanceSemester(initial);
   const semId = sem?.registrationid != null ? String(sem.registrationid) : null;
   useEffect(() => {
     setIsRefreshing(false);

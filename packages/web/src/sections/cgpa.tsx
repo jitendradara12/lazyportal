@@ -53,6 +53,7 @@ interface SgpaLatest {
 interface GradesLatest {
   info: { branchid?: string; programid?: string } | null;
   semesters: Semester[];
+  registrationid?: string | null;
   registrationcode?: string | null;
   rows: Row[];
 }
@@ -715,8 +716,14 @@ export function CgpaPanel({ session, modeToggle }: SectionProps & { modeToggle: 
     cacheKey: sessionCacheKey("marks.grades.latest", session),
     staleTimeMs: stale,
   });
-  const [regId, setRegId, reg] = useSemester(sessionCacheKey("semester", session, "grades"), card.data?.semesters);
-  const isDefaultReg = regId === String(card.data?.semesters?.[0]?.registrationid);
+  const defaultRegId = card.data?.registrationid ?? card.data?.semesters?.[0]?.registrationid;
+  const [regId, setRegId, reg] = useSemester(
+    sessionCacheKey("semester", session, "grades"),
+    card.data?.semesters,
+    undefined,
+    card.data?.registrationid,
+  );
+  const isDefaultReg = regId === String(defaultRegId);
   const cardDetail = useFeature<Row[]>({
     run: () =>
       features.getGradeCard(client, session, {

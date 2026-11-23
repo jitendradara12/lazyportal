@@ -242,6 +242,16 @@ export function setCachedLov(
   }
 }
 
+export function resolveAttendanceSemester(data?: AttData | null): Semester | null {
+  const semesters = data?.semesters;
+  if (!semesters?.length) return null;
+  if (data?.registrationid != null) {
+    const matched = semesters.find((s) => String(s.registrationid) === String(data.registrationid));
+    if (matched) return matched;
+  }
+  return semesters[0] ?? null;
+}
+
 /** Reuse registrations without extending the lifetime of the last real LOV read. */
 export async function readAttendanceOverview(session: Session, signal?: AbortSignal) {
   const generation = getCacheGeneration();
@@ -250,6 +260,13 @@ export async function readAttendanceOverview(session: Session, signal?: AbortSig
   // Core preserves the supplied semester array when no LOV request was made.
   // A fallback/new lookup supplies a new array and deserves a new timestamp.
   if (!signal?.aborted && isCacheGenerationCurrent(generation) && data.semesters !== lov?.semesters) setCachedLov(session, data);
+  // Never overwrite previously cached attendance rows with an empty response.
+  if (!data?.rows?.length) {
+    const cached = getCached<AttData>(sessionCacheKey("att.initial", session)).data;
+    if (cached?.rows?.length) {
+      throw new Error("Portal returned no attendance records");
+    }
+  }
   return data;
 }
 
@@ -428,7 +445,7 @@ export async function runManualAttendanceRefresh({
   const fresh = await readOverview();
   const overviewUpdatedAt = Date.now();
   if (!current()) return null;
-  const semester = fresh?.semesters?.[0];
+  const semester = resolveAttendanceSemester(fresh);
   if (!fresh?.rows?.length || !semester?.registrationid) throw new Error("Portal returned no attendance records");
   const rowsChanged = attendanceRowsChanged(baselineRows, fresh.rows);
   const result = await syncAttendanceDetails({

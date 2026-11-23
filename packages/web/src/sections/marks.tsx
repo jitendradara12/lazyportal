@@ -38,6 +38,7 @@ interface MarksDetail {
 
 interface MarksLatest extends MarksDetail {
   semesters: Semester[];
+  registrationid?: string | null;
   registrationcode?: string | null;
 }
 
@@ -232,8 +233,9 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
         onSemesters: (sems) => setDiscovered({ key: latestKey, semesters: sems }),
       });
       const previous = getCached<MarksLatest>(latestKey).data;
-      const registrationid = latest.semesters[0]?.registrationid;
-      const sameSemester = registrationid != null && String(registrationid) === String(previous?.semesters[0]?.registrationid);
+      const registrationid = latest.registrationid ?? latest.semesters[0]?.registrationid;
+      const prevRegistrationid = previous?.registrationid ?? previous?.semesters[0]?.registrationid;
+      const sameSemester = registrationid != null && String(registrationid) === String(prevRegistrationid);
       const prevRows = sameSemester ? previous?.rows ?? [] : [];
       const updatedKeys = sameSemester && previous?.historyRecovered !== false ? diffMarkRows(prevRows, latest.rows) : [];
       return { ...latest, rows: mergeMarkRows(prevRows, latest.rows), updatedKeys };
@@ -252,11 +254,15 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     },
   });
   const semesters = (discovered?.key === latestKey ? discovered.semesters : null) ?? lov.data?.semesters ?? [];
+  const defaultSemId = lov.data?.registrationid ?? semesters[0]?.registrationid;
+  const selectableSemesters = lov.data || lov.error ? semesters : undefined;
   const [semId, setSemId, sem] = useSemester(
     sessionCacheKey("semester", session, "marks"),
-    semesters.length > 0 ? semesters : undefined,
+    selectableSemesters?.length ? selectableSemesters : undefined,
+    undefined,
+    lov.data?.registrationid,
   );
-  const isDefault = semesters.length > 0 && semId === String(semesters[0]?.registrationid);
+  const isDefault = semesters.length > 0 && semId === String(defaultSemId);
   const detailKey = semId ? sessionCacheKey("marks.detail", session, semId) : undefined;
   const detail = useFeature<MarksDetail>({
     run: async () => {
