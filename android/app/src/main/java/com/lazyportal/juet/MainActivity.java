@@ -49,6 +49,7 @@ public class MainActivity extends BridgeActivity {
     private boolean appReadyForReveal;
     private boolean systemSplashReleased;
     private boolean bypassCacheForCurrentLoad;
+    private boolean rendererDead;
     private boolean destroyed;
 
     @Override
@@ -254,6 +255,14 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void handleManualRetry() {
+        if (isInactive()) {
+            return;
+        }
+        if (rendererDead) {
+            lastRendererRecoveryMs.set(SystemClock.uptimeMillis());
+            recreate();
+            return;
+        }
         WebView webView = getActiveWebView();
         if (webView == null) {
             return;
@@ -328,6 +337,8 @@ public class MainActivity extends BridgeActivity {
         if (isInactive()) {
             return true;
         }
+        rendererDead = true;
+        cancelSplashRelease();
         cancelPendingChecks();
         long now = SystemClock.uptimeMillis();
         long last = lastRendererRecoveryMs.get();
@@ -340,14 +351,28 @@ public class MainActivity extends BridgeActivity {
             });
             return true;
         }
-        WebView webView = getActiveWebView();
-        if (webView != null) {
-            loadOfflineFallback(webView);
+        // Once Android fires onRenderProcessGone, the WebView instance is permanently
+        // dead and cannot load offline.html. Release the splash and show a native retry UI.
+        appReadyForReveal = true;
+        if (bootOverlay != null) {
+            bootOverlay.showError("The page stopped unexpectedly.");
         }
+        invalidateContent();
         return true;
     }
 
     private void handleWarmStart() {
+        if (rendererDead) {
+            long now = SystemClock.uptimeMillis();
+            long last = lastRendererRecoveryMs.get();
+            if (WebViewHealthMonitor.shouldRecreateOnRenderProcessGone(now, last)
+                && lastRendererRecoveryMs.compareAndSet(last, now)) {
+                recreate();
+            } else if (bootOverlay != null) {
+                bootOverlay.showError("The page stopped unexpectedly.");
+            }
+            return;
+        }
         WebView webView = getActiveWebView();
         String url = webView != null ? webView.getUrl() : null;
         WebViewHealthMonitor.WarmStartDecision decision = healthMonitor.onStart(
@@ -631,7 +656,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private WebView getActiveWebView() {
-        if (isInactive()) {
+        if (isInactive() || rendererDead) {
             return null;
         }
         Bridge bridge = getBridge();

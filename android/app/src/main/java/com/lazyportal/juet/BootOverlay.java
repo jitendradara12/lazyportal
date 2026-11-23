@@ -135,6 +135,7 @@ final class BootOverlay {
         cancelTimers();
         root.animate().cancel();
         visible = true;
+        spinner.setVisibility(View.VISIBLE);
         statusText.setText(caption);
         retryButton.animate().cancel();
         retryButton.setVisibility(View.GONE);
@@ -144,6 +145,22 @@ final class BootOverlay {
         root.setFocusable(true);
         root.setVisibility(View.VISIBLE);
         scheduleSlowHint();
+    }
+
+    void showError(String caption) {
+        if (destroyed) return;
+        cancelTimers();
+        root.animate().cancel();
+        visible = true;
+        spinner.setVisibility(View.GONE);
+        statusText.setText(caption);
+        retryButton.animate().cancel();
+        retryButton.setVisibility(View.VISIBLE);
+        retryButton.setAlpha(1f);
+        root.setAlpha(1f);
+        root.setClickable(true);
+        root.setFocusable(true);
+        root.setVisibility(View.VISIBLE);
     }
 
     void setStatus(String caption) {
