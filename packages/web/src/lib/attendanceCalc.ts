@@ -20,6 +20,7 @@ export interface AttRow {
 export interface AttData {
   header: { stynumber?: string } | null;
   semesters: Semester[];
+  registrationid?: string | null;
   registrationcode?: string | null;
   rows: AttRow[];
 }

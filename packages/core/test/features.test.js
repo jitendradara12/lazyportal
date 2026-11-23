@@ -125,8 +125,87 @@ describe("features", () => {
   });
 
   it("an explicitly empty attendance list is valid", async () => {
-    const fake = { async post() { return { response: { studentattendancelist: [] } }; } };
+    const fake = {
+      async postRaw() { return { response: { semlist: [{ registrationid: "r1", registrationcode: "REG-1" }] } }; },
+      async post() { return { response: { studentattendancelist: [] } }; },
+    };
     assert.deepEqual((await getAttendance(fake, {}, { semesters: [{ registrationid: "r1" }] })).rows, []);
+  });
+
+  it("getAttendance falls back to semesters[1] when upcoming semesters[0] has no rows", async () => {
+    const calls = [];
+    const fake = {
+      async postRaw() {
+        return {
+          response: {
+            headerlist: [{ stynumber: "4" }],
+            semlist: [
+              { registrationid: "r2027", registrationcode: "2027EVEN" },
+              { registrationid: "r2026", registrationcode: "2026ODD" },
+            ],
+          },
+        };
+      },
+      async post(_endpoint, payload) {
+        calls.push(payload.registrationid);
+        if (payload.registrationid === "r2027") return { response: { studentattendancelist: [], currentSem: "5" } };
+        return { response: { studentattendancelist: [{ subjectcode: "CS101" }], currentSem: "4" } };
+      },
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" });
+    assert.deepEqual(calls, ["r2027", "r2026"]);
+    assert.equal(res.registrationid, "r2026");
+    assert.equal(res.registrationcode, "2026ODD");
+    assert.equal(res.semesters[0].registrationid, "r2027");
+    assert.equal(res.rows[0].subjectcode, "CS101");
+  });
+
+  it("getMarksLatest falls back to semesters[1] when upcoming semesters[0] has no rows", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (endpoint.includes("getsemestercode")) {
+          return {
+            response: {
+              semestercode: [
+                { registrationid: "r2027", registrationcode: "2027EVEN" },
+                { registrationid: "r2026", registrationcode: "2026ODD" },
+              ],
+            },
+          };
+        }
+        if (payload.registrationid === "r2027") return { response: { viewmarksbystudent: [] } };
+        return { response: { viewmarksbystudent: [{ subjectcode: "CS101", obtainedmarks: 18 }] } };
+      },
+    };
+    const out = await getMarksLatest(fake, { instituteid: "i1", companyid: "c1" });
+    assert.equal(out.registrationid, "r2026");
+    assert.equal(out.registrationcode, "2026ODD");
+    assert.equal(out.semesters[0].registrationid, "r2027");
+    assert.equal(out.rows.length, 1);
+  });
+
+  it("getGradesLatest falls back to semesters[1] when upcoming semesters[0] has no rows", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (endpoint.includes("getstudentinfo")) return { response: { studentinfo: { branchid: "b1", programid: "p1" } } };
+        if (endpoint.includes("getregistrationList")) {
+          return {
+            response: {
+              registrations: [
+                { registrationid: "r2027", registrationcode: "2027EVEN" },
+                { registrationid: "r2026", registrationcode: "2026ODD" },
+              ],
+            },
+          };
+        }
+        if (payload.registrationid === "r2027") return { response: { gradecard: [] } };
+        return { response: { gradecard: [{ subjectcode: "CS101", grade: "A" }] } };
+      },
+    };
+    const out = await getGradesLatest(fake, { instituteid: "i1" });
+    assert.equal(out.registrationid, "r2026");
+    assert.equal(out.registrationcode, "2026ODD");
+    assert.equal(out.rows.length, 1);
   });
 
   it("getAttendance does not retry LOV on fatal auth or network error", async () => {

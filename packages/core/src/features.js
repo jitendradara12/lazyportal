@@ -74,31 +74,66 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
   return { rows, currentSem: body.response?.currentSem };
 }
 
-/** Daily attendance in one call: LOV -> latest registration -> detail rows. */
+/** Daily attendance in one call: LOV -> latest active registration -> detail rows.
+ * When JUET adds an upcoming semester (e.g. next term before classes start) at
+ * semlist[0] with zero attendance rows, fall back one slot to semlist[1] while
+ * keeping semesters in portal order so the new term activates automatically. */
 export async function getAttendance(client, session, cachedLov, { signal } = {}) {
   const usedCache = Array.isArray(cachedLov?.semesters) && cachedLov.semesters.length > 0;
   const lov = usedCache ? cachedLov : await getAttendanceRegistrations(client, session, { signal });
   const sems = asArray(lov?.semesters);
   const sem = sems[0];
-  if (!sem) return { header: lov?.header ?? null, semesters: sems, rows: [], currentSem: null };
+  if (!sem) return { header: lov?.header ?? null, semesters: sems, registrationid: null, registrationcode: null, rows: [], currentSem: null };
+  const isFatal = (err) =>
+    signal?.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR" ||
+    err?.code === "SESSION_EXPIRED" ||
+    err?.code === "NETWORK_ERROR" ||
+    err?.code === "REQUEST_TIMEOUT" ||
+    err?.code === "INVALID_RESPONSE" ||
+    err?.status === 401 ||
+    (typeof err?.status === "number" && err.status >= 500);
   try {
     const detail = await getAttendanceDetail(client, session, {
       stynumber: lov?.header?.stynumber,
       registrationid: sem.registrationid,
       registrationcode: sem.registrationcode,
     }, { signal });
-    return { header: lov?.header ?? null, semesters: sems, registrationcode: sem.registrationcode, ...detail };
+    if (detail.rows.length === 0) {
+      if (usedCache) {
+        return getAttendance(client, session, undefined, { signal });
+      }
+      const prevSem = sems[1];
+      if (prevSem) {
+        try {
+          const fallback = await getAttendanceDetail(client, session, {
+            stynumber: lov?.header?.stynumber,
+            registrationid: prevSem.registrationid,
+            registrationcode: prevSem.registrationcode,
+          }, { signal });
+          if (fallback.rows.length > 0) {
+            return {
+              header: lov?.header ?? null,
+              semesters: sems,
+              registrationid: prevSem.registrationid,
+              registrationcode: prevSem.registrationcode,
+              ...fallback,
+            };
+          }
+        } catch (fallbackErr) {
+          if (isFatal(fallbackErr)) throw fallbackErr;
+        }
+      }
+    }
+    return {
+      header: lov?.header ?? null,
+      semesters: sems,
+      registrationid: sem.registrationid,
+      registrationcode: sem.registrationcode,
+      ...detail,
+    };
   } catch (err) {
     // retry with fresh LOV only on portal parameter/data errors; bubble auth/network immediately
-    const isFatal =
-      signal?.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR" ||
-      err?.code === "SESSION_EXPIRED" ||
-      err?.code === "NETWORK_ERROR" ||
-      err?.code === "REQUEST_TIMEOUT" ||
-      err?.code === "INVALID_RESPONSE" ||
-      err?.status === 401 ||
-      (typeof err?.status === "number" && err.status >= 500);
-    if (usedCache && !isFatal) {
+    if (usedCache && !isFatal(err)) {
       return getAttendance(client, session, undefined, { signal });
     }
     throw err;
@@ -160,20 +195,45 @@ export async function getGradeCard(client, session, { registrationid, branchid, 
   return asArray(body.response?.gradecard);
 }
 
-/** Grades in one call: info -> latest registration -> rows. */
+/** Grades in one call: info -> latest non-empty registration -> rows. */
 export async function getGradesLatest(client, session) {
   const [info, semesters] = await Promise.all([
     getGradeStudentInfo(client, session),
     getGradeRegistrations(client, session),
   ]);
   const sem = semesters[0];
-  if (!sem || !info) return { info, semesters, registrationcode: sem?.registrationcode ?? null, rows: [] };
+  if (!sem || !info) {
+    return {
+      info,
+      semesters,
+      registrationid: sem?.registrationid ?? null,
+      registrationcode: sem?.registrationcode ?? null,
+      rows: [],
+    };
+  }
   const rows = await getGradeCard(client, session, {
     registrationid: sem.registrationid,
     branchid: info.branchid,
     programid: info.programid,
   });
-  return { info, semesters, registrationcode: sem.registrationcode, rows };
+  if (rows.length === 0 && semesters[1]) {
+    const prevSem = semesters[1];
+    const fallbackRows = await getGradeCard(client, session, {
+      registrationid: prevSem.registrationid,
+      branchid: info.branchid,
+      programid: info.programid,
+    });
+    if (fallbackRows.length > 0) {
+      return {
+        info,
+        semesters,
+        registrationid: prevSem.registrationid,
+        registrationcode: prevSem.registrationcode,
+        rows: fallbackRows,
+      };
+    }
+  }
+  return { info, semesters, registrationid: sem.registrationid, registrationcode: sem.registrationcode, rows };
 }
 
 /** Semesters for the faculty lookup. Encrypted {instituteid}. */
@@ -412,7 +472,7 @@ export async function getMarksReport(client, session, { registrationid, registra
   return parseMarksReport(await readPdfText(await client.getReport(path)), registrationcode);
 }
 
-/** Marks in one call: LOV -> latest registration -> detail rows. */
+/** Marks in one call: LOV -> latest non-empty registration -> detail rows. */
 export async function getMarksLatest(client, session, options = {}) {
   const semesters = await getMarksSemesters(client, session);
   options.onSemesters?.(semesters);
@@ -420,6 +480,7 @@ export async function getMarksLatest(client, session, options = {}) {
   if (!sem)
     return {
       semesters,
+      registrationid: null,
       registrationcode: null,
       rows: [],
       fullMarksFlag: null,
@@ -429,7 +490,14 @@ export async function getMarksLatest(client, session, options = {}) {
       historyRecovered: true,
     };
   const detail = await getMarks(client, session, { ...options, registrationid: sem.registrationid, registrationcode: sem.registrationcode });
-  return { semesters, registrationcode: sem.registrationcode, ...detail };
+  if (detail.rows.length === 0 && !detail.historyError && semesters[1]) {
+    const prevSem = semesters[1];
+    const fallback = await getMarks(client, session, { ...options, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode });
+    if (fallback.rows.length > 0) {
+      return { semesters, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode, ...fallback };
+    }
+  }
+  return { semesters, registrationid: sem.registrationid, registrationcode: sem.registrationcode, ...detail };
 }
 
 async function catchSgpa500(run, fallback) {
