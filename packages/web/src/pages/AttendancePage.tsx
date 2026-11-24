@@ -14,6 +14,8 @@ import {
   subscribePortalDayRollover,
   shouldThrottleRefresh,
   recordRefreshAttempt,
+  isAttendanceUnchangedCoolingDown,
+  recordAttendanceUnchanged,
   REFRESH_THROTTLE_MS,
 } from "../lib/portalSchedule";
 import type { Session } from "../types";
@@ -420,6 +422,11 @@ export function AttendancePage({
       const cooldownMs = await getRefreshThrottleMs("attendance");
       if (pageIsLive.current) setThrottleMs(cooldownMs);
       if (!current()) return;
+      const usesProxy = cooldownMs >= REFRESH_THROTTLE_MS;
+      if (usesProxy && isAttendanceUnchangedCoolingDown(session)) {
+        showNotice("Up to date with portal", 2500);
+        return;
+      }
       if (shouldThrottleRefresh(refreshKey, cooldownMs) ||
           (lastRefreshAttempt.current.key === refreshKey && Date.now() - lastRefreshAttempt.current.at < cooldownMs)) {
         showNotice("Please wait a few seconds to refresh", 2000);
@@ -448,7 +455,10 @@ export function AttendancePage({
         onProgress: setSyncState,
       });
       if (!result) return;
-      if (!result.changed && !result.provisional) showNotice("Up to date with portal", 2500);
+      if (!result.changed && !result.provisional) {
+        if (usesProxy) recordAttendanceUnchanged(session);
+        showNotice("Up to date with portal", 2500);
+      }
     } catch (err: unknown) {
       if (current()) setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {

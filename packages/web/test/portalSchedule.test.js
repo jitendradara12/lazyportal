@@ -66,6 +66,9 @@ const {
   shouldThrottleRefresh,
   recordRefreshAttempt,
   getThrottleKey,
+  ATTENDANCE_UNCHANGED_COOLDOWN_MS,
+  isAttendanceUnchangedCoolingDown,
+  recordAttendanceUnchanged,
   toMs,
 } = await import("../src/lib/portalSchedule.ts");
 
@@ -503,4 +506,20 @@ test("previous ID-bearing checksums remain compatible after ID normalization", (
   assert.equal(doesSubjectNeedDeepFetch(row, data, now, previousChecksum, now), false);
 });
 
+test("attendance unchanged proxy cooldown lasts 1 hour and resets at 02:00 AM IST rollover", () => {
+  values.clear();
+  const session = { username: "241B123", instituteid: "INST1" };
+  const start = Date.UTC(2026, 9, 7, 19, 45, 0); // 01:15 AM IST on Oct 8 (portal day Oct 7)
+  assert.equal(ATTENDANCE_UNCHANGED_COOLDOWN_MS, 60 * 60 * 1000);
+  assert.equal(isAttendanceUnchangedCoolingDown(session, start), false);
 
+  recordAttendanceUnchanged(session, start);
+  assert.equal(isAttendanceUnchangedCoolingDown(session, start + 30 * 60 * 1000), true);
+  // 02:05 AM IST on Oct 8 (50 min later, across 02:00 AM IST rollover) -> resets even within 1 hour
+  assert.equal(isAttendanceUnchangedCoolingDown(session, start + 50 * 60 * 1000), false);
+
+  const midDay = Date.UTC(2026, 9, 7, 8, 30, 0); // 14:00 IST on Oct 7
+  recordAttendanceUnchanged(session, midDay);
+  assert.equal(isAttendanceUnchangedCoolingDown(session, midDay + 59 * 60 * 1000), true);
+  assert.equal(isAttendanceUnchangedCoolingDown(session, midDay + 60 * 60 * 1000), false);
+});

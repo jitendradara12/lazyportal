@@ -3,6 +3,35 @@ import { auth } from "@juet/core";
 import { client, MAX_AUTOSOLVE_ATTEMPTS } from "./portal";
 import type { Captcha } from "../types";
 
+export const MAX_CAPTCHA_FETCH_ATTEMPTS = 2;
+
+function isNonRetryableFetchError(error: unknown): boolean {
+  const e = error as { name?: string; code?: string; status?: number } | null | undefined;
+  return Boolean(
+    e && (
+      e.code === "REQUEST_TIMEOUT" ||
+      e.name === "AbortError" ||
+      e.code === "ABORT_ERR" ||
+      e.status === 429
+    ),
+  );
+}
+
+function waitBackoff(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function isFatalSolverError(): boolean {
   // Canvas/Image missing (SSR, old webview): retrying fetch won't help.
   return (
@@ -28,6 +57,7 @@ export async function fetchAutosolvedCaptcha(
   }
   let last: Captcha | null = null;
   let fetchError: unknown = new Error("Couldn't load captcha. Try refreshing it.");
+  let consecutiveFetchErrors = 0;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (opts?.signal?.aborted) break;
     let c: Captcha;
@@ -37,10 +67,13 @@ export async function fetchAutosolvedCaptcha(
       if (opts?.signal?.aborted) break;
       fetchError = error;
       if (typeof navigator !== "undefined" && navigator.onLine === false) break;
-      // Network blip fetching the image: retry with a fresh fetch.
+      if (isNonRetryableFetchError(error)) break;
+      if (++consecutiveFetchErrors >= MAX_CAPTCHA_FETCH_ATTEMPTS) break;
+      await waitBackoff(400 * consecutiveFetchErrors, opts?.signal);
       continue;
     }
     if (opts?.signal?.aborted) break;
+    consecutiveFetchErrors = 0;
     last = c;
     opts?.onCaptcha?.(c);
     // Let the image and manual input paint before running the pixel matcher.

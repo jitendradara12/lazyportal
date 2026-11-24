@@ -38,7 +38,7 @@
   "rewrites": [{ "source": "/api/:path*", "destination": "/api/proxy?path=:path*" }],
   "functions": {
     "api/proxy.js": {
-      "maxDuration": 60,
+      "maxDuration": 25,
       "includeFiles": "shared/portal-intermediate.pem"
     }
   }

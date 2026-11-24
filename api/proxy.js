@@ -24,7 +24,7 @@ const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 // Share connections across warm/Fluid invocations, but retain only a small
 // idle pool. Active requests are not capped/queued (maxSockets is Infinity).
-// The idle timeout is at most 5s, separate from each request's 55s upstream inactivity timeout.
+// The idle timeout is at most 5s, separate from each request's 20s upstream inactivity timeout.
 const upstreamAgent = new https.Agent({
   ...portalTlsOptions(),
   keepAlive: true,
@@ -54,13 +54,14 @@ const DROP_HEADERS = new Set([
 ]);
 
 export const MAX_BODY_BYTES = 512 * 1024; // 512 KiB payload protection guard
+export const UPSTREAM_TIMEOUT_MS = 20_000;
 
 export const config = {
   api: { bodyParser: false },
   // Prevent the platform adapter from buffering our streamed response again.
   supportsResponseStreaming: true,
 };
-export const maxDuration = 60;
+export const maxDuration = 25;
 
 /** 413 contract shared by the content-length guard and the streaming body guard. */
 function sendPayloadTooLarge(res, detail) {
@@ -186,7 +187,7 @@ function fetchUpstream(target, { method, headers, body, signal }) {
       resolve
     );
     req.once("error", reject);
-    req.setTimeout(55_000, () => req.destroy(new Error("upstream timeout")));
+    req.setTimeout(UPSTREAM_TIMEOUT_MS, () => req.destroy(new Error("upstream timeout")));
     req.end(body);
   });
 }

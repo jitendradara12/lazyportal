@@ -355,14 +355,14 @@ test("warm/concurrent requests share a bounded idle connection pool, not an acti
   assert.equal(agent.maxSockets, Infinity);
   for (const call of calls) {
     assert.equal(call.options.agent, agent);
-    assert.equal(call.timeoutMs, 55000);
+    assert.equal(call.timeoutMs, 20000);
     assert.equal(call.options.signal.aborted, false, "normal completion must not abort the pooled socket");
     assert.equal(call.options.headers.Accept, "application/json");
   }
   assert.equal(new Set(calls.map((call) => call.options.signal)).size, calls.length);
   assert.equal(config.api.bodyParser, false);
   assert.equal(config.supportsResponseStreaming, true);
-  assert.equal(maxDuration, 60);
+  assert.equal(maxDuration, 25);
 });
 
 test("connection errors still produce the existing bounded 502 JSON response", async (t) => {
@@ -386,7 +386,7 @@ test("the bounded upstream inactivity timeout destroys the request and returns 5
   const calls = mockTransport(t, (call) => call.timeout());
   const res = new Response();
   await handler(request(), res);
-  assert.equal(calls[0].timeoutMs, 55000);
+  assert.equal(calls[0].timeoutMs, 20000);
   assert.equal(calls[0].client.destroyed, true);
   assert.equal(res.statusCode, 502);
   assert.equal(JSON.parse(res.body).detail, "upstream timeout");

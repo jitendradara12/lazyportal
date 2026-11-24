@@ -13,6 +13,7 @@ export { isSubjectDetailComplete };
 
 export const REFRESH_THROTTLE_MS = 20_000;
 export const NATIVE_REFRESH_THROTTLE_MS = 2_000;
+export const ATTENDANCE_UNCHANGED_COOLDOWN_MS = 60 * 60 * 1000; // 1-hour proxy cooldown after unchanged attendance check
 
 export function getThrottleKey(key = "attendance"): string {
   if (key.startsWith("juet.portal.")) return key;
@@ -36,6 +37,47 @@ export function recordRefreshAttempt(key = "attendance"): void {
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(getThrottleKey(key), String(Date.now()));
+    }
+  } catch {}
+}
+
+export function getAttendanceUnchangedKey(session?: SessionRef | null): string {
+  const user = session?.username ? encodeURIComponent(String(session.username).trim().toUpperCase()) : "anonymous";
+  const inst = session?.instituteid != null ? encodeURIComponent(String(session.instituteid)) : "default";
+  return `juet.portal.att_unchanged.${user}:${inst}`;
+}
+
+/**
+ * Proxy-side cooldown after a manual attendance refresh confirms no portal changes.
+ * Automatically resets at the 02:00 AM IST portal day rollover.
+ */
+export function isAttendanceUnchangedCoolingDown(
+  session?: SessionRef | null,
+  now?: Date | number,
+  cooldownMs: number = ATTENDANCE_UNCHANGED_COOLDOWN_MS,
+): boolean {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    const raw = localStorage.getItem(getAttendanceUnchangedKey(session));
+    if (!raw) return false;
+    const lastUnchangedAt = Number(raw);
+    if (!Number.isFinite(lastUnchangedAt) || lastUnchangedAt <= 0) return false;
+    const nowMs = toMs(now);
+    const clamped = lastUnchangedAt > nowMs ? nowMs : lastUnchangedAt;
+    if (!isCurrentPortalDay(clamped, nowMs)) return false;
+    return nowMs - clamped < cooldownMs;
+  } catch {
+    return false;
+  }
+}
+
+export function recordAttendanceUnchanged(
+  session?: SessionRef | null,
+  now?: Date | number,
+): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(getAttendanceUnchangedKey(session), String(toMs(now)));
     }
   } catch {}
 }
