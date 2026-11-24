@@ -34,7 +34,7 @@ globalThis.window = {
 };
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
-let server, MarksSection, ExamsSection, FacultySection, groupCoursesAndFaculty, MorePage, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS;
+let server, MarksSection, ExamsSection, FacultySection, groupCoursesAndFaculty, MorePage, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS, MAX_CAPTCHA_FETCH_ATTEMPTS;
 let invalidateCacheGeneration, pauseAttendanceSync, readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
 
 before(async () => {
@@ -51,7 +51,7 @@ before(async () => {
   ({ SubjectDetailSheet } = await server.ssrLoadModule("/src/components/SubjectDetailSheet.tsx"));
   ({ sessionCacheKey } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
   ({ client } = await server.ssrLoadModule("/src/lib/portal.ts"));
-  ({ fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
+  ({ fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS, MAX_CAPTCHA_FETCH_ATTEMPTS } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
   ({
     pauseAttendanceSync,
     syncAttendanceDetails,
@@ -205,13 +205,27 @@ async function withFailedDecoder(run) {
   }
 }
 
-test("captcha fetch failure rejects after retries so login/reconnect can display the error", async (t) => {
+test("captcha fetch failure rejects after capped retries so login/reconnect can display the error", async (t) => {
   const error = new Error("You are offline.");
   const get = t.mock.method(client, "getPublic", async () => { throw error; });
   await withFailedDecoder(async () => {
     await assert.rejects(fetchAutosolvedCaptcha(), (e) => e === error);
-    assert.equal(get.mock.callCount(), MAX_AUTOSOLVE_ATTEMPTS);
+    assert.equal(get.mock.callCount(), MAX_CAPTCHA_FETCH_ATTEMPTS);
   });
+});
+
+test("captcha fetch breaks immediately on REQUEST_TIMEOUT and HTTP 429 without retrying", async (t) => {
+  for (const error of [
+    Object.assign(new Error("Timed out"), { code: "REQUEST_TIMEOUT" }),
+    Object.assign(new Error("Too Many Requests"), { status: 429 }),
+  ]) {
+    const get = t.mock.method(client, "getPublic", async () => { throw error; });
+    await withFailedDecoder(async () => {
+      await assert.rejects(fetchAutosolvedCaptcha(), (e) => e === error);
+      assert.equal(get.mock.callCount(), 1);
+    });
+    get.mock.restore();
+  }
 });
 
 test("captcha fetch failure also surfaces when image/canvas APIs are unavailable", async (t) => {

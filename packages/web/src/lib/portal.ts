@@ -38,6 +38,7 @@ export async function getRefreshThrottleMs(page: RefreshPage): Promise<number> {
 }
 
 export const MAX_AUTOSOLVE_ATTEMPTS = 8;
+export const MAX_REFRESH_NETWORK_ATTEMPTS = 2;
 
 export const savedCredentials = credentials.createStore();
 // Migrate on every app boot, even when the current session is still valid.
@@ -95,6 +96,21 @@ function offlineError(err?: unknown): Error {
     : new errors.PortalError("You are offline.", { code: "NETWORK_ERROR" });
 }
 
+function waitBackoff(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export const client = createClient({
   baseUrl: BASE_URL,
   fetchImpl: transport.fetch,
@@ -143,6 +159,7 @@ export const client = createClient({
 
     if (savedPw) {
       let lastTransientError: unknown = refreshTransientError;
+      let consecutiveNetworkErrors = 0;
       const maxAttempts = MAX_AUTOSOLVE_ATTEMPTS;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (signal.aborted) return false;
@@ -153,12 +170,17 @@ export const client = createClient({
           if (signal.aborted) return false;
           if (isNavigatorOffline()) throw offlineError(e);
           const code = (e as { code?: string })?.code;
+          const status = (e as { status?: number })?.status;
+          if (status === 429) break;
           if (code === "REQUEST_TIMEOUT" || isAbortError(e)) throw e;
           if (code === "NETWORK_ERROR") {
             lastTransientError = e;
-            continue;
           }
-          // Captcha image fetch failed (non-network blip): retry.
+          if (++consecutiveNetworkErrors >= MAX_REFRESH_NETWORK_ATTEMPTS) {
+            if (code === "NETWORK_ERROR") throw e;
+            break;
+          }
+          await waitBackoff(500 * consecutiveNetworkErrors, signal);
           continue;
         }
         if (signal.aborted) return false;
@@ -194,18 +216,25 @@ export const client = createClient({
         } catch (e) {
           if (signal.aborted) return false;
           const code = (e as { code?: string })?.code;
+          const status = (e as { status?: number })?.status;
           const msg = (e as Error)?.message ?? "";
           const isCaptchaErr = code === "CAPTCHA_INVALID" || /captcha/i.test(msg);
-          if (isCaptchaErr) continue;
+          if (isCaptchaErr) {
+            consecutiveNetworkErrors = 0;
+            continue;
+          }
           // Explicit credential rejection: clear saved credentials
           if (/invalid (user|password|credential)|wrong password|password.*incorrect|user id or password/i.test(msg)) {
             savedCredentials.clear();
             return false;
           }
           if (isNavigatorOffline()) throw offlineError(e);
+          if (status === 429) return false;
           if (code === "REQUEST_TIMEOUT" || isAbortError(e)) throw e;
           if (code === "NETWORK_ERROR") {
             lastTransientError = e;
+            if (++consecutiveNetworkErrors >= MAX_REFRESH_NETWORK_ATTEMPTS) throw e;
+            await waitBackoff(500 * consecutiveNetworkErrors, signal);
             continue;
           }
           // Transient session race — retry with a fresh captcha.
