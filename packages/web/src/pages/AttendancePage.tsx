@@ -1,5 +1,5 @@
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { client, getRefreshThrottleMs, getSessionStatus } from "../lib/portal";
+import { canAutoSyncAttendanceDetails, client, getRefreshThrottleMs, getSessionStatus } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCacheGeneration, isCacheGenerationCurrent } from "../hooks/useFeature";
 import { SectionError, ListSkeleton, formatLastSync } from "../components/DataViews";
 import { SubjectDetailSheet } from "../lazy";
@@ -34,6 +34,7 @@ import {
   getSubjectCacheKey,
   idleAttendanceSync,
   readAttendanceOverview,
+  recordLastSync,
   resolveAttendanceSemester,
   runManualAttendanceRefresh,
   syncAttendanceDetails,
@@ -81,12 +82,19 @@ export function AttendancePage({
   const [filter, setFilter] = useState<"all" | "short">("all");
   const [defaultTarget] = useDefaultAttendanceTarget();
   const [throttleMs, setThrottleMs] = useState<number>(REFRESH_THROTTLE_MS);
+  const [autoSyncDetails, setAutoSyncDetails] = useState<boolean>(false);
 
   useEffect(() => {
     pageIsLive.current = true;
     let active = true;
-    void getRefreshThrottleMs("attendance").then((ms) => {
-      if (active) setThrottleMs(ms);
+    void Promise.all([
+      getRefreshThrottleMs("attendance"),
+      canAutoSyncAttendanceDetails(),
+    ]).then(([ms, canAutoSync]) => {
+      if (active) {
+        setThrottleMs(ms);
+        setAutoSyncDetails(canAutoSync);
+      }
     });
     const unsubscribeRollover = subscribePortalDayRollover(() => {});
     return () => {
@@ -281,6 +289,12 @@ export function AttendancePage({
     lastSemRef.current = key;
     setDetailsMap((prev) => changedSemester ? currentMap : { ...prev, ...currentMap });
 
+    if (!autoSyncDetails) {
+      setSyncState((previous) => previous.phase === "idle" ? previous : idleAttendanceSync());
+      if (att.updatedAt) recordLastSync(att.updatedAt);
+      return;
+    }
+
     void syncAttendanceDetails({
       session: currentSession,
       rows,
@@ -309,6 +323,7 @@ export function AttendancePage({
     att.refreshing,
     att.updatedAt,
     detailSyncAttempt,
+    autoSyncDetails,
   ]);
 
   const isSyncing = !isExpired && (isRefreshing || loading || att.refreshing || syncingHistory);
@@ -345,6 +360,7 @@ export function AttendancePage({
       return;
     }
 
+    if (!autoSyncDetails) return;
     if (!isCurrentPortalDay(att.updatedAt)) return;
 
     const currentSession = sessionRef.current;
@@ -419,8 +435,14 @@ export function AttendancePage({
     const requestGeneration = getCacheGeneration();
     const current = () => !controller.signal.aborted && pageIsLive.current && activeRefreshKey.current === refreshKey && isCacheGenerationCurrent(requestGeneration) && getSessionStatus() !== "expired";
     try {
-      const cooldownMs = await getRefreshThrottleMs("attendance");
-      if (pageIsLive.current) setThrottleMs(cooldownMs);
+      const [cooldownMs, syncDetails] = await Promise.all([
+        getRefreshThrottleMs("attendance"),
+        canAutoSyncAttendanceDetails(),
+      ]);
+      if (pageIsLive.current) {
+        setThrottleMs(cooldownMs);
+        setAutoSyncDetails(syncDetails);
+      }
       if (!current()) return;
       const usesProxy = cooldownMs >= REFRESH_THROTTLE_MS;
       if (usesProxy && isAttendanceUnchangedCoolingDown(session)) {
@@ -451,6 +473,7 @@ export function AttendancePage({
         readOverview: att.refresh,
         isCurrent: current,
         signal: controller.signal,
+        syncDetails,
         onDetail: (id, data) => setDetailsMap((prev) => ({ ...prev, [id]: data })),
         onProgress: setSyncState,
       });

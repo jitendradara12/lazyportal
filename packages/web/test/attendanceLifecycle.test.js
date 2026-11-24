@@ -221,7 +221,7 @@ let server;
 let cacheDir;
 let AttendancePage, SubjectDetailSheet, useSession;
 let sessionCacheKey, setCached, invalidateCacheGeneration, getCacheGeneration;
-let client, store, setSessionStatus;
+let client, store, setSessionStatus, transport;
 let syncAttendanceDetails, getSubjectCacheKey, getCachedSubjectDetailEntry;
 
 before(async () => {
@@ -236,7 +236,7 @@ before(async () => {
   ({ SubjectDetailSheet } = await server.ssrLoadModule("/src/components/SubjectDetailSheet.tsx"));
   ({ useSession } = await server.ssrLoadModule("/src/hooks/useSession.ts"));
   ({ sessionCacheKey, setCached, invalidateCacheGeneration, getCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
-  ({ client, store, setSessionStatus } = await server.ssrLoadModule("/src/lib/portal.ts"));
+  ({ client, store, setSessionStatus, transport } = await server.ssrLoadModule("/src/lib/portal.ts"));
   ({ syncAttendanceDetails, getSubjectCacheKey, getCachedSubjectDetailEntry } = await server.ssrLoadModule("/src/lib/attendanceSync.ts"));
 });
 
@@ -245,7 +245,7 @@ after(async () => {
   if (cacheDir) await rm(cacheDir, { recursive: true, force: true });
 });
 
-let originalPost, originalPostRaw;
+let originalPost, originalPostRaw, originalUsesProxyFor;
 beforeEach(() => {
   storage.clear();
   invalidateCacheGeneration();
@@ -254,6 +254,7 @@ beforeEach(() => {
   setSessionStatus("authenticated");
   originalPost = client.post;
   originalPostRaw = client.postRaw;
+  originalUsesProxyFor = transport.usesProxyFor;
   client.postRaw = async () => ({
     response: {
       headerlist: [{ stynumber: "4" }],
@@ -409,6 +410,7 @@ test("1. SubjectDetailSheet releases pauseAttendanceSync after a failed detail r
     s0RetryGate.resolve();
     s1Gate.resolve();
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     await mounted.unmount();
   }
 });
@@ -464,11 +466,13 @@ test("2. AttendancePage updates row details from juet:cache-updated after sheet 
   } finally {
     sheetGate.resolve();
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     await mounted.unmount();
   }
 });
 
 test("3a. AttendancePage auto-resumes failed/partial detail sync on visibilitychange->visible without retry loops", async () => {
+  transport.usesProxyFor = async () => false;
   const session = makeSession({ username: "vis-resume-user" });
   const rows = [
     { subjectid: "s0", subjectcode: "DSA(CS201)", Lsubjectcomponentid: "l0", Lpercentage: 100 },
@@ -528,6 +532,7 @@ test("3a. AttendancePage auto-resumes failed/partial detail sync on visibilitych
     assert.match(mounted.container.textContent, /2\/2 classes/);
   } finally {
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     await mounted.unmount();
   }
 });
@@ -576,12 +581,14 @@ test("3b. AttendancePage auto-resumes on online and avoids double-retrying att.e
     assert.doesNotMatch(mounted.container.textContent, /You are offline/);
   } finally {
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     client.postRaw = originalPostRaw;
     await mounted.unmount();
   }
 });
 
 test("4. AttendancePage re-evaluates auto-sync after manual refresh ends without clobbering refreshError", async () => {
+  transport.usesProxyFor = async () => false;
   const session = makeSession({ username: "manual-refresh-user" });
   const rows = [
     { subjectid: "s0", subjectcode: "Math(MA101)", Lsubjectcomponentid: "l0", Lpercentage: 100 },
@@ -649,12 +656,14 @@ test("4. AttendancePage re-evaluates auto-sync after manual refresh ends without
     }
   } finally {
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     client.postRaw = originalPostRaw;
     await mounted.unmount();
   }
 });
 
 test("4b. AttendancePage re-runs auto-sync for remaining subjects when handleRefresh finishes early without refreshError", async () => {
+  transport.usesProxyFor = async () => false;
   const session = makeSession({ username: "manual-early-exit-user" });
   const rows = [
     { subjectid: "s0", subjectcode: "Math(MA101)", Lsubjectcomponentid: "l0", Lpercentage: 100 },
@@ -697,12 +706,14 @@ test("4b. AttendancePage re-runs auto-sync for remaining subjects when handleRef
     assert.match(mounted.container.textContent, /2\/2 classes/);
   } finally {
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     client.postRaw = originalPostRaw;
     await mounted.unmount();
   }
 });
 
 test("5. Silent token renewal (juet:renewed) updates session.token and does NOT abort in-flight syncAttendanceDetails", async () => {
+  transport.usesProxyFor = async () => false;
   const session = makeSession({ username: "renew-inflight-user", token: "old-token" });
   store.save(session);
   const rows = [
@@ -778,11 +789,13 @@ test("5. Silent token renewal (juet:renewed) updates session.token and does NOT 
   } finally {
     detailGate.resolve();
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     await mounted.unmount();
   }
 });
 
 test("6. AttendancePage never renders a semester selector and completes manual refresh across latest-semester rollover", async () => {
+  transport.usesProxyFor = async () => false;
   const session = makeSession({ username: "rollover-user" });
   const oldRow = { subjectid: "s-old", subjectcode: "Old Subject(OS100)", Lsubjectcomponentid: "l-old", Lpercentage: 100 };
   const newRow = { subjectid: "s-new", subjectcode: "New Subject(NS200)", Lsubjectcomponentid: "l-new", Lpercentage: 100 };
@@ -840,7 +853,81 @@ test("6. AttendancePage never renders a semester selector and completes manual r
     assert.equal(mounted.container.findAll((el) => el.tagName === "SELECT").length, 0);
   } finally {
     client.post = originalPost;
+    transport.usesProxyFor = originalUsesProxyFor;
     client.postRaw = originalPostRaw;
+    await mounted.unmount();
+  }
+});
+
+test("7. Proxy mode skips background detail sync on mount, resume, and manual refresh while on-demand SubjectDetailSheet still fetches", async () => {
+  const session = makeSession({ username: "proxy-on-demand-user" });
+  const rows = [
+    { subjectid: "s0", subjectcode: "Algorithms(CS401)", Lsubjectcomponentid: "l0", Lpercentage: 90 },
+    { subjectid: "s1", subjectcode: "Compilers(CS402)", Lsubjectcomponentid: "l1", Lpercentage: 85 },
+  ];
+  seedOverview(session, rows);
+
+  let overviewCalls = 0;
+  const detailCalls = [];
+  client.post = async (endpoint, payload) => {
+    if (endpoint.includes("getstudentattendancedetail")) {
+      overviewCalls++;
+      return { response: { studentattendancelist: rows } };
+    }
+    detailCalls.push(payload.subjectid);
+    return { response: logs(4, 3) };
+  };
+
+  const mounted = await mount(createElement(AttendancePage, { session, onLogout() {} }));
+  try {
+    await flush();
+    assert.deepEqual(detailCalls, [], "proxy mode must not fan out background detail sync on mount");
+
+    // visibilitychange and online must not trigger background detail sync in proxy mode
+    docVisibilityState = "hidden";
+    await act(async () => {
+      globalThis.document.dispatchEvent(new Event("visibilitychange"));
+    });
+    docVisibilityState = "visible";
+    await act(async () => {
+      globalThis.document.dispatchEvent(new Event("visibilitychange"));
+      globalThis.window.dispatchEvent(new Event("online"));
+    });
+    await flush();
+    assert.deepEqual(detailCalls, [], "proxy mode must not fan out background detail sync on resume");
+
+    // Manual refresh must run only the 1-call overview without fanning out detail requests
+    const refreshBtn = mounted.container.findAll(
+      (el) => el.tagName === "BUTTON" && el.getAttribute("aria-label") === "Refresh attendance",
+    )[0];
+    assert.ok(refreshBtn, "Refresh button should exist");
+    await act(async () => {
+      refreshBtn.click();
+    });
+    await flush();
+    assert.equal(overviewCalls, 1, "manual refresh should refresh the overview once");
+    assert.deepEqual(detailCalls, [], "manual refresh in proxy mode must not fan out subject detail reads");
+
+    // Tapping a subject row opens SubjectDetailSheet and fetches only that subject on demand
+    const s0Row = mounted.container.findAll(
+      (el) => el.tagName === "BUTTON" && (el.getAttribute("aria-label") || "").includes("Algorithms"),
+    )[0];
+    assert.ok(s0Row, "Algorithms row button should exist");
+    await act(async () => {
+      s0Row.click();
+    });
+    await flush();
+    // Wait a tick for lazy SubjectDetailSheet Suspense resolution if needed
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await flush();
+    assert.deepEqual(detailCalls, ["s0"], "tapping a subject must fetch only that subject on demand");
+    assert.match(mounted.container.textContent, /3\/4 classes/);
+  } finally {
+    client.post = originalPost;
+    client.postRaw = originalPostRaw;
+    transport.usesProxyFor = originalUsesProxyFor;
     await mounted.unmount();
   }
 });

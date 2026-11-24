@@ -420,24 +420,28 @@ export async function syncAttendanceDetails({
   const complete = current() && errors.length === 0 && done === total;
   phase = !current() ? "cancelled" : complete ? "complete" : "failed";
   progress();
-  if (complete && syncedAt > 0) {
-    try {
-      const previous = Number(localStorage.getItem("juet.portal.last_sync"));
-      if (!Number.isFinite(previous) || syncedAt > previous) {
-        localStorage.setItem("juet.portal.last_sync", String(syncedAt));
-        window.dispatchEvent(new CustomEvent("juet:sync"));
-      }
-    } catch {}
-  }
+  if (complete) recordLastSync(syncedAt);
   const provisional = rows.some((row) => getCachedSubjectDetailEntry(session.username ?? "", base.registrationid, row, session.instituteid).provisional);
   return { changed, errors, complete, provisional };
 }
 
+export function recordLastSync(syncedAt: number) {
+  if (syncedAt <= 0) return;
+  try {
+    const previous = Number(localStorage.getItem("juet.portal.last_sync"));
+    if (!Number.isFinite(previous) || syncedAt > previous) {
+      localStorage.setItem("juet.portal.last_sync", String(syncedAt));
+      window.dispatchEvent(new CustomEvent("juet:sync"));
+    }
+  } catch {}
+}
+
 export async function runManualAttendanceRefresh({
-  readOverview, baselineRows, ...sync
+  readOverview, baselineRows, syncDetails = true, ...sync
 }: Omit<Parameters<typeof syncAttendanceDetails>[0], "rows" | "base" | "overviewUpdatedAt"> & {
   readOverview: () => Promise<AttData>;
   baselineRows: AttRow[];
+  syncDetails?: boolean;
 }) {
   const portalDay = getPortalDayKey();
   const current = () => !sync.signal?.aborted && (sync.isCurrent?.() ?? true) && getPortalDayKey() === portalDay;
@@ -448,6 +452,13 @@ export async function runManualAttendanceRefresh({
   const semester = resolveAttendanceSemester(fresh);
   if (!fresh?.rows?.length || !semester?.registrationid) throw new Error("Portal returned no attendance records");
   const rowsChanged = attendanceRowsChanged(baselineRows, fresh.rows);
+  if (!syncDetails) {
+    recordLastSync(overviewUpdatedAt);
+    const provisional = fresh.rows.some((row) =>
+      getCachedSubjectDetailEntry(sync.session.username ?? "", semester.registrationid, row, sync.session.instituteid).provisional,
+    );
+    return { changed: rowsChanged, provisional };
+  }
   const result = await syncAttendanceDetails({
     ...sync,
     rows: fresh.rows,

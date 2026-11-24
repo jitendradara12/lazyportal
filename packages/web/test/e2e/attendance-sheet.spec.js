@@ -542,7 +542,7 @@ test("a cold history shows its completed lecture while the tutorial is still loa
   await expect(dialog.getByRole("status")).toHaveCount(0);
 });
 
-test("subjects with no attendance cache the portal's empty result without a page error", async ({ page }) => {
+test("subjects with no attendance cache the portal's empty result on demand without a page error", async ({ page }) => {
   await page.getByRole("button", { name: "Close subject details" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   let reads = 0;
@@ -560,18 +560,28 @@ test("subjects with no attendance cache the portal's empty result without a page
     localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
     window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
   }, SESSION);
-  for (const name of ["Minor Project-1", "Summer Internship"]) {
-    await expect(page.getByRole("button", { name: new RegExp(`^${name},`) })).toContainText("No attendance recorded");
-  }
+  await expect(page.getByRole("button", { name: /^Minor Project-1,/ })).toBeVisible();
+  // Proxy mode must not fan out background detail requests before the user taps a subject.
+  expect(reads).toBe(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
+
+  for (const [index, name] of ["Minor Project-1", "Summer Internship"].entries()) {
+    await page.getByRole("button", { name: new RegExp(`^${name},`) }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("No attendance recorded for this subject.", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "Close subject details" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: new RegExp(`^${name},`) })).toContainText("No attendance recorded");
+    expect(reads).toBe(index + 1);
+  }
+  // Reopening a cached empty subject does not trigger another read.
   await page.getByRole("button", { name: /^Minor Project-1,/ }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("No attendance recorded for this subject.", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("dialog").getByText("No attendance recorded for this subject.", { exact: true })).toBeVisible();
   expect(reads).toBe(2);
 });
 
-test("background caching resumes after the open subject finishes, while its sheet stays open", async ({ page }) => {
+test("proxy mode skips background caching for other subjects and fetches them on demand", async ({ page }) => {
   let releaseFirst;
   const first = new Promise(resolve => { releaseFirst = resolve; });
   const reads = [];
@@ -595,8 +605,21 @@ test("background caching resumes after the open subject finishes, while its shee
     await expect(dialog.getByRole("button", { name: "All (28)", exact: true })).toBeVisible();
   } finally { releaseFirst(); }
   await expect(dialog.getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
-  await expect.poll(() => reads).toEqual(["subject1", "subject2"]);
   await expect(dialog).toBeVisible();
+  // Give any unintended background sync a chance to fire; proxy mode must stay at ["subject1"].
+  await page.waitForTimeout(150);
+  expect(reads).toEqual(["subject1"]);
+  expect(await page.evaluate(session => {
+    const key = ["att.subject", session.username, session.instituteid, "sem1", "subject2"].map(encodeURIComponent).join(":");
+    return localStorage.getItem(`juet.cache.${key}`);
+  }, SESSION)).toBeNull();
+
+  // Tapping subject2 fetches and caches it on demand.
+  await page.getByRole("button", { name: "Close subject details" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: /Second Subject, .*attendance/i }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
+  expect(reads).toEqual(["subject1", "subject2"]);
   await expect.poll(() => page.evaluate(session => {
     const key = ["att.subject", session.username, session.instituteid, "sem1", "subject2"].map(encodeURIComponent).join(":");
     return Boolean(JSON.parse(localStorage.getItem(`juet.cache.${key}`))?.checksum);

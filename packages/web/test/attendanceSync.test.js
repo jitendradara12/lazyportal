@@ -411,3 +411,40 @@ test("an outage wakes paused workers without waiting for the unrelated open shee
   } finally { resume(); fail.resolve(); success.resolve(); await run; }
   assert.equal((await run).complete, false);
 });
+
+test("runManualAttendanceRefresh with syncDetails: false refreshes only the overview without fetching subject details", async () => {
+  const input = options("proxy-manual-overview-only");
+  let detailReads = 0;
+  client.post = async () => {
+    detailReads++;
+    return response;
+  };
+  let overviewReads = 0;
+  const unchanged = await runManualAttendanceRefresh({
+    session: input.session,
+    baselineRows: input.rows,
+    syncDetails: false,
+    readOverview: async () => {
+      overviewReads++;
+      return { rows: input.rows, semesters: [input.base] };
+    },
+  });
+  assert.equal(overviewReads, 1);
+  assert.equal(detailReads, 0, "proxy-mode manual refresh must not call getstudentsubjectpersentage");
+  assert.deepEqual(unchanged, { changed: false, provisional: false });
+  assert.ok(Number(values.get("juet.portal.last_sync")) > 0, "last_sync should update after overview refresh");
+
+  const updatedRows = [{ ...input.rows[0], Lpercentage: 80 }, ...input.rows.slice(1)];
+  const changed = await runManualAttendanceRefresh({
+    session: input.session,
+    baselineRows: input.rows,
+    syncDetails: false,
+    readOverview: async () => {
+      overviewReads++;
+      return { rows: updatedRows, semesters: [input.base] };
+    },
+  });
+  assert.equal(overviewReads, 2);
+  assert.equal(detailReads, 0);
+  assert.deepEqual(changed, { changed: true, provisional: false });
+});
