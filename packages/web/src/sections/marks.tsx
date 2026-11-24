@@ -7,7 +7,7 @@ import { features } from "@juet/core";
 import { client } from "../lib/portal";
 import { useFeature, sessionCacheKey, getCached } from "../hooks/useFeature";
 import { useSemester } from "../hooks/useSemester";
-import { FEATURE_TTL } from "../lib/portalSchedule";
+import { FEATURE_TTL, isCurrentPortalDay } from "../lib/portalSchedule";
 import { readPdfText } from "../lib/readPdfText";
 import {
   diffMarkRows,
@@ -247,9 +247,9 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
     isFresh: (updatedAt) => {
       const cached = getCached<MarksLatest>(latestKey).data;
       if (cached?.historyRecovered !== true) return false;
-      // A 1-semester cache has no semester selector yet; recheck weekly (matching LOV TTL)
-      // instead of daily so 1st-semester students do not re-download the marks PDF every day.
-      if ((cached.semesters?.length ?? 0) <= 1 && (!updatedAt || Date.now() - updatedAt > FEATURE_TTL.lov)) return false;
+      // A 1-semester cache has no semester selector yet; recheck once per portal day
+      // so newly published semesters appear without requiring a manual refresh.
+      if ((cached.semesters?.length ?? 0) <= 1 && !isCurrentPortalDay(updatedAt)) return false;
       return true;
     },
   });
