@@ -27,6 +27,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Topic-only campus alert opt-in and notification tap routing. */
 @CapacitorPlugin(
@@ -54,7 +55,7 @@ public class AlertsPlugin extends Plugin {
         Arrays.asList("marks", "cgpa")
     );
 
-    private JSObject pendingAction;
+    private final AtomicReference<JSObject> pendingAction = new AtomicReference<>();
 
     @Override
     public void load() {
@@ -108,8 +109,16 @@ public class AlertsPlugin extends Plugin {
         boolean wantMuted = Boolean.TRUE.equals(call.getBoolean("muted", false));
         if (wantMuted) {
             setMutedPref(context, true);
-            setTopicSubscribed(context, false);
-            FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC_ALERTS);
+            if (context != null) {
+                final Context appContext = context.getApplicationContext();
+                FirebaseMessaging.getInstance()
+                    .unsubscribeFromTopic(TOPIC_ALERTS)
+                    .addOnSuccessListener(unused -> {
+                        if (isMuted(appContext)) {
+                            setTopicSubscribed(appContext, false);
+                        }
+                    });
+            }
             call.resolve(buildStatus(true, true, resolvePermissionStatus()));
             return;
         }
@@ -176,8 +185,7 @@ public class AlertsPlugin extends Plugin {
 
     @PluginMethod
     public void consumePendingAction(PluginCall call) {
-        JSObject action = pendingAction;
-        pendingAction = null;
+        JSObject action = pendingAction.getAndSet(null);
         if (action == null) {
             call.resolve(new JSObject());
             return;
@@ -200,7 +208,11 @@ public class AlertsPlugin extends Plugin {
         final Context appContext = context.getApplicationContext();
         FirebaseMessaging.getInstance()
             .subscribeToTopic(TOPIC_ALERTS)
-            .addOnSuccessListener(unused -> setTopicSubscribed(appContext, true));
+            .addOnSuccessListener(unused -> {
+                if (!isMuted(appContext)) {
+                    setTopicSubscribed(appContext, true);
+                }
+            });
     }
 
     static boolean isTopicSubscribed(Context context) {
@@ -221,10 +233,10 @@ public class AlertsPlugin extends Plugin {
         if (action == null) return;
         clearNotificationExtras(intent);
         if (notify && hasListeners("notificationAction")) {
-            pendingAction = null;
+            pendingAction.set(null);
             notifyListeners("notificationAction", action);
         } else {
-            pendingAction = action;
+            pendingAction.set(action);
         }
     }
 
@@ -252,7 +264,7 @@ public class AlertsPlugin extends Plugin {
         return "prompt";
     }
 
-    private static boolean hasPostNotificationsPermission(Context context) {
+    static boolean hasPostNotificationsPermission(Context context) {
         if (context == null) return false;
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true;
@@ -269,7 +281,7 @@ public class AlertsPlugin extends Plugin {
             .put("permission", permission);
     }
 
-    static boolean isFirebaseConfigured(Context context) {
+    static synchronized boolean isFirebaseConfigured(Context context) {
         if (context == null) return false;
         try {
             if (!FirebaseApp.getApps(context).isEmpty()) return true;

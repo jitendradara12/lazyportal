@@ -19,7 +19,9 @@ public class AlertsMessagingService extends FirebaseMessagingService {
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
         AlertsPlugin.setTopicSubscribed(this, false);
-        if (!AlertsPlugin.isMuted(this) && AlertsPlugin.isFirebaseConfigured(this)) {
+        if (!AlertsPlugin.isMuted(this)
+            && AlertsPlugin.hasPostNotificationsPermission(this)
+            && AlertsPlugin.isFirebaseConfigured(this)) {
             AlertsPlugin.subscribeTopicAsync(this);
         }
     }
@@ -27,6 +29,9 @@ public class AlertsMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
         super.onMessageReceived(remoteMessage);
+        if (AlertsPlugin.isMuted(this)) {
+            return;
+        }
         Map<String, String> data = remoteMessage.getData();
         RemoteMessage.Notification notification = remoteMessage.getNotification();
 

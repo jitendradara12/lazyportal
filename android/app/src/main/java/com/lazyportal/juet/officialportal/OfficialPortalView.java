@@ -7,6 +7,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.view.Gravity;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.Window;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
@@ -24,6 +26,7 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebMessageCompat;
 import com.lazyportal.juet.R;
@@ -79,7 +82,13 @@ public final class OfficialPortalView {
         reload.setOnClickListener(view -> webView.reload());
         root.addView(reload, corner(Gravity.END));
         dialog.setContentView(root);
-        WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), false);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            WindowCompat.setDecorFitsSystemWindows(window, false);
+            WindowInsetsControllerCompat insetsController = WindowCompat.getInsetsController(window, root);
+            insetsController.setAppearanceLightStatusBars(!dark);
+            insetsController.setAppearanceLightNavigationBars(!dark);
+        }
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
             var bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom); return insets;
@@ -206,7 +215,10 @@ public final class OfficialPortalView {
         closed = true; bootstrap = "";
         cancelRequests(); executor.shutdownNow(); transport.close();
         webView.stopLoading(); WebViewCompat.removeWebMessageListener(webView, "OfficialPortalNative");
-        webView.clearHistory(); webView.removeAllViews(); webView.destroy();
+        webView.clearHistory(); webView.removeAllViews();
+        ViewParent parent = webView.getParent();
+        if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(webView);
+        webView.destroy();
         WebStorage.getInstance().deleteOrigin(policy.origin);
     }
     private ImageButton iconButton(int drawable, String label, int foreground, int background) {

@@ -82,12 +82,13 @@ public final class PortalTransport implements AutoCloseable {
     private HttpURLConnection connect(String id, URL target, String method) throws IOException {
         if (closed || Thread.currentThread().isInterrupted()) throw new IOException("Portal view closed");
         HttpURLConnection connection = connections.open(target);
-        connection.setConnectTimeout(10_000); connection.setReadTimeout(55_000);
+        int readTimeoutMs = policy.timeoutMs > 0 ? policy.timeoutMs : 55_000;
+        connection.setConnectTimeout(Math.min(10_000, readTimeoutMs));
+        connection.setReadTimeout(readTimeoutMs);
         connection.setInstanceFollowRedirects(false); connection.setUseCaches(false);
         connection.setRequestMethod(method);
         connection.setRequestProperty("Origin", policy.upstream);
         connection.setRequestProperty("Referer", policy.upstream + policy.pagePrefix);
-        connection.setRequestProperty("Accept-Encoding", "identity");
         active.put(id, connection);
         if (closed || Thread.currentThread().isInterrupted()) { cancel(id); throw new IOException("Portal view closed"); }
         return connection;

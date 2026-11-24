@@ -17,6 +17,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.lazyportal.juet.officialportal.OfficialPortalView;
 import com.lazyportal.juet.officialportal.PortalPolicy;
 import com.lazyportal.juet.officialportal.PortalStorage;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Thin platform entry point. The live web app supplies the versioned bootstrap;
  * the packaged policy independently confines every network operation. */
@@ -85,13 +86,15 @@ public class OfficialPortalPlugin extends Plugin {
 
     @PluginMethod public void open(PluginCall call) {
         Activity activity = getActivity();
-        if (destroyed || activity == null) {
+        if (destroyed || activity == null || activity.isFinishing() || activity.isDestroyed()) {
             call.reject("Could not open the official portal. Please retry.");
             return;
         }
         activity.runOnUiThread(() -> {
             Activity current = getActivity();
-            if (destroyed || current == null) { call.reject("Could not open the official portal. Please retry."); return; }
+            if (destroyed || current == null || current.isFinishing() || current.isDestroyed()) {
+                call.reject("Could not open the official portal. Please retry."); return;
+            }
             if (portal != null) { call.reject("The official portal is already open."); return; }
             if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
                 call.reject("Update Android System WebView to open the official portal."); return;
@@ -111,12 +114,23 @@ public class OfficialPortalPlugin extends Plugin {
                 }
                 cancelStartupCleanup();
                 setStorageDirty(current, true);
+                final AtomicBoolean callSettled = new AtomicBoolean(false);
                 portal = new OfficialPortalView(current, policy, bootstrap, expired -> {
                     portal = null;
                     setStorageDirty(current, false);
-                    call.resolve(new JSObject().put("expired", expired));
+                    if (callSettled.compareAndSet(false, true)) {
+                        call.resolve(new JSObject().put("expired", expired));
+                    }
                 });
-                portal.show();
+                try {
+                    portal.show();
+                } catch (Exception error) {
+                    boolean shouldReject = callSettled.compareAndSet(false, true);
+                    closeView();
+                    if (shouldReject) {
+                        call.reject("Could not open the official portal. Please retry.");
+                    }
+                }
             } catch (Exception error) {
                 closeView(); call.reject("Could not open the official portal. Please retry.");
             }

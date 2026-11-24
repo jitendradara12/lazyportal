@@ -151,6 +151,7 @@ public class MainActivity extends BridgeActivity {
         appReadyForReveal = true;
         cancelSplashRelease();
         cancelPendingChecks();
+        restoreDefaultCacheMode(getActiveWebView());
     }
 
     @Override
@@ -446,6 +447,7 @@ public class MainActivity extends BridgeActivity {
             String url = webView.getUrl();
             String errorUrl = getErrorUrl();
             if (WebViewHealthMonitor.isOfflineUrl(url, errorUrl)) {
+                restoreDefaultCacheMode(webView);
                 healthMonitor.onEarlyMountConfirmed(url, errorUrl);
                 markAppReadyForReveal();
                 return;
@@ -457,6 +459,7 @@ public class MainActivity extends BridgeActivity {
                 if (WebViewHealthMonitor.isMountedResult(value)) {
                     WebView current = getActiveWebView();
                     String currentUrl = current != null ? current.getUrl() : url;
+                    restoreDefaultCacheMode(current != null ? current : webView);
                     healthMonitor.onEarlyMountConfirmed(currentUrl, getErrorUrl());
                     cancelPendingChecks();
                     markAppReadyForReveal();

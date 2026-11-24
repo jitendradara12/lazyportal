@@ -228,6 +228,7 @@
       isChecking = true;
 
       if (manual) {
+        retryDelay = 5000;
         retryBtn.classList.remove("failed");
         retryBtn.classList.add("loading");
         btnText.textContent = "Checking...";
@@ -261,7 +262,10 @@
     }
 
     retryBtn.addEventListener("click", () => checkConnection(true));
-    window.addEventListener("online", scheduleRetry);
+    window.addEventListener("online", () => {
+      retryDelay = 5000;
+      scheduleRetry();
+    });
     window.addEventListener("offline", () => clearTimeout(retryTimer));
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) clearTimeout(retryTimer);

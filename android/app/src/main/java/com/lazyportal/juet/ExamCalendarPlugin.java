@@ -94,7 +94,7 @@ public class ExamCalendarPlugin extends Plugin {
             call.reject("Could not save calendar file");
             return;
         }
-        try (OutputStream output = context.getContentResolver().openOutputStream(uri, "w")) {
+        try (OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
             if (output == null) throw new IOException("Cannot open calendar file");
             output.write(content.getBytes(StandardCharsets.UTF_8));
         } catch (IOException | SecurityException exception) {
