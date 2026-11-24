@@ -20,7 +20,7 @@ export const BASE_URL = resolveApiBase({
   envNativeBase: env.VITE_NATIVE_API_BASE,
 });
 
-const transport = createPortalTransport({
+export const transport = createPortalTransport({
   baseUrl: BASE_URL,
   mode: env.VITE_API_TRANSPORT,
   native: Capacitor.getPlatform() === "android" && Capacitor.isPluginAvailable("PortalHttp") && !env.VITE_NATIVE_API_BASE
@@ -35,6 +35,15 @@ export async function getRefreshThrottleMs(page: RefreshPage): Promise<number> {
   const usesProxy = await transport.usesProxyFor("POST", paths).catch(() => true) ||
     (page === "marks" && await transport.usesProxyFor("GET", Object.values(features.marksReportEndpoints)).catch(() => true));
   return usesProxy ? REFRESH_THROTTLE_MS : NATIVE_REFRESH_THROTTLE_MS;
+}
+
+export async function canAutoSyncAttendanceDetails(): Promise<boolean> {
+  // Only fan out background subject detail reads when getstudentsubjectpersentage
+  // routes directly through Android's native PortalHttpPlugin (0 Vercel proxy cost).
+  const usesProxy = await transport
+    .usesProxyFor("POST", [features.featurePostEndpoints.attendance.current])
+    .catch(() => true);
+  return !usesProxy;
 }
 
 export const MAX_AUTOSOLVE_ATTEMPTS = 8;

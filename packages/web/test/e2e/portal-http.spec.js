@@ -55,7 +55,8 @@ async function setup(page, { missingAttendance = false, missingDetail = false, s
         if (fail) return Promise.reject(new Error("Native network unavailable"));
         const response = options.path.endsWith("refreshTokenRequest")
           ? { msg: "Success", token: "renewed-token" } : options.path.endsWith("getstudentattendancedetail")
-          ? { studentattendancelist: [row] } : options.path.endsWith("getsemestercode-exammarks")
+          ? { studentattendancelist: [row] } : options.path.endsWith("getstudentsubjectpersentage")
+          ? { student_attdsummarylist: [{ datetime: "01/10/2026 09:00 AM", present: "Y" }] } : options.path.endsWith("getsemestercode-exammarks")
           ? { semestercode: semesters } : options.path.endsWith("getstudent-exammarks")
           ? { viewmarksbystudent: [] } : { headerlist: [{ stynumber: "student1" }], semlist: seededAttendance ? semesters : [] };
         return Promise.resolve({ status: 200, headers: { "content-type": "application/json" },
@@ -167,4 +168,42 @@ test("marks JSON uses native networking while report recovery uses the proxy and
   await expect(button).toBeEnabled();
   expect(hosted).toHaveLength(3);
   expect(hosted.every((url) => new URL(url).pathname.startsWith("/api/studentsexamview/printstudent-exammarks/"))).toBe(true);
+});
+
+test("direct native Android transport runs background attendance detail sync, while missing detail capability skips it", async ({ page }) => {
+  const hosted = await setup(page, { seededAttendance: true });
+  await page.evaluate((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows.push({ subjectid: "subject2", subjectcode: "SECOND SUBJECT(CS102)", Psubjectcomponentid: "p2", Ppercentage: 100 });
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await expect.poll(() => page.evaluate(() =>
+    window.__portalHttp.requests.filter((request) => request.path.endsWith("getstudentsubjectpersentage")).length,
+  )).toBe(1);
+  await expect(page.getByRole("button", { name: /Second Subject, .*attendance/i })).toContainText("1/1 classes");
+  expect(hosted).toEqual([]);
+});
+
+test("legacy APK routing attendance details via proxy skips background fan-out until a subject is tapped", async ({ page }) => {
+  const hosted = await setup(page, { seededAttendance: true, missingDetail: true });
+  await page.route("**/api/**/getstudentsubjectpersentage", (route) => route.fulfill({
+    json: { status: { responseStatus: "Success" }, response: { student_attdsummarylist: [{ datetime: "01/10/2026 09:00 AM", present: "Y" }] } },
+  }));
+  await page.evaluate((session) => {
+    const key = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const entry = JSON.parse(localStorage.getItem(`juet.cache.${key}`));
+    entry.data.rows.push({ subjectid: "subject2", subjectcode: "SECOND SUBJECT(CS102)", Psubjectcomponentid: "p2", Ppercentage: 100 });
+    localStorage.setItem(`juet.cache.${key}`, JSON.stringify(entry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key } }));
+  }, SESSION);
+  await expect(page.getByRole("button", { name: /Second Subject, .*attendance/i })).toBeVisible();
+  await page.waitForTimeout(150);
+  expect(hosted).toEqual([]);
+
+  // Tapping subject2 fetches it on demand via proxy.
+  await page.getByRole("button", { name: /Second Subject, .*attendance/i }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "All (1)", exact: true })).toBeVisible();
+  expect(hosted.filter((url) => url.endsWith("getstudentsubjectpersentage"))).toHaveLength(1);
 });
