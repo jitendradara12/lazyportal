@@ -128,7 +128,7 @@ test("direct native attendance allows another check after two seconds", async ({
   expect(hosted).toEqual([]);
 });
 
-test("a partially supported attendance batch uses the 20s proxy cooldown even if its overview can run natively", async ({ page }) => {
+test("a partially supported attendance batch uses proxy unchanged cooldown even if its overview can run natively", async ({ page }) => {
   const hosted = await setup(page, { seededAttendance: true, missingDetail: true });
   await expect.poll(() => page.evaluate(() => window.__portalHttp.capabilities)).toBe(1);
   const button = page.getByRole("button", { name: "Refresh attendance", exact: true });
@@ -139,9 +139,9 @@ test("a partially supported attendance batch uses the 20s proxy cooldown even if
   await expect(button).toBeEnabled();
   await page.clock.fastForward(2_001);
   await button.click();
-  await expect(page.getByRole("status")).toHaveText("Please wait a few seconds to refresh");
+  await expect(page.getByRole("status")).toHaveText("Up to date with portal");
   expect(await reads()).toBe(1);
-  await page.clock.fastForward(18_001);
+  await page.clock.fastForward(3_600_001);
   await button.click();
   await expect.poll(reads).toBe(2);
   expect(hosted).toEqual([]);
