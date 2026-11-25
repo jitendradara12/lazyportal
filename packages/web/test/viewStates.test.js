@@ -34,10 +34,13 @@ globalThis.window = {
 };
 const session = { username: "test-student", instituteid: "test-campus", token: "test-token" };
 const semester = { registrationid: "sem1", registrationcode: "2026ODDSEM" };
-let server, MarksSection, ExamsSection, FacultySection, groupCoursesAndFaculty, MorePage, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS, MAX_CAPTCHA_FETCH_ATTEMPTS;
+let server, MarksSection, ExamsSection, FacultySection, groupCoursesAndFaculty, MorePage, AttendancePage, SubjectDetailSheet, sessionCacheKey, client, store, savedCredentials, cancelSessionRecovery, getSessionStatus, setSessionStatus, classifySectionError, fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS, MAX_CAPTCHA_FETCH_ATTEMPTS;
 let invalidateCacheGeneration, pauseAttendanceSync, readAttendanceOverview, syncAttendanceDetails, runManualAttendanceRefresh, getCached, refreshSubjectDetail, computeSubjectRowChecksum;
+let activeFetch = null;
+const realFetch = globalThis.fetch;
 
 before(async () => {
+  globalThis.fetch = (url, init) => (activeFetch ?? realFetch)(url, init);
   server = await createServer({
     root: fileURLToPath(new URL("..", import.meta.url)),
     server: { middlewareMode: true, hmr: false, ws: false },
@@ -49,8 +52,9 @@ before(async () => {
   ({ MorePage } = await server.ssrLoadModule("/src/pages/MorePage.tsx"));
   ({ AttendancePage } = await server.ssrLoadModule("/src/pages/AttendancePage.tsx"));
   ({ SubjectDetailSheet } = await server.ssrLoadModule("/src/components/SubjectDetailSheet.tsx"));
+  ({ classifySectionError } = await server.ssrLoadModule("/src/components/DataViews.tsx"));
   ({ sessionCacheKey } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
-  ({ client } = await server.ssrLoadModule("/src/lib/portal.ts"));
+  ({ client, store, savedCredentials, cancelSessionRecovery, getSessionStatus, setSessionStatus } = await server.ssrLoadModule("/src/lib/portal.ts"));
   ({ fetchAutosolvedCaptcha, MAX_AUTOSOLVE_ATTEMPTS, MAX_CAPTCHA_FETCH_ATTEMPTS } = await server.ssrLoadModule("/src/lib/captchaSolve.ts"));
   ({
     pauseAttendanceSync,
@@ -62,8 +66,14 @@ before(async () => {
   ({ computeSubjectRowChecksum } = await server.ssrLoadModule("/src/lib/portalSchedule.ts"));
   ({ getCached, invalidateCacheGeneration } = await server.ssrLoadModule("/src/hooks/useFeature.ts"));
 });
-after(async () => { await server?.close(); });
-beforeEach(() => values.clear());
+after(async () => {
+  globalThis.fetch = realFetch;
+  await server?.close();
+});
+beforeEach(() => {
+  activeFetch = null;
+  values.clear();
+});
 
 function cache(feature, data, ...parts) {
   const key = sessionCacheKey(feature, session, ...parts);
@@ -997,6 +1007,88 @@ test("MorePage renders Appearance theme selector alongside Default attendance ta
   assert.match(html, /aria-label="Light"/);
   assert.match(html, /aria-label="Dark"/);
   assert.doesNotMatch(html, /Registered subjects/, "duplicate Subjects card is merged into Faculty & courses");
+});
+
+test("HTTP 504 through portal client maps to REQUEST_TIMEOUT, stops fetchAutosolvedCaptcha without retrying, and classifies as timeout", async () => {
+  let fetchCalls = 0;
+  activeFetch = async () => {
+    fetchCalls++;
+    return new Response(
+      JSON.stringify({ status: { responseStatus: "Failure" }, message: "Gateway Timeout", detail: "upstream timeout" }),
+      { status: 504, headers: { "content-type": "application/json" } },
+    );
+  };
+  await withFailedDecoder(async () => {
+    const err = await fetchAutosolvedCaptcha().catch((e) => e);
+    assert.equal(err.name, "PortalError");
+    assert.equal(err.code, "REQUEST_TIMEOUT");
+    assert.equal(err.status, 504);
+    assert.equal(fetchCalls, 1, "HTTP 504 must stop immediately without retry amplification");
+    assert.deepEqual(classifySectionError(err.message, true), {
+      isOffline: false,
+      isDown: false,
+      isTimeout: true,
+      isTransient: true,
+    });
+  });
+});
+
+test("HTTP 504 during portal onRefresh stops without retry amplification or session expiry", async () => {
+  cancelSessionRecovery();
+  store.save(session);
+  await savedCredentials.save("test-password", { username: session.username, usertype: "S" });
+  setSessionStatus("authenticated");
+
+  try {
+    let calls = [];
+    activeFetch = async (url) => {
+      const path = String(url);
+      calls.push(path);
+      if (path.endsWith("/token/refreshTokenRequest")) {
+        return new Response(
+          JSON.stringify({ status: { responseStatus: "Failure" }, message: "Gateway Timeout", detail: "upstream timeout" }),
+          { status: 504, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 401, headers: { "content-type": "application/json" } });
+    };
+
+    const err1 = await client.postRaw("/clxuser/getmenulist", {}).catch((e) => e);
+    assert.equal(err1.code, "REQUEST_TIMEOUT");
+    assert.equal(err1.status, 504);
+    assert.equal(getSessionStatus(), "authenticated");
+    assert.equal(values.get("juet.portal.expired"), undefined);
+    assert.equal(calls.filter((p) => p.endsWith("/token/refreshTokenRequest")).length, 1);
+    assert.equal(calls.filter((p) => p.endsWith("/token/getcaptcha")).length, 0);
+
+    calls = [];
+    activeFetch = async (url) => {
+      const path = String(url);
+      calls.push(path);
+      if (path.endsWith("/token/refreshTokenRequest")) {
+        return new Response(
+          JSON.stringify({ status: { responseStatus: "Success" }, response: { msg: "Fail" } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (path.endsWith("/token/getcaptcha")) {
+        return new Response("", { status: 504 });
+      }
+      return new Response("{}", { status: 401, headers: { "content-type": "application/json" } });
+    };
+
+    const err2 = await client.postRaw("/clxuser/getmenulist", {}).catch((e) => e);
+    assert.equal(err2.code, "REQUEST_TIMEOUT");
+    assert.equal(err2.status, 504);
+    assert.equal(getSessionStatus(), "authenticated");
+    assert.equal(values.get("juet.portal.expired"), undefined);
+    assert.equal(calls.filter((p) => p.endsWith("/token/getcaptcha")).length, 1);
+  } finally {
+    cancelSessionRecovery();
+    savedCredentials.clear();
+    store.clear();
+    setSessionStatus("authenticated");
+  }
 });
 
 

@@ -4,7 +4,7 @@ import { EventEmitter, once } from "node:events";
 import https from "node:https";
 import { PassThrough, Readable, Writable } from "node:stream";
 import { setImmediate as nextTurn } from "node:timers/promises";
-import handler, { config, maxDuration, MAX_BODY_BYTES } from "../api/proxy.js";
+import handler, { config, maxDuration, MAX_BODY_BYTES, UPSTREAM_TIMEOUT_MS } from "../api/proxy.js";
 import { WEBVIEW_ORIGIN } from "../shared/cors.js";
 
 function request({ method = "GET", chunks = [], headers = {}, query = {}, autoDestroy = false } = {}) {
@@ -35,6 +35,11 @@ class Response extends Writable {
   setHeader(name, value) {
     assert.equal(this.headersSent, false, "headers must precede response bytes");
     this.headers[name.toLowerCase()] = value;
+  }
+
+  removeHeader(name) {
+    assert.equal(this.headersSent, false, "headers must precede response bytes");
+    delete this.headers[name.toLowerCase()];
   }
 
   _write(chunk, encoding, done) {
@@ -355,14 +360,15 @@ test("warm/concurrent requests share a bounded idle connection pool, not an acti
   assert.equal(agent.maxSockets, Infinity);
   for (const call of calls) {
     assert.equal(call.options.agent, agent);
-    assert.equal(call.timeoutMs, 20000);
+    assert.equal(call.timeoutMs, 55000);
     assert.equal(call.options.signal.aborted, false, "normal completion must not abort the pooled socket");
     assert.equal(call.options.headers.Accept, "application/json");
   }
   assert.equal(new Set(calls.map((call) => call.options.signal)).size, calls.length);
   assert.equal(config.api.bodyParser, false);
   assert.equal(config.supportsResponseStreaming, true);
-  assert.equal(maxDuration, 25);
+  assert.equal(UPSTREAM_TIMEOUT_MS, 55000);
+  assert.equal(maxDuration, 60);
 });
 
 test("connection errors still produce the existing bounded 502 JSON response", async (t) => {
@@ -381,15 +387,117 @@ test("connection errors still produce the existing bounded 502 JSON response", a
   assert.equal(console.error.mock.calls.length, 1);
 });
 
-test("the bounded upstream inactivity timeout destroys the request and returns 502", async (t) => {
+test("the bounded upstream inactivity timeout destroys the request and returns 504", async (t) => {
   t.mock.method(console, "error", () => {});
   const calls = mockTransport(t, (call) => call.timeout());
   const res = new Response();
   await handler(request(), res);
-  assert.equal(calls[0].timeoutMs, 20000);
+  assert.equal(calls[0].timeoutMs, 55000);
   assert.equal(calls[0].client.destroyed, true);
+  assert.equal(res.statusCode, 504);
+  assert.deepEqual(JSON.parse(res.body), {
+    status: { responseStatus: "Failure" },
+    message: "Gateway Timeout",
+    detail: "upstream timeout",
+  });
+});
+
+test("post-headers upstream timeout terminates the response without appending 504 JSON", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const remote = Object.assign(new PassThrough(), { statusCode: 200, headers: {} });
+  const calls = mockTransport(t, (call) => call.respond(remote));
+  const res = new Response();
+  const firstChunk = once(res, "chunk");
+  const pending = handler(request(), res);
+  remote.write('{"partial":');
+  await firstChunk;
+  calls[0].timeout();
+  await pending;
+  assert.equal(calls[0].client.destroyed, true);
+  assert.equal(res.headersSent, true);
+  assert.equal(res.destroyed, true);
+  assert.equal(res.jsonCalls, 0);
+  assert.equal(res.body.toString(), '{"partial":');
+  assert.equal(console.error.mock.calls.length, 1);
+});
+
+test("post-headers pre-body timeout maps ECONNRESET to 504 without leaking set-cookie", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const remote = Object.assign(new PassThrough(), {
+    statusCode: 200,
+    headers: {
+      "content-type": "application/pdf",
+      "set-cookie": ["session=student; Domain=studentportal.juet.ac.in; Path=/StudentPortalAPI; HttpOnly"],
+    },
+  });
+  const destroyRemote = remote.destroy.bind(remote);
+  remote.destroy = () => destroyRemote(Object.assign(new Error("aborted"), { code: "ECONNRESET" }));
+
+  const calls = mockTransport(t, (call) => call.respond(remote));
+  const res = new Response();
+  const pending = handler(request(), res);
+  await nextTurn();
+  calls[0].timeout();
+  await pending;
+
+  assert.equal(calls[0].client.destroyed, true);
+  assert.equal(res.statusCode, 504);
+  assert.equal(res.headers["content-type"], "application/json");
+  assert.equal(res.headers["set-cookie"], undefined);
+  assert.deepEqual(JSON.parse(res.body), {
+    status: { responseStatus: "Failure" },
+    message: "Gateway Timeout",
+    detail: "upstream timeout",
+  });
+  assert.equal(console.error.mock.calls.length, 1);
+});
+
+test("same-turn chunk followed by socket reset without dummy error listener does not throw unhandled error", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const remote = Object.assign(new PassThrough(), { statusCode: 200, headers: {} });
+  t.mock.method(https, "request", (_options, onResponse) => {
+    const client = new EventEmitter();
+    client.setTimeout = () => client;
+    client.destroy = () => client;
+    client.end = () => {
+      queueMicrotask(() => onResponse(remote));
+      return client;
+    };
+    return client;
+  });
+
+  const res = new Response();
+  const pending = handler(request(), res);
+  await nextTurn();
+  assert.equal(remote.listenerCount("error"), 2, "only onError and onDeferredError should be guarding remote");
+  remote.write("chunk");
+  remote.destroy(new Error("socket reset"));
+  await pending;
+
   assert.equal(res.statusCode, 502);
-  assert.equal(JSON.parse(res.body).detail, "upstream timeout");
+  assert.deepEqual(JSON.parse(res.body), {
+    status: { responseStatus: "Failure" },
+    message: "Upstream unreachable",
+    detail: "socket reset",
+  });
+  assert.equal(console.error.mock.calls.length, 1);
+});
+
+test("concurrent client abort and upstream timeout before headers suppresses 504 JSON", async (t) => {
+  t.mock.method(console, "error", () => {});
+  let started;
+  const ready = new Promise((resolve) => { started = resolve; });
+  const calls = mockTransport(t, () => started());
+  const req = request();
+  const res = new Response();
+  const pending = handler(req, res);
+  await ready;
+  calls[0].timeout();
+  res.destroy();
+  await pending;
+  assert.equal(calls[0].client.destroyed, true);
+  assert.equal(res.jsonCalls, 0);
+  assert.equal(console.error.mock.calls.length, 0);
 });
 
 test("a downstream disconnect while waiting for headers cancels upstream work", async (t) => {

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { toPortalError } from "../../core/src/errors.js";
 
 const storage = new Map();
 globalThis.localStorage ??= {
@@ -211,4 +212,24 @@ test("SectionError renders expected copy for offline, down, timeout, and portal 
     renderToStaticMarkup(createElement(SectionError, { label: "Marks", error: "JUET's portal took too long to respond. Please retry.", retry() {} })),
     /Marks failed: JUET&#x27;s portal took too long to respond\. Please retry\./,
   );
+});
+
+test("toPortalError HTTP 504 classifies as isTimeout: true, isDown: false while 502/503 classify as isDown: true", () => {
+  const err504 = toPortalError({ status: { responseStatus: "Failure" }, message: "Gateway Timeout" }, 504);
+  assert.deepEqual(classifySectionError(err504.message, true), {
+    isOffline: false,
+    isDown: false,
+    isTimeout: true,
+    isTransient: true,
+  });
+
+  for (const status of [502, 503]) {
+    const errDown = toPortalError(null, status);
+    assert.deepEqual(classifySectionError(errDown.message, true), {
+      isOffline: false,
+      isDown: true,
+      isTimeout: false,
+      isTransient: true,
+    });
+  }
 });

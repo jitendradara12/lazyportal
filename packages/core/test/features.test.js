@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getAttendance, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getGradeRegistrations, getGradeCard, getFacultyRegistrations, getFaculties, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getSubjectAttendanceAll } from "../src/features.js";
+import { getAttendance, isFutureSemester, getMarksSemesters, getMarks, getMarksLatest, getExamSemesters, getExamEvents, getExamSchedule, getGradesLatest, getGradeRegistrations, getGradeCard, getFacultyRegistrations, getFaculties, getSgpaStudentInfo, getSgpaCurrentSem, getSgpaSemesters, getSgpaDetail, getSgpaLatest, getSubjectAttendanceAll } from "../src/features.js";
 
 describe("features", () => {
   it("getAttendance chains LOV default semester into detail", async () => {
@@ -166,7 +166,7 @@ describe("features", () => {
           response: {
             headerlist: [{ stynumber: "4" }],
             semlist: [
-              { registrationid: "r2027", registrationcode: "2027EVEN" },
+              { registrationid: "r2099", registrationcode: "2099EVEN" },
               { registrationid: "r2026", registrationcode: "2026ODD" },
             ],
           },
@@ -174,15 +174,15 @@ describe("features", () => {
       },
       async post(_endpoint, payload) {
         calls.push(payload.registrationid);
-        if (payload.registrationid === "r2027") return { response: { studentattendancelist: [], currentSem: "5" } };
+        if (payload.registrationid === "r2099") return { response: { studentattendancelist: [], currentSem: "5" } };
         return { response: { studentattendancelist: [{ subjectcode: "CS101" }], currentSem: "4" } };
       },
     };
     const res = await getAttendance(fake, { instituteid: "i1" });
-    assert.deepEqual(calls, ["r2027", "r2026"]);
+    assert.deepEqual(calls, ["r2099", "r2026"]);
     assert.equal(res.registrationid, "r2026");
     assert.equal(res.registrationcode, "2026ODD");
-    assert.equal(res.semesters[0].registrationid, "r2027");
+    assert.equal(res.semesters[0].registrationid, "r2099");
     assert.equal(res.rows[0].subjectcode, "CS101");
   });
 
@@ -193,20 +193,20 @@ describe("features", () => {
           return {
             response: {
               semestercode: [
-                { registrationid: "r2027", registrationcode: "2027EVEN" },
+                { registrationid: "r2099", registrationcode: "2099EVEN" },
                 { registrationid: "r2026", registrationcode: "2026ODD" },
               ],
             },
           };
         }
-        if (payload.registrationid === "r2027") return { response: { viewmarksbystudent: [] } };
+        if (payload.registrationid === "r2099") return { response: { viewmarksbystudent: [] } };
         return { response: { viewmarksbystudent: [{ subjectcode: "CS101", obtainedmarks: 18 }] } };
       },
     };
     const out = await getMarksLatest(fake, { instituteid: "i1", companyid: "c1" });
     assert.equal(out.registrationid, "r2026");
     assert.equal(out.registrationcode, "2026ODD");
-    assert.equal(out.semesters[0].registrationid, "r2027");
+    assert.equal(out.semesters[0].registrationid, "r2099");
     assert.equal(out.rows.length, 1);
   });
 
@@ -218,13 +218,13 @@ describe("features", () => {
           return {
             response: {
               registrations: [
-                { registrationid: "r2027", registrationcode: "2027EVEN" },
+                { registrationid: "r2099", registrationcode: "2099EVEN" },
                 { registrationid: "r2026", registrationcode: "2026ODD" },
               ],
             },
           };
         }
-        if (payload.registrationid === "r2027") return { response: { gradecard: [] } };
+        if (payload.registrationid === "r2099") return { response: { gradecard: [] } };
         return { response: { gradecard: [{ subjectcode: "CS101", grade: "A" }] } };
       },
     };
@@ -241,14 +241,14 @@ describe("features", () => {
           return {
             response: {
               semestercode: [
-                { registrationid: "r2027", registrationcode: "2027EVESEM" },
+                { registrationid: "r2099", registrationcode: "2099EVESEM" },
                 { registrationid: "r2026", registrationcode: "2026ODDSEM" },
               ],
             },
           };
         }
-        if (payload.registrationid === "r2027") {
-          throw new Error("This facility will be available from 01-January-2027");
+        if (payload.registrationid === "r2099") {
+          throw new Error("This facility will be available from 01-January-2099");
         }
         return { response: { viewmarksbystudent: [{ subjectcode: "CS101", obtainedmarks: 18 }] } };
       },
@@ -266,15 +266,15 @@ describe("features", () => {
           response: {
             headerlist: [{ stynumber: "4" }],
             semlist: [
-              { registrationid: "r2027", registrationcode: "2027EVESEM" },
+              { registrationid: "r2099", registrationcode: "2099EVESEM" },
               { registrationid: "r2026", registrationcode: "2026ODDSEM" },
             ],
           },
         };
       },
       async post(_endpoint, payload) {
-        if (payload.registrationid === "r2027") {
-          throw new Error("This facility will be available from 01-January-2027");
+        if (payload.registrationid === "r2099") {
+          throw new Error("This facility will be available from 01-January-2099");
         }
         return { response: { studentattendancelist: [{ subjectcode: "CS101" }], currentSem: "4" } };
       },
@@ -283,6 +283,259 @@ describe("features", () => {
     assert.equal(res.registrationid, "r2026");
     assert.equal(res.registrationcode, "2026ODDSEM");
     assert.equal(res.rows.length, 1);
+  });
+
+  it("isFutureSemester respects injected now and falls back to registrationdesc", () => {
+    const jan2027 = new Date(2027, 0, 15);
+    assert.equal(isFutureSemester({ registrationcode: "2027EVESEM" }, jan2027), false);
+    assert.equal(isFutureSemester({ registrationcode: "2027ODDSEM" }, jan2027), true);
+    assert.equal(isFutureSemester({ registrationcode: "2027ODDSEM" }, new Date(2027, 6, 1)), false);
+    assert.equal(isFutureSemester({ registrationdesc: "2099EVESEM" }, jan2027), true);
+    assert.equal(isFutureSemester({ registrationcode: "", registrationdesc: "2099EVESEM" }, jan2027), true);
+    assert.equal(isFutureSemester({ registrationcode: "2026ODDSEM", registrationdesc: "2099EVESEM" }, jan2027), false);
+  });
+
+  it("getAttendance with cachedLov falls back directly to semesters[1] on future-semester non-fatal error without re-fetching LOV", async () => {
+    let lovCalls = 0;
+    const detailCalls = [];
+    const fake = {
+      async postRaw() {
+        lovCalls++;
+        return { response: { headerlist: [], semlist: [] } };
+      },
+      async post(_endpoint, payload) {
+        detailCalls.push(payload.registrationid);
+        if (payload.registrationid === "r2099") {
+          throw new Error("This facility will be available from 01-January-2099");
+        }
+        return { response: { studentattendancelist: [{ subjectcode: "CS101" }], currentSem: "4" } };
+      },
+    };
+    const cachedLov = {
+      header: { stynumber: "4" },
+      semesters: [
+        { registrationid: "r2099", registrationcode: "2099EVESEM" },
+        { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+      ],
+    };
+    const res = await getAttendance(fake, { instituteid: "i1" }, cachedLov);
+    assert.equal(lovCalls, 0);
+    assert.deepEqual(detailCalls, ["r2099", "r2026"]);
+    assert.equal(res.registrationid, "r2026");
+    assert.equal(res.registrationcode, "2026ODDSEM");
+    assert.equal(res.semesters, cachedLov.semesters);
+    assert.equal(res.rows.length, 1);
+  });
+
+  it("getAttendance with cachedLov still refreshes LOV when future fallback returns null or primary is non-future", async () => {
+    // 1. Future semesters[0] errors and semesters[1] returns 0 rows -> refreshes LOV
+    let lovCalls = 0;
+    const detailCalls = [];
+    const fakeEmptyFallback = {
+      async postRaw() {
+        lovCalls++;
+        return {
+          response: {
+            headerlist: [{ stynumber: "5" }],
+            semlist: [{ registrationid: "r-fresh", registrationcode: "2026ODDSEM" }],
+          },
+        };
+      },
+      async post(_endpoint, payload) {
+        detailCalls.push(payload.registrationid);
+        if (payload.registrationid === "r2099") {
+          throw new Error("This facility will be available from 01-January-2099");
+        }
+        if (payload.registrationid === "r-stale-prev") {
+          return { response: { studentattendancelist: [] } };
+        }
+        return { response: { studentattendancelist: [{ subjectcode: "CS201" }], currentSem: "5" } };
+      },
+    };
+    const res1 = await getAttendance(fakeEmptyFallback, { instituteid: "i1" }, {
+      header: { stynumber: "4" },
+      semesters: [
+        { registrationid: "r2099", registrationcode: "2099EVESEM" },
+        { registrationid: "r-stale-prev", registrationcode: "2026ODDSEM" },
+      ],
+    });
+    assert.equal(lovCalls, 1);
+    assert.deepEqual(detailCalls, ["r2099", "r-stale-prev", "r-fresh"]);
+    assert.equal(res1.registrationid, "r-fresh");
+
+    // 2. Non-future semesters[0] errors on cachedLov -> refreshes LOV immediately without probing semesters[1]
+    let nonFutureLovCalls = 0;
+    const nonFutureDetailCalls = [];
+    const fakeNonFuture = {
+      async postRaw() {
+        nonFutureLovCalls++;
+        return {
+          response: {
+            headerlist: [{ stynumber: "5" }],
+            semlist: [{ registrationid: "r-new", registrationcode: "2026ODDSEM" }],
+          },
+        };
+      },
+      async post(_endpoint, payload) {
+        nonFutureDetailCalls.push(payload.registrationid);
+        if (payload.registrationid === "r-stale") throw new Error("Stale registration");
+        return { response: { studentattendancelist: [{ subjectcode: "CS301" }], currentSem: "5" } };
+      },
+    };
+    const res2 = await getAttendance(fakeNonFuture, { instituteid: "i1" }, {
+      header: { stynumber: "4" },
+      semesters: [
+        { registrationid: "r-stale", registrationcode: "2026ODDSEM" },
+        { registrationid: "r-old", registrationcode: "2026EVESEM" },
+      ],
+    });
+    assert.equal(nonFutureLovCalls, 1);
+    assert.deepEqual(nonFutureDetailCalls, ["r-stale", "r-new"]);
+    assert.equal(res2.registrationid, "r-new");
+
+    // 3. Uncached LOV with future semesters[0] throwing and empty semesters[1] calls semesters[1] only once
+    const uncachedDetailCalls = [];
+    const fakeUncached = {
+      async postRaw() {
+        return {
+          response: {
+            headerlist: [{ stynumber: "4" }],
+            semlist: [
+              { registrationid: "r2099", registrationcode: "2099EVESEM" },
+              { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+            ],
+          },
+        };
+      },
+      async post(_endpoint, payload) {
+        uncachedDetailCalls.push(payload.registrationid);
+        if (payload.registrationid === "r2099") throw new Error("Not available yet");
+        return { response: { studentattendancelist: [] } };
+      },
+    };
+    await assert.rejects(() => getAttendance(fakeUncached, { instituteid: "i1" }), /Not available yet/);
+    assert.deepEqual(uncachedDetailCalls, ["r2099", "r2026"]);
+  });
+
+  it("getMarksLatest falls back to semesters[1] without fetching future PDF report when readPdfText is provided", async () => {
+    const reportPaths = [];
+    const fake = {
+      async post(endpoint, payload) {
+        if (endpoint.includes("getsemestercode")) {
+          return {
+            response: {
+              semestercode: [
+                { registrationid: "r2099", registrationdesc: "2099EVESEM" },
+                { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+              ],
+            },
+          };
+        }
+        if (payload.registrationid === "r2099") return { response: { viewmarksbystudent: [] } };
+        return { response: { viewmarksbystudent: [{ subjectcode: "CS303", eventcode: "TEST-2", obtainedmarks: 13, fullmarks: 25 }] } };
+      },
+      async getReport(path) {
+        reportPaths.push(path);
+        if (path.endsWith("/r2099/undefined")) throw new Error("Should not request future PDF");
+        return new Uint8Array([1]);
+      },
+    };
+    const item = (text, x, y, width = 20) => ({ text, x, y, width });
+    const readPdfText = async () => [[
+      item("Registration Code: 2026ODDSEM", 20, 800),
+      item("TEST-1", 320, 740),
+      item("OM/FM", 280, 720),
+      item("SAMPLE", 20, 680),
+      item("(CS303)", 20, 665),
+      item("7/15", 280, 672),
+    ]];
+    const out = await getMarksLatest(fake, { instituteid: "i1", companyid: "c1" }, { readPdfText });
+    assert.deepEqual(reportPaths, ["/studentsexamview/printstudent-exammarks/i1/r2026/2026ODDSEM"]);
+    assert.equal(out.registrationid, "r2026");
+    assert.equal(out.registrationcode, "2026ODDSEM");
+    assert.equal(out.historyRecovered, true);
+    assert.equal(out.rows.length, 2);
+  });
+
+  it("getMarksLatest returns historyRecovered: true for single or all-empty future semester without requesting PDF", async () => {
+    const reportPaths = [];
+    const fakeSingle = {
+      async post(endpoint) {
+        if (endpoint.includes("getsemestercode")) {
+          return { response: { semestercode: [{ registrationid: "r2099", registrationcode: "2099EVESEM" }] } };
+        }
+        return { response: { viewmarksbystudent: [] } };
+      },
+      async getReport(path) {
+        reportPaths.push(path);
+        throw new Error("Should not request future PDF");
+      },
+    };
+    const singleOut = await getMarksLatest(fakeSingle, { instituteid: "i1", companyid: "c1" }, {
+      readPdfText: async () => { throw new Error("Should not decode PDF"); },
+    });
+    assert.deepEqual(reportPaths, []);
+    assert.equal(singleOut.registrationid, "r2099");
+    assert.equal(singleOut.registrationcode, "2099EVESEM");
+    assert.deepEqual(singleOut.rows, []);
+    assert.equal(singleOut.historyRecovered, true);
+    assert.equal("historyError" in singleOut, false);
+
+    // When semesters[1] also has no rows (even if its PDF fails), returns future primary cleanly
+    const fakeBothEmpty = {
+      async post(endpoint) {
+        if (endpoint.includes("getsemestercode")) {
+          return {
+            response: {
+              semestercode: [
+                { registrationid: "r2099", registrationcode: "2099EVESEM" },
+                { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+              ],
+            },
+          };
+        }
+        return { response: { viewmarksbystudent: [] } };
+      },
+      async getReport(path) {
+        reportPaths.push(path);
+        throw new Error("No marks report");
+      },
+    };
+    const bothEmptyOut = await getMarksLatest(fakeBothEmpty, { instituteid: "i1", companyid: "c1" }, {
+      readPdfText: async () => [],
+    });
+    assert.deepEqual(reportPaths, ["/studentsexamview/printstudent-exammarks/i1/r2026/2026ODDSEM"]);
+    assert.equal(bothEmptyOut.registrationid, "r2099");
+    assert.equal(bothEmptyOut.historyRecovered, true);
+    assert.equal("historyError" in bothEmptyOut, false);
+  });
+
+  it("getMarksLatest preserves PDF recovery error on non-future empty semesters[0] instead of hiding behind semesters[1]", async () => {
+    const fake = {
+      async post(endpoint, payload) {
+        if (endpoint.includes("getsemestercode")) {
+          return {
+            response: {
+              semestercode: [
+                { registrationid: "r2026", registrationcode: "2026ODDSEM" },
+                { registrationid: "r2025", registrationcode: "2025EVESEM" },
+              ],
+            },
+          };
+        }
+        if (payload.registrationid === "r2026") return { response: { viewmarksbystudent: [] } };
+        return { response: { viewmarksbystudent: [{ subjectcode: "CS101", obtainedmarks: 18 }] } };
+      },
+      async getReport() {
+        throw new Error("Report service down");
+      },
+    };
+    const out = await getMarksLatest(fake, { instituteid: "i1", companyid: "c1" }, {
+      readPdfText: async () => [],
+    });
+    assert.equal(out.registrationid, "r2026");
+    assert.equal(out.historyRecovered, false);
+    assert.match(out.historyError, /could not be recovered/);
   });
 
   it("getAttendance does not retry LOV on fatal auth or network error", async () => {

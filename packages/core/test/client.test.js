@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createClient } from "../src/client.js";
 import { decrypt } from "../src/crypto.js";
-import { SessionExpiredError, PortalError } from "../src/errors.js";
+import { SessionExpiredError, PortalError, toPortalError } from "../src/errors.js";
 
 const NOW = new Date(2026, 8, 28);
 
@@ -822,5 +822,114 @@ describe("request deadlines", () => {
     ].join("\n");
     const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script]);
     assert.equal(stdout.trim(), "REQUEST_TIMEOUT");
+  });
+
+  it("maps HTTP 504 (JSON Failure, empty, and non-JSON) to REQUEST_TIMEOUT instead of NETWORK_ERROR", async () => {
+    for (const payload of [
+      JSON.stringify({ status: { responseStatus: "Failure" }, message: "Gateway Timeout", detail: "upstream timeout" }),
+      JSON.stringify({ status: { responseStatus: "Failure", errors: ["Gateway timeout"] } }),
+      "",
+      "<html>504 Gateway Time-out</html>",
+    ]) {
+      const client = createClient({
+        baseUrl: "https://x",
+        fetchImpl: async () => ({
+          ok: false,
+          status: 504,
+          headers: new Headers({ "content-type": "application/json" }),
+          text: async () => payload,
+        }),
+        now: () => NOW,
+      });
+      const err = await client.post("/a", {}).catch((e) => e);
+      assert.ok(err instanceof PortalError);
+      assert.equal(err.code, "REQUEST_TIMEOUT");
+      assert.notEqual(err.code, "NETWORK_ERROR");
+      assert.equal(err.status, 504);
+      assert.equal(err.message, "JUET's portal took too long to respond. Please retry.");
+    }
+  });
+
+  it("still maps HTTP 502 and 503 to NETWORK_ERROR", async () => {
+    for (const status of [502, 503]) {
+      for (const payload of [
+        JSON.stringify({ status: { responseStatus: "Failure" }, message: "Upstream unreachable", detail: "ECONNRESET" }),
+        "",
+        "<html>Bad Gateway</html>",
+      ]) {
+        const client = createClient({
+          baseUrl: "https://x",
+          fetchImpl: async () => ({
+            ok: false,
+            status,
+            headers: new Headers({ "content-type": "application/json" }),
+            text: async () => payload,
+          }),
+          now: () => NOW,
+        });
+        const err = await client.post("/a", {}).catch((e) => e);
+        assert.ok(err instanceof PortalError);
+        assert.equal(err.code, "NETWORK_ERROR");
+        assert.equal(err.status, status);
+        assert.equal(err.message, "JUET's portal is down (not us).");
+      }
+    }
+  });
+
+  it("preserves SessionExpiredError when HTTP 504 carries a session-expired payload", () => {
+    const err = toPortalError({ status: { responseStatus: "Failure", errors: ["Session expired! Please login again."] } }, 504);
+    assert.ok(err instanceof SessionExpiredError);
+    assert.equal(err.code, "SESSION_EXPIRED");
+  });
+
+  it("treats HTTP 504 inside onRefresh as transient without expiring session", async () => {
+    let token = "old";
+    let refreshes = 0;
+    let unauthorized = 0;
+    const statuses = [];
+    const client = createClient({
+      baseUrl: "https://x",
+      getToken: () => token,
+      fetchImpl: async (url, init) => {
+        if (url.endsWith("/token/getcaptcha")) {
+          return {
+            ok: false,
+            status: 504,
+            headers: new Headers({ "content-type": "application/json" }),
+            text: async () => JSON.stringify({ status: { responseStatus: "Failure" }, message: "Gateway Timeout" }),
+          };
+        }
+        if (init.headers.Authorization === "Bearer old") {
+          return { ok: false, status: 401, text: async () => "{}" };
+        }
+        return ok({ status: { responseStatus: "Success" }, response: { ok: true } });
+      },
+      onRefresh: async (signal) => {
+        refreshes++;
+        if (refreshes === 1) {
+          await client.getPublic("/token/getcaptcha", { signal });
+        }
+        token = "new";
+        return true;
+      },
+      onUnauthorized: () => {
+        unauthorized++;
+      },
+      onSessionStatusChange: (status) => statuses.push(status),
+      now: () => NOW,
+    });
+
+    const firstErr = await client.post("/first", {}).catch((e) => e);
+    assert.ok(firstErr instanceof PortalError);
+    assert.equal(firstErr.code, "REQUEST_TIMEOUT");
+    assert.equal(firstErr.status, 504);
+    assert.notEqual(firstErr.name, "SessionExpiredError");
+    assert.equal(unauthorized, 0);
+    assert.deepEqual(statuses, ["recovering", "authenticated"]);
+
+    const recovered = await client.post("/retry", {});
+    assert.equal(recovered.response.ok, true);
+    assert.equal(refreshes, 2);
+    assert.equal(unauthorized, 0);
   });
 });
