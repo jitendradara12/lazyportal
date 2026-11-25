@@ -77,7 +77,7 @@ export async function getAttendanceDetail(client, session, { stynumber, registra
 /** True when a JUET semester code (e.g. 2027EVESEM in Nov 2026) has not started yet. */
 export function isFutureSemester(semester, now = new Date()) {
   if (!semester || typeof semester !== "object") return false;
-  const raw = String(semester.registrationcode ?? semester.registrationdesc ?? "").trim();
+  const raw = String(semester.registrationcode ?? "").trim() || String(semester.registrationdesc ?? "").trim();
   const match = raw.match(/^(\d{4})(ODD|EVE|EVEN)(?:SEM)?$/i);
   if (!match) return false;
   const semYear = Number(match[1]);
@@ -156,11 +156,13 @@ export async function getAttendance(client, session, cachedLov, { signal } = {})
   } catch (err) {
     // retry with fresh LOV or fall back to previous term on non-fatal portal errors
     if (!isFatalPortalError(err, signal)) {
+      if (isFutureSemester(sem) || !usedCache) {
+        const fallback = await tryPrevSem();
+        if (fallback) return fallback;
+      }
       if (usedCache) {
         return getAttendance(client, session, undefined, { signal });
       }
-      const fallback = await tryPrevSem();
-      if (fallback) return fallback;
     }
     throw err;
   }
@@ -471,7 +473,7 @@ export async function getMarksSemesters(client, session) {
 }
 
 /** Marks detail rows + display flags. Encrypted {instituteid, registrationid, companyid}. */
-export async function getMarks(client, session, { registrationid, registrationcode, readPdfText }) {
+export async function getMarks(client, session, { registrationid, registrationcode, registrationdesc, readPdfText }) {
   const body = await client.post(featurePostEndpoints.marks.rows, {
     instituteid: session.instituteid,
     registrationid,
@@ -485,6 +487,9 @@ export async function getMarks(client, session, { registrationid, registrationco
     obtainedweightagemarksflag: body.response?.obtainedweightagemarksflag,
   };
   if (!readPdfText) return detail;
+  if (detail.rows.length === 0 && isFutureSemester({ registrationcode, registrationdesc })) {
+    return { ...detail, historyRecovered: true };
+  }
   let recoveryStep = "report request";
   try {
     const history = await getMarksReport(client, session, { registrationid, registrationcode,
@@ -530,7 +535,12 @@ export async function getMarksLatest(client, session, options = {}) {
   let detail = null;
   let primaryError = null;
   try {
-    detail = await getMarks(client, session, { ...options, registrationid: sem.registrationid, registrationcode: sem.registrationcode });
+    detail = await getMarks(client, session, {
+      ...options,
+      registrationid: sem.registrationid,
+      registrationcode: sem.registrationcode,
+      registrationdesc: sem.registrationdesc,
+    });
   } catch (err) {
     if (isFatalPortalError(err) || !semesters[1]) throw err;
     primaryError = err;
@@ -538,7 +548,12 @@ export async function getMarksLatest(client, session, options = {}) {
   if ((primaryError || (detail.rows.length === 0 && !detail.historyError)) && semesters[1]) {
     const prevSem = semesters[1];
     try {
-      const fallback = await getMarks(client, session, { ...options, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode });
+      const fallback = await getMarks(client, session, {
+        ...options,
+        registrationid: prevSem.registrationid,
+        registrationcode: prevSem.registrationcode,
+        registrationdesc: prevSem.registrationdesc,
+      });
       if (fallback.rows.length > 0) {
         return { semesters, registrationid: prevSem.registrationid, registrationcode: prevSem.registrationcode, ...fallback };
       }

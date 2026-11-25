@@ -266,7 +266,12 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
   const detailKey = semId ? sessionCacheKey("marks.detail", session, semId) : undefined;
   const detail = useFeature<MarksDetail>({
     run: async () => {
-      const latest = await features.getMarks(client, session, { registrationid: sem?.registrationid, registrationcode: sem?.registrationcode, readPdfText });
+      const latest = await features.getMarks(client, session, {
+        registrationid: sem?.registrationid,
+        registrationcode: sem?.registrationcode,
+        registrationdesc: sem?.registrationdesc,
+        readPdfText,
+      });
       const previous = getCached<MarksDetail>(detailKey).data;
       const prevRows = previous?.rows ?? [];
       const updatedKeys = previous?.historyRecovered !== false ? diffMarkRows(prevRows, latest.rows) : [];
@@ -283,7 +288,10 @@ function MarksPanel({ session, modeToggle }: SectionProps & { modeToggle: ReactN
   const rawRows = showDefault ? (lov.data?.rows ?? []) : (detail.data?.rows ?? []);
   const updatedKeys = showDefault ? (lov.data?.updatedKeys ?? []) : (detail.data?.updatedKeys ?? []);
   const updatedSet = useMemo(() => new Set(updatedKeys), [updatedKeys]);
-  const code = sem?.registrationcode ?? (showDefault ? lov.data?.registrationcode : undefined);
+  const code =
+    String(sem?.registrationcode ?? "").trim() ||
+    String(sem?.registrationdesc ?? "").trim() ||
+    (showDefault ? lov.data?.registrationcode : undefined);
   const semLabel = formatSemester(code);
   const error = showDefault
     ? (lov.error ?? lov.data?.historyError)

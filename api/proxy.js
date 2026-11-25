@@ -24,7 +24,7 @@ const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 // Share connections across warm/Fluid invocations, but retain only a small
 // idle pool. Active requests are not capped/queued (maxSockets is Infinity).
-// The idle timeout is at most 5s, separate from each request's 20s upstream inactivity timeout.
+// The idle timeout is at most 5s, separate from each request's 55s upstream inactivity timeout.
 const upstreamAgent = new https.Agent({
   ...portalTlsOptions(),
   keepAlive: true,
@@ -54,14 +54,14 @@ const DROP_HEADERS = new Set([
 ]);
 
 export const MAX_BODY_BYTES = 512 * 1024; // 512 KiB payload protection guard
-export const UPSTREAM_TIMEOUT_MS = 20_000;
+export const UPSTREAM_TIMEOUT_MS = 55_000;
 
 export const config = {
   api: { bodyParser: false },
   // Prevent the platform adapter from buffering our streamed response again.
   supportsResponseStreaming: true,
 };
-export const maxDuration = 25;
+export const maxDuration = 60;
 
 /** 413 contract shared by the content-length guard and the streaming body guard. */
 function sendPayloadTooLarge(res, detail) {
@@ -166,11 +166,14 @@ async function readRawBody(req, limit = MAX_BODY_BYTES) {
   });
 }
 
+const noop = () => {};
+const earlyStreamGuards = new WeakMap();
+
 /**
  * Upstream fetch via node:https: resolves as soon as headers arrive.
  * Reuses the idle connection pool and honors the abort signal.
  */
-function fetchUpstream(target, { method, headers, body, signal }) {
+function fetchUpstream(target, { method, headers, body, signal, onTimeout }) {
   return new Promise((resolve, reject) => {
     const url = new URL(target);
     const req = https.request(
@@ -184,12 +187,146 @@ function fetchUpstream(target, { method, headers, body, signal }) {
         signal,
         rejectUnauthorized: true,
       },
-      resolve
+      (upstream) => {
+        const state = { error: null, listener: (err) => { state.error ??= err; } };
+        upstream.on("error", state.listener);
+        earlyStreamGuards.set(upstream, state);
+        resolve(upstream);
+      }
     );
     req.once("error", reject);
-    req.setTimeout(UPSTREAM_TIMEOUT_MS, () => req.destroy(new Error("upstream timeout")));
+    req.setTimeout(UPSTREAM_TIMEOUT_MS, () => {
+      onTimeout?.();
+      req.destroy(Object.assign(new Error("upstream timeout"), { code: "UPSTREAM_TIMEOUT" }));
+    });
     req.end(body);
   });
+}
+
+function finishResponse(res) {
+  return new Promise((resolve, reject) => {
+    if (res.destroyed) {
+      reject(Object.assign(new Error("Premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" }));
+      return;
+    }
+    const cleanup = () => {
+      res.removeListener("error", onError);
+      res.removeListener("close", onClose);
+    };
+    const onError = (err) => {
+      cleanup();
+      reject(err);
+    };
+    const onClose = () => {
+      cleanup();
+      if (res.writableFinished) resolve();
+      else reject(Object.assign(new Error("Premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" }));
+    };
+    res.once("error", onError);
+    res.once("close", onClose);
+    res.end(() => {
+      cleanup();
+      resolve();
+    });
+  });
+}
+
+/**
+ * Wait for the first body byte or clean EOF before committing headers/pipeline
+ * to `res`, so a pre-body upstream timeout/abort can still deliver a clean 504/502.
+ */
+async function streamUpstream(upstream, res, applyHeaders, signal) {
+  let firstChunk = null;
+  let ended = false;
+  const earlyGuard = earlyStreamGuards.get(upstream);
+  earlyStreamGuards.delete(upstream);
+  let deferredError = earlyGuard?.error ?? null;
+  const onDeferredError = (err) => {
+    deferredError ??= err;
+  };
+  upstream.on("error", onDeferredError);
+  if (earlyGuard) upstream.removeListener("error", earlyGuard.listener);
+
+  try {
+    await new Promise((resolve, reject) => {
+      if (deferredError ?? upstream.errored) {
+        reject(deferredError ?? upstream.errored);
+        return;
+      }
+      if (upstream.readableEnded) {
+        ended = true;
+        resolve();
+        return;
+      }
+      const cleanup = () => {
+        upstream.removeListener("data", onData);
+        upstream.removeListener("end", onEnd);
+        upstream.removeListener("error", onError);
+        upstream.removeListener("close", onClose);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const onData = (chunk) => {
+        if (!chunk?.length) return;
+        firstChunk = chunk;
+        upstream.pause();
+        cleanup();
+        resolve();
+      };
+      const onEnd = () => {
+        ended = true;
+        cleanup();
+        resolve();
+      };
+      const onError = (err) => {
+        cleanup();
+        reject(err);
+      };
+      const onClose = () => {
+        cleanup();
+        reject(Object.assign(new Error("Premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" }));
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError" }));
+      };
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      upstream.on("data", onData);
+      upstream.once("end", onEnd);
+      upstream.once("error", onError);
+      upstream.once("close", onClose);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+
+    if (signal?.aborted || res.destroyed) {
+      throw Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    }
+    if (deferredError ?? upstream.errored) {
+      throw (deferredError ?? upstream.errored);
+    }
+
+    applyHeaders();
+    if (ended) {
+      await finishResponse(res);
+      return;
+    }
+    res.write(firstChunk);
+    if (deferredError ?? upstream.errored) {
+      throw (deferredError ?? upstream.errored);
+    }
+    if (upstream.readableEnded) {
+      await finishResponse(res);
+      return;
+    }
+    upstream.removeListener("error", onDeferredError);
+    // Stream directly via pipeline: enforces backpressure and awaits finish
+    await pipeline(upstream, res);
+  } finally {
+    upstream.removeListener("error", onDeferredError);
+    if (upstream.listenerCount("error") === 0) upstream.on("error", noop);
+  }
 }
 
 export default async function handler(req, res) {
@@ -248,6 +385,7 @@ export default async function handler(req, res) {
   res.once("close", onClose);
 
   let upstream;
+  let upstreamTimedOut = false;
   try {
     let body;
     if (method !== "GET" && method !== "HEAD") {
@@ -285,43 +423,59 @@ export default async function handler(req, res) {
 
     if (req.aborted || res.destroyed || controller.signal.aborted) return;
 
-    upstream = await fetchUpstream(target, { method, headers, body, signal: controller.signal });
+    upstream = await fetchUpstream(target, {
+      method,
+      headers,
+      body,
+      signal: controller.signal,
+      onTimeout: () => {
+        upstreamTimedOut = true;
+      },
+    });
 
-    res.status(upstream.statusCode ?? 502);
-    res.setHeader("content-type", upstream.headers["content-type"] ?? "application/json");
+    await streamUpstream(
+      upstream,
+      res,
+      () => {
+        res.status(upstream.statusCode ?? 502);
+        res.setHeader("content-type", upstream.headers["content-type"] ?? "application/json");
 
-    const setCookies = upstream.headers["set-cookie"];
-    if (setCookies?.length) {
-      // Relay session cookies for same-origin browser builds; strip Domain
-      // and reset Path to / so browser can attach cookies on subsequent calls.
-      res.setHeader(
-        "set-cookie",
-        setCookies.map((c) =>
-          c.replace(/;\s*[Dd]omain=[^;]*/g, "").replace(/;\s*[Pp]ath=[^;]*/g, "; Path=/")
-        )
-      );
-    }
-
-    // Stream directly via pipeline: enforces backpressure and awaits finish
-    await pipeline(upstream, res);
+        const setCookies = upstream.headers["set-cookie"];
+        if (setCookies?.length) {
+          // Relay session cookies for same-origin browser builds; strip Domain
+          // and reset Path to / so browser can attach cookies on subsequent calls.
+          res.setHeader(
+            "set-cookie",
+            setCookies.map((c) =>
+              c.replace(/;\s*[Dd]omain=[^;]*/g, "").replace(/;\s*[Pp]ath=[^;]*/g, "; Path=/")
+            )
+          );
+        }
+      },
+      controller.signal
+    );
   } catch (err) {
     if (
       req.aborted ||
       err?.name === "AbortError" ||
+      (!res.headersSent && (controller.signal.aborted || res.destroyed)) ||
       (controller.signal.aborted && err?.code === "ERR_STREAM_PREMATURE_CLOSE")
     ) {
       return;
     }
 
     console.error("proxy upstream fetch failed:", err);
-    if (res.headersSent) {
-      res.destroy();
+    if (res.headersSent || res.destroyed || res.writableEnded) {
+      if (!res.destroyed) res.destroy();
       return;
     }
-    res.status(502).json({
+    const isTimeout = upstreamTimedOut || err?.code === "UPSTREAM_TIMEOUT";
+    res.removeHeader?.("set-cookie");
+    res.setHeader("content-type", "application/json");
+    res.status(isTimeout ? 504 : 502).json({
       status: { responseStatus: "Failure" },
-      message: "Upstream unreachable",
-      detail: String(err?.message ?? err).slice(0, 200),
+      message: isTimeout ? "Gateway Timeout" : "Upstream unreachable",
+      detail: isTimeout ? "upstream timeout" : String(err?.message ?? err).slice(0, 200),
     });
   } finally {
     req.removeListener("aborted", onAborted);

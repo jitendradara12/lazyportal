@@ -35,6 +35,13 @@ export function toPortalError(body, status) {
   if (status === 401 || /session.*expired|invalid.*token|token.*expired|login again/i.test(msg)) {
     return new SessionExpiredError(msg);
   }
+  if (status === 504) {
+    return new PortalError("JUET's portal took too long to respond. Please retry.", {
+      code: "REQUEST_TIMEOUT",
+      status,
+      errors,
+    });
+  }
   if (status === 429 || (typeof status === "number" && status >= 500)) {
     return new PortalError("JUET's portal is down (not us).", { code: "NETWORK_ERROR", status, errors });
   }

@@ -121,3 +121,112 @@ for (const step of ["report request", "PDF decoding", "marks table matching"]) {
     assert.equal(result.historyError, `Earlier exam marks could not be recovered from the portal's report. Please retry. Failed step: ${step}.`);
   });
 }
+
+test("getMarks skips report PDF for empty future semesters while setting historyRecovered: true", async () => {
+  for (const selection of [
+    { registrationid: "sem-future", registrationcode: "2099EVESEM" },
+    { registrationid: "sem-future-desc", registrationdesc: "2099EVESEM" },
+    { registrationid: "sem-future-blank", registrationcode: "", registrationdesc: "2099ODDSEM" },
+  ]) {
+    let reportCalls = 0;
+    let pdfReads = 0;
+    const client = {
+      post: async () => ({
+        response: {
+          viewmarksbystudent: [],
+          fullMarksFlag: "Y",
+          passingMarksFlag: "N",
+          weightageMarksFlag: "N",
+          obtainedweightagemarksflag: "N",
+        },
+      }),
+      getReport: async () => {
+        reportCalls++;
+        return new Uint8Array([1, 2]);
+      },
+    };
+    const result = await getMarks(client, { instituteid: "i1", companyid: "c1" }, {
+      ...selection,
+      readPdfText: async () => {
+        pdfReads++;
+        return [page];
+      },
+    });
+    assert.equal(reportCalls, 0);
+    assert.equal(pdfReads, 0);
+    assert.deepEqual(result.rows, []);
+    assert.equal(result.historyRecovered, true);
+    assert.equal("historyError" in result, false);
+    assert.equal(result.fullMarksFlag, "Y");
+  }
+});
+
+test("getMarks still fetches report PDF when future semester already has JSON rows or when semester is not future", async () => {
+  const row = { subjectcode: "CS303", eventcode: "TEST-2", obtainedmarks: 14, fullmarks: 25 };
+  let futureReportCalls = 0;
+  const futureClient = {
+    post: async () => ({ response: { viewmarksbystudent: [row] } }),
+    getReport: async () => {
+      futureReportCalls++;
+      return new Uint8Array([1, 2]);
+    },
+  };
+  const futurePopulated = await getMarks(futureClient, { instituteid: "i1" }, {
+    registrationid: "sem-future",
+    registrationcode: "2099EVESEM",
+    readPdfText: async () => [[...table("2099EVESEM"), item("SAMPLE THEORY", 20, 680), item("(CS303)", 20, 665), item("7/15", 600, 672)]],
+  });
+  assert.equal(futureReportCalls, 1);
+  assert.equal(futurePopulated.historyRecovered, true);
+  assert.equal(futurePopulated.rows.length, 2);
+
+  let nonFutureReportCalls = 0;
+  const nonFutureClient = {
+    post: async () => ({ response: { viewmarksbystudent: [] } }),
+    getReport: async () => {
+      nonFutureReportCalls++;
+      return new Uint8Array([1, 2]);
+    },
+  };
+  const nonFutureEmpty = await getMarks(nonFutureClient, { instituteid: "i1" }, {
+    registrationid: "sem-curr",
+    registrationcode: "2026ODDSEM",
+    readPdfText: async () => [page],
+  });
+  assert.equal(nonFutureReportCalls, 1);
+  assert.equal(nonFutureEmpty.historyRecovered, true);
+  assert.equal(nonFutureEmpty.rows.length, 5);
+
+  nonFutureClient.getReport = async () => {
+    nonFutureReportCalls++;
+    throw new Error("PDF unavailable");
+  };
+  const nonFutureFailed = await getMarks(nonFutureClient, { instituteid: "i1" }, {
+    registrationid: "sem-curr",
+    registrationcode: "2026ODDSEM",
+    readPdfText: async () => [page],
+  });
+  assert.equal(nonFutureReportCalls, 2);
+  assert.equal(nonFutureFailed.historyRecovered, false);
+  assert.match(nonFutureFailed.historyError, /Failed step: report request/);
+});
+
+test("getMarks returns detail without historyRecovered when readPdfText is omitted", async () => {
+  let reportCalls = 0;
+  const client = {
+    post: async () => ({ response: { viewmarksbystudent: [], fullMarksFlag: "Y" } }),
+    getReport: async () => {
+      reportCalls++;
+      return new Uint8Array([1, 2]);
+    },
+  };
+  const result = await getMarks(client, { instituteid: "i1", companyid: "c1" }, {
+    registrationid: "sem-future",
+    registrationcode: "2099EVESEM",
+  });
+  assert.equal(reportCalls, 0);
+  assert.deepEqual(result.rows, []);
+  assert.equal(result.fullMarksFlag, "Y");
+  assert.equal("historyRecovered" in result, false);
+  assert.equal("historyError" in result, false);
+});
