@@ -1608,6 +1608,7 @@ input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible
   line-height: 1;
   font-variant-numeric: tabular-nums;
   text-align: center;
+  white-space: nowrap;
   color: var(--onSurface);
 }
 

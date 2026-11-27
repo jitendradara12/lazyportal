@@ -625,3 +625,41 @@ test("proxy mode skips background caching for other subjects and fetches them on
     return Boolean(JSON.parse(localStorage.getItem(`juet.cache.${key}`))?.checksum);
   }, SESSION)).toBe(true);
 });
+
+test("what-if calculator allows negative adjustments for past attendance edits", async ({ page }) => {
+  await page.evaluate((session) => {
+    const initKey = ["att.initial", session.username, session.instituteid].map(encodeURIComponent).join(":");
+    const initEntry = JSON.parse(localStorage.getItem(`juet.cache.${initKey}`));
+    initEntry.data.rows[0].Ppercentage = 71.4;
+    localStorage.setItem(`juet.cache.${initKey}`, JSON.stringify(initEntry));
+    const subKey = ["att.subject", session.username, session.instituteid, "sem1", "subject1"].map(encodeURIComponent).join(":");
+    const subEntry = JSON.parse(localStorage.getItem(`juet.cache.${subKey}`));
+    subEntry.data = {
+      P: {
+        student_attdsummarylist: Array.from({ length: 28 }, (_, i) => ({
+          datetime: `${i + 1}/10/2026 09:00 AM`,
+          present: i < 20 ? "Y" : "N",
+        })),
+      },
+    };
+    localStorage.setItem(`juet.cache.${subKey}`, JSON.stringify(subEntry));
+    window.dispatchEvent(new CustomEvent("juet:cache-updated", { detail: { key: subKey } }));
+  }, SESSION);
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator(".att-sheet-ratio-val")).toHaveText("20 / 28");
+
+  await dialog.getByRole("button", { name: "What-if calculator" }).click();
+  await dialog.getByRole("button", { name: "Decrease Leave", exact: true }).click();
+  for (let i = 0; i < 3; i++) {
+    await dialog.getByRole("button", { name: "Increase Attend", exact: true }).click();
+  }
+
+  await expect(dialog.locator(".att-sim-projected-pct")).toHaveText("76.7%");
+  await expect(dialog.locator(".att-sim-projected-ratio")).toHaveText("(23/30)");
+  await expect(dialog.getByRole("button", { name: "Reset what-if simulation" })).toBeVisible();
+
+  // Collapsing shows the signed preview badge
+  await dialog.getByRole("button", { name: /What-if calculator/ }).click();
+  await expect(dialog.locator(".att-sim-preview-badge")).toHaveText("+3 att, -1 leave → 76.7%");
+});

@@ -106,6 +106,51 @@ export function getColorClass(val: number | null): AttColorClass {
   return "att-green";
 }
 
+export interface SimulatedAttendance {
+  attendCount: number;
+  missCount: number;
+  minAttend: number;
+  minMiss: number;
+  totalPresent: number;
+  totalClasses: number;
+  pct: string;
+  pctNum: number | null;
+  colorClass: AttColorClass;
+  margin: BunkMargin;
+}
+
+/** Simulate future classes (+) or past attendance corrections (-), clamped to valid totals. */
+export function simulateAttendance(
+  totalPresent: number,
+  totalClasses: number,
+  attendDelta: number,
+  missDelta: number,
+  target = 0.70,
+  maxDelta = 99,
+): SimulatedAttendance {
+  const safePresent = Math.max(0, totalPresent);
+  const safeClasses = Math.max(safePresent, totalClasses);
+  const minAttend = safePresent > 0 ? -safePresent : 0;
+  const minMiss = safeClasses > safePresent ? -(safeClasses - safePresent) : 0;
+  const attendCount = Math.min(maxDelta, Math.max(minAttend, attendDelta));
+  const missCount = Math.min(maxDelta, Math.max(minMiss, missDelta));
+  const simPresent = safePresent + attendCount;
+  const simClasses = safeClasses + attendCount + missCount;
+  const pctNum = simClasses > 0 ? (simPresent / simClasses) * 100 : null;
+  return {
+    attendCount,
+    missCount,
+    minAttend,
+    minMiss,
+    totalPresent: simPresent,
+    totalClasses: simClasses,
+    pct: pctNum !== null ? `${pctNum.toFixed(1)}%` : "—",
+    pctNum,
+    colorClass: getColorClass(pctNum),
+    margin: computeBunkMargin(simPresent, simClasses, target),
+  };
+}
+
 export function computeBunkMargin(present: number, total: number, target = 0.70): BunkMargin {
   if (total <= 0) return { type: "none", count: 0, text: "" };
   // Calculate in percentage units so targets such as 80% do not introduce
