@@ -6,11 +6,10 @@ import {
   type ClassRecord,
   cleanDateTime,
   combinedAttendance,
-  computeBunkMargin,
-  getColorClass,
   isSubjectDetailComplete,
   parseClassLogs,
   rowSubId,
+  simulateAttendance,
   subjectName,
 } from "../lib/attendanceCalc";
 import {
@@ -248,14 +247,8 @@ export function SubjectDetailSheet({
   const attInfo = combinedAttendance(row, activeDetail, target / 100, savedBreakdown);
   const emptyHistory = !attInfo.hasHeldClasses && attInfo.pctNum === null && isSubjectDetailComplete(row, activeDetail);
 
-  // Simulation calculations (supports attending X and leaving Y simultaneously)
-  const totalSimPresent = attInfo.totalPresent + attendCount;
-  const totalSimClasses = attInfo.totalClasses + attendCount + missCount;
-
-  const simPctNum = totalSimClasses > 0 ? (totalSimPresent / totalSimClasses) * 100 : null;
-  const simPct = simPctNum != null ? `${simPctNum.toFixed(1)}%` : attInfo.pct;
-  const simColorClass = getColorClass(simPctNum);
-  const simMargin = computeBunkMargin(totalSimPresent, totalSimClasses, target / 100);
+  // Simulation calculations (supports future + and past correction - deltas)
+  const sim = simulateAttendance(attInfo.totalPresent, attInfo.totalClasses, attendCount, missCount, target / 100);
 
   const handleClose = useCallback(() => {
     if (closeTimer.current !== null) return;
@@ -402,18 +395,20 @@ export function SubjectDetailSheet({
           {/* Interactive What-If Simulator (M3 Expressive) */}
           {attInfo.hasHeldClasses && (
             <WhatIfStepper
-              attendCount={attendCount}
-              missCount={missCount}
+              attendCount={sim.attendCount}
+              missCount={sim.missCount}
+              minAttend={sim.minAttend}
+              minMiss={sim.minMiss}
               onAttendChange={setAttendCount}
               onMissChange={setMissCount}
               onReset={() => {
                 setAttendCount(0);
                 setMissCount(0);
               }}
-              projectedPct={simPct}
-              projectedColorClass={simColorClass}
-              projectedRatio={{ present: totalSimPresent, total: totalSimClasses }}
-              margin={simMargin}
+              projectedPct={sim.pct}
+              projectedColorClass={sim.colorClass}
+              projectedRatio={{ present: sim.totalPresent, total: sim.totalClasses }}
+              margin={sim.margin}
             />
           )}
 

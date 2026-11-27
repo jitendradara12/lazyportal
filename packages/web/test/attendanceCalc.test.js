@@ -9,6 +9,7 @@ const {
   getColorClass,
   parseClassLogs,
   pct,
+  simulateAttendance,
 } = await import("../src/lib/attendanceCalc.ts");
 
 const history = (present, total) => ({ summary: Array.from({ length: total }, (_, i) => ({ present: i < present ? "Y" : "N" })) });
@@ -476,4 +477,40 @@ test("totals-only parsing matches the full parse without building the class list
   }
   assert.equal(parseClassLogs(logs, "L").classes.length, 3);
   assert.equal(parseClassLogs([], "L", false), null);
+});
+
+test("simulateAttendance supports negative adjustments for past edits and clamps to recorded bounds", () => {
+  // 20/28 (8 absent): -1 absent + 3 present -> 23/30 (76.7%)
+  const editAndFuture = simulateAttendance(20, 28, 3, -1, 0.70);
+  assert.equal(editAndFuture.attendCount, 3);
+  assert.equal(editAndFuture.missCount, -1);
+  assert.equal(editAndFuture.minAttend, -20);
+  assert.equal(editAndFuture.minMiss, -8);
+  assert.equal(editAndFuture.totalPresent, 23);
+  assert.equal(editAndFuture.totalClasses, 30);
+  assert.equal(editAndFuture.pct, "76.7%");
+  assert.equal(editAndFuture.colorClass, "att-yellow");
+
+  // Converting 1 past absent to present (+1 attend, -1 leave) preserves total classes
+  const swapAbsentToPresent = simulateAttendance(20, 28, 1, -1, 0.70);
+  assert.equal(swapAbsentToPresent.totalPresent, 21);
+  assert.equal(swapAbsentToPresent.totalClasses, 28);
+  assert.equal(swapAbsentToPresent.pct, "75.0%");
+
+  // Subtracting beyond recorded present/absent clamps at valid bounds
+  const clamped = simulateAttendance(20, 28, -99, -99, 0.70);
+  assert.equal(clamped.attendCount, -20);
+  assert.equal(clamped.missCount, -8);
+  assert.equal(clamped.totalPresent, 0);
+  assert.equal(clamped.totalClasses, 0);
+  assert.equal(clamped.pct, "—");
+  assert.equal(clamped.colorClass, "");
+  assert.equal(clamped.margin.type, "none");
+
+  // 100% attendance (28/28, 0 absent) cannot go negative on leave
+  const noAbsent = simulateAttendance(28, 28, 0, -2, 0.70);
+  assert.equal(noAbsent.minMiss, 0);
+  assert.equal(noAbsent.missCount, 0);
+  assert.equal(noAbsent.totalPresent, 28);
+  assert.equal(noAbsent.totalClasses, 28);
 });

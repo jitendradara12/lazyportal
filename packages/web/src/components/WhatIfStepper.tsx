@@ -6,6 +6,7 @@ interface StepperCardProps {
   count: number;
   onChange: (count: number) => void;
   variant: "attend" | "miss";
+  min?: number;
   max?: number;
   isOpen: boolean;
 }
@@ -15,6 +16,7 @@ function StepperCard({
   count,
   onChange,
   variant,
+  min = 0,
   max = 99,
   isOpen,
 }: StepperCardProps) {
@@ -70,12 +72,12 @@ function StepperCard({
 
   const step = useCallback((delta: number) => {
     const cur = countRef.current;
-    const next = Math.min(max, Math.max(0, cur + delta));
+    const next = Math.min(max, Math.max(min, cur + delta));
     if (next === cur) return false;
     selectionHaptic();
     onChangeRef.current(next);
     return true;
-  }, [max]);
+  }, [min, max]);
 
   const handlePointerDown = (delta: number) => (e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.currentTarget.disabled) return;
@@ -110,7 +112,7 @@ function StepperCard({
           type="button"
           className="att-stepper-card-btn"
           aria-label={`Decrease ${label}`}
-          disabled={count <= 0}
+          disabled={count <= min}
           tabIndex={isOpen ? 0 : -1}
           onPointerDown={handlePointerDown(-1)}
           onPointerUp={stopHold}
@@ -156,6 +158,8 @@ function StepperCard({
 interface WhatIfStepperProps {
   attendCount: number;
   missCount: number;
+  minAttend?: number;
+  minMiss?: number;
   onAttendChange: (count: number) => void;
   onMissChange: (count: number) => void;
   onReset: () => void;
@@ -167,9 +171,13 @@ interface WhatIfStepperProps {
   defaultOpen?: boolean;
 }
 
+const formatDelta = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+
 export function WhatIfStepper({
   attendCount,
   missCount,
+  minAttend = 0,
+  minMiss = 0,
   onAttendChange,
   onMissChange,
   onReset,
@@ -182,15 +190,16 @@ export function WhatIfStepper({
 }: WhatIfStepperProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
-  const isSimulated = attendCount > 0 || missCount > 0;
+  const isSimulated = attendCount !== 0 || missCount !== 0;
+  const isNegativeImpact = (missCount > 0 && attendCount <= 0) || (attendCount < 0 && missCount >= 0);
 
   let previewText = "";
-  if (attendCount > 0 && missCount > 0) {
-    previewText = `+${attendCount} att, ${missCount} leave`;
-  } else if (attendCount > 0) {
-    previewText = `+${attendCount} attend`;
-  } else if (missCount > 0) {
-    previewText = `${missCount} leave`;
+  if (attendCount !== 0 && missCount !== 0) {
+    previewText = `${formatDelta(attendCount)} att, ${formatDelta(missCount)} leave`;
+  } else if (attendCount !== 0) {
+    previewText = `${formatDelta(attendCount)} attend`;
+  } else if (missCount !== 0) {
+    previewText = `${formatDelta(missCount)} leave`;
   }
 
   return (
@@ -221,7 +230,7 @@ export function WhatIfStepper({
             </svg>
             <span className="att-sim-title">What-if calculator</span>
             {!isOpen && isSimulated && (
-              <span className={`att-sim-preview-badge ${missCount > 0 && attendCount === 0 ? "miss" : ""}`}>
+              <span className={`att-sim-preview-badge ${isNegativeImpact ? "miss" : ""}`}>
                 {previewText} → {projectedPct}
               </span>
             )}
@@ -254,18 +263,20 @@ export function WhatIfStepper({
         <div className="att-sim-body-inner">
           <div className="att-sim-grid">
             <StepperCard
-              label="Attend next"
+              label="Attend"
               count={attendCount}
               onChange={onAttendChange}
               variant="attend"
+              min={minAttend}
               max={max}
               isOpen={isOpen}
             />
             <StepperCard
-              label="Leave next"
+              label="Leave"
               count={missCount}
               onChange={onMissChange}
               variant="miss"
+              min={minMiss}
               max={max}
               isOpen={isOpen}
             />
